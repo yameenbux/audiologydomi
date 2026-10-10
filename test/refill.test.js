@@ -56,3 +56,29 @@ test("reply parsing", () => {
   assert.strictEqual(parseReply("No thank you"), "no");
   assert.strictEqual(parseReply("What time?"), "unknown");
 });
+
+const { planOffer } = require("../server/refill");
+
+test("a visit 40 min away is offered to the top three at once", () => {
+  const p = planOffer({ leadMin: 40, drive: 11, offerMinutes: 20, eligible: 5 });
+  assert.strictEqual(p.mode, "parallel");
+  assert.strictEqual(p.count, 3);
+  assert.strictEqual(p.windowMin, 9); // 19 min of slack, halved
+});
+
+test("a visit hours away is offered one at a time with room for three rounds", () => {
+  const p = planOffer({ leadMin: 190, drive: 16, offerMinutes: 20, eligible: 5 });
+  assert.deepStrictEqual([p.mode, p.count, p.windowMin], ["single", 1, 20]);
+  assert.strictEqual(planOffer({ leadMin: 70, drive: 0, offerMinutes: 20, eligible: 2 }).windowMin, 20);
+});
+
+test("too close to the visit, or nobody suitable, means no offer", () => {
+  assert.strictEqual(planOffer({ leadMin: 15, drive: 11, offerMinutes: 20, eligible: 3 }).mode, "too-late");
+  assert.strictEqual(planOffer({ leadMin: 300, drive: 10, offerMinutes: 20, eligible: 0 }).mode, "none");
+});
+
+test("cancellation texts are recognised", () => {
+  assert.strictEqual(parseReply("CANCEL"), "cancel");
+  assert.strictEqual(parseReply("Please cancel my visit"), "cancel");
+  assert.strictEqual(parseReply("can't make it today"), "no");
+});

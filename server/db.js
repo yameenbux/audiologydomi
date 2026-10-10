@@ -1,13 +1,13 @@
 "use strict";
-// SQLite storage via Node's built-in driver. One file, no install. Swap for Postgres in production.
+// SQLite via Node's built-in driver. Each demo sandbox gets its own in-memory database, seeded fresh,
+// so visitors never see or change each other's data. In production this becomes one Postgres database.
 const { DatabaseSync } = require("node:sqlite");
-const path = require("node:path");
-const fs = require("node:fs");
+const sandbox = require("./sandbox");
 
-const FILE = process.env.DB_FILE || path.join(__dirname, "..", "data", "domi.sqlite");
-fs.mkdirSync(path.dirname(FILE), { recursive: true });
-const db = new DatabaseSync(FILE);
-db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+// `db` always points at the database of the sandbox handling the current request.
+const db = new Proxy({}, {
+  get(_, key) { const real = sandbox.current().db; const v = real[key]; return typeof v === "function" ? v.bind(real) : v; },
+});
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS clinicians (
@@ -24,50 +24,59 @@ CREATE TABLE IF NOT EXISTS patients (
 );
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id TEXT NOT NULL REFERENCES patients(id), label TEXT NOT NULL,
-  body TEXT NOT NULL, author TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  body TEXT NOT NULL, author TEXT, created_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY, clinician_id TEXT NOT NULL REFERENCES clinicians(id), patient_id TEXT NOT NULL REFERENCES patients(id),
   type TEXT NOT NULL, start_min INTEGER NOT NULL, drive INTEGER NOT NULL DEFAULT 10,
   status TEXT NOT NULL CHECK (status IN ('booked','enroute','live','done','cancelled')),
   moved INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, note TEXT, reason TEXT, gap INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT
 );
 CREATE TABLE IF NOT EXISTS waitlist (
   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), type TEXT NOT NULL, prio TEXT NOT NULL,
   days INTEGER NOT NULL DEFAULT 0, avail TEXT NOT NULL DEFAULT 'any', short_notice INTEGER NOT NULL DEFAULT 1,
   pref_clinician_id TEXT, status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','offered','booked')),
-  added_at TEXT NOT NULL DEFAULT (datetime('now'))
+  added_seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS offers (
   id INTEGER PRIMARY KEY AUTOINCREMENT, slot_id TEXT NOT NULL REFERENCES appointments(id), waitlist_id TEXT NOT NULL REFERENCES waitlist(id),
   status TEXT NOT NULL CHECK (status IN ('pending','accepted','declined','expired','superseded')),
-  score INTEGER, sent_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, booked_appointment_id TEXT
+  score INTEGER, round INTEGER NOT NULL DEFAULT 1, sent_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, deadline TEXT, booked_appointment_id TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT, direction TEXT NOT NULL CHECK (direction IN ('out','in')),
   to_name TEXT, phone TEXT, body TEXT NOT NULL, kind TEXT NOT NULL, to_clinician_id TEXT, from_clinician_id TEXT,
-  provider_id TEXT, read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  provider_id TEXT, read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL DEFAULT (datetime('now')), actor TEXT NOT NULL,
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT NOT NULL,
   action TEXT NOT NULL, entity TEXT, detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_appt_clin ON appointments(clinician_id, start_min);
 CREATE INDEX IF NOT EXISTS idx_offer_pending ON offers(status, expires_at);
 `;
 
+// Demo sign-in accounts. Static, so the sign-in screen can list them before a sandbox exists.
+const USERS = [
+  { id: "u-admin", name: "Sarah Lane", role: "admin", clinicianId: null, title: "Office manager", color: "#C9714A" },
+  { id: "u-c1", name: "Amira Shah", role: "clinician", clinicianId: "c1", title: "Audiologist", color: "#1E4D40" },
+  { id: "u-c2", name: "Tom Whitfield", role: "clinician", clinicianId: "c2", title: "Hearing aid dispenser", color: "#3F6E8C" },
+  { id: "u-c3", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
+];
+
 const TABLES = ["audit", "messages", "offers", "notes", "appointments", "waitlist", "users", "patients", "clinicians"];
 
-function reset() {
-  db.exec("PRAGMA foreign_keys = OFF;");
-  for (const t of TABLES) db.exec(`DROP TABLE IF EXISTS ${t};`);
-  db.exec("PRAGMA foreign_keys = ON;");
-  db.exec(SCHEMA);
-  seed();
+/** A fresh, seeded in-memory database for one sandbox. */
+function openDb() {
+  const d = new DatabaseSync(":memory:");
+  d.exec("PRAGMA foreign_keys = ON;");
+  d.exec(SCHEMA);
+  seed(d);
+  return d;
 }
 
-function seed() {
+function seed(db) {
   const ins = (table, row) => {
     const keys = Object.keys(row);
     db.prepare(`INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`)
@@ -75,16 +84,11 @@ function seed() {
   };
   db.exec("BEGIN");
   [
-    { id: "c1", name: "Amira Shah", first: "Amira", role: "Audiologist", color: "#2D3F7A", area_name: "North Leeds", patch: ["LS6", "LS16", "LS17"], near: ["LS7", "LS18", "LS8"] },
-    { id: "c2", name: "Tom Whitfield", first: "Tom", role: "Hearing aid dispenser", color: "#2F7A6A", area_name: "East Leeds", patch: ["LS8", "LS9", "LS15"], near: ["LS7", "LS14", "LS26"] },
-    { id: "c3", name: "Priya Nair", first: "Priya", role: "Audiologist", color: "#8A4E7A", area_name: "South & West", patch: ["LS11", "LS12", "LS27"], near: ["LS13", "LS10", "LS28"] },
+    { id: "c1", name: "Amira Shah", first: "Amira", role: "Audiologist", color: "#1E4D40", area_name: "North Leeds", patch: ["LS6", "LS16", "LS17"], near: ["LS7", "LS18", "LS8"] },
+    { id: "c2", name: "Tom Whitfield", first: "Tom", role: "Hearing aid dispenser", color: "#3F6E8C", area_name: "East Leeds", patch: ["LS8", "LS9", "LS15"], near: ["LS7", "LS14", "LS26"] },
+    { id: "c3", name: "Priya Nair", first: "Priya", role: "Audiologist", color: "#7A5A8C", area_name: "South & West", patch: ["LS11", "LS12", "LS27"], near: ["LS13", "LS10", "LS28"] },
   ].forEach((r) => ins("clinicians", r));
-  [
-    { id: "u-admin", name: "Sarah Lane", role: "admin", clinician_id: null },
-    { id: "u-c1", name: "Amira Shah", role: "clinician", clinician_id: "c1" },
-    { id: "u-c2", name: "Tom Whitfield", role: "clinician", clinician_id: "c2" },
-    { id: "u-c3", name: "Priya Nair", role: "clinician", clinician_id: "c3" },
-  ].forEach((r) => ins("users", r));
+  USERS.forEach((u) => ins("users", { id: u.id, name: u.name, role: u.role, clinician_id: u.clinicianId }));
 
   const P = (id, name, age, addr, pc, phone, o = {}) => ({ id, name, age, addr, pc, phone, contact: o.contact || "Text", alerts: o.alerts || [], aids: o.aids || "None yet", audio: o.audio || null, _h: o.h || [] });
   const patients = [
@@ -108,7 +112,7 @@ function seed() {
   for (const p of patients) {
     const h = p._h; delete p._h;
     ins("patients", p);
-    h.forEach(([label, body]) => ins("notes", { patient_id: p.id, label, body, author: null }));
+    h.forEach(([label, body]) => ins("notes", { patient_id: p.id, label, body, author: null, created_at: "" }));
   }
   const A = (id, c, p, type, h, m, status, drive) => ({ id, clinician_id: c, patient_id: p, type, start_min: h * 60 + m, status, drive });
   [
@@ -124,23 +128,22 @@ function seed() {
     { id: "w4", patient_id: "p13", type: "review", prio: "routine", days: 21, avail: "any", short_notice: 1, pref_clinician_id: null },
     { id: "w5", patient_id: "p11", type: "wax", prio: "routine", days: 6, avail: "am", short_notice: 0, pref_clinician_id: null },
     { id: "w6", patient_id: "p15", type: "wax", prio: "routine", days: 15, avail: "any", short_notice: 1, pref_clinician_id: "c2" },
-  ].forEach((r) => ins("waitlist", r));
-  ins("audit", { actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
+  ].forEach((r, i) => ins("waitlist", { ...r, added_seq: i }));
+  ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
 
-const hasData = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='clinicians'").get();
-if (!hasData) reset();
+sandbox.setOpener(openDb);
 
 // Row mappers: database shape → API shape
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []) }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), aids: r.aids, audio: J(r.audio, null) }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, reset, map, TABLES, FILE };
+module.exports = { db, openDb, map, TABLES, USERS };
