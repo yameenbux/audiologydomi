@@ -11,7 +11,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22.12.0         # node:sqlite needs 22.5+
+        value: "22"            # latest 22.x; start script passes --experimental-sqlite for older 22 releases
       - key: SESSION_SECRET
         generateValue: true
       - key: OFFER_MINUTES

@@ -4,11 +4,13 @@
   "private": true,
   "description": "Domiciliary audiology diary with automatic cancellation refill. Demo build.",
   "main": "server/index.js",
-  "engines": { "node": ">=22.5" },
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
-    "start": "node --no-warnings server/index.js",
-    "dev": "node --no-warnings --watch server/index.js",
-    "test": "node --no-warnings --test test/*.test.js",
+    "start": "node --experimental-sqlite --no-warnings server/index.js",
+    "dev": "node --experimental-sqlite --no-warnings --watch server/index.js",
+    "test": "node --experimental-sqlite --no-warnings --test test/*.test.js",
     "reset": "rm -f data/domi.sqlite*"
   }
 }
