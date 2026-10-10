@@ -75,7 +75,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .b-plain { background: var(--subtle); color: var(--muted) }
 
 /* Top bar */
-.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--line) }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 1px 0 var(--line) }
 .top-in { max-width: 1360px; margin: 0 auto; padding: 10px 24px; display: flex; align-items: center; gap: 14px }
 .lockup { display: flex; align-items: center; gap: 10px; text-decoration: none; margin-right: auto; min-width: 0 }
 .lockup img { width: 36px; height: 36px; display: block }
@@ -270,7 +270,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 @media (max-width: 1100px) { .clin-stage { grid-template-columns: minmax(0, 1fr) } .clin-side { display: none } }
 .phone { width: 100%; max-width: 404px; margin: 0 auto; background: var(--bg); border-radius: 44px; box-shadow: 0 0 0 10px var(--ink), var(--shadow); overflow: hidden; height: min(840px, calc(100vh - 120px)); min-height: 620px; display: flex; flex-direction: column; position: relative }
 .ph-scroll { flex: 1; overflow-y: auto; padding: 22px 18px 28px }
-.ph-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px) }
+.ph-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px) }
 .ph-tabs button { border: 0; background: transparent; padding: 10px 0 12px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--muted); position: relative }
 .ph-tabs button svg { width: 22px; height: 22px }
 .ph-tabs button[aria-current="page"] { color: var(--forest) }
@@ -340,7 +340,7 @@ textarea.note:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--forest)
 .hist li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 12px; font-size: 13.5px }
 .hist li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--forest); margin-top: 7px }
 .hist .d { font-size: 12px; color: var(--muted) }
-.actionbar { position: sticky; bottom: 0; margin: 18px -18px -28px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); display: flex; gap: 8px }
+.actionbar { position: sticky; bottom: 0; margin: 18px -18px -28px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); display: flex; gap: 8px }
 .actionbar .btn { flex: 1; padding: 13px }
 .aud { width: 100%; height: auto; display: block }
 .aud text { font: 9px var(--f-mono); fill: var(--muted) }
