@@ -176,6 +176,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .blk.live { background: var(--ok-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 30%, transparent) }
 .blk.enroute { background: var(--warn-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 30%, transparent) }
 .blk.moved { background: var(--apricot-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--apricot) 45%, transparent); animation: arrive 2.4s ease-out 1 }
+.blk.fresh { background: var(--forest-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--forest) 40%, transparent); animation: arrive 2.4s ease-out 1 }
 .blk.gap { background: repeating-linear-gradient(135deg, var(--subtle) 0 7px, transparent 7px 14px); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); cursor: default }
 .blk.gap:hover { transform: none }
 .blk.gap.offering { background: repeating-linear-gradient(135deg, var(--apricot-soft) 0 7px, transparent 7px 14px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--apricot) 45%, transparent); color: var(--apricot-ink) }
@@ -223,7 +224,8 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .kv dd { margin: 0 }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px }
 .field label { font-size: 13px; font-weight: 600 }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px }
+.field .input, .field select { width: 100%; min-width: 0; max-width: 100% }
 .callout { border-radius: 14px; padding: 12px 14px; font-size: 13.5px; display: flex; gap: 10px; align-items: flex-start }
 .callout svg { margin-top: 2px }
 .callout.apricot { background: var(--apricot-soft); color: var(--apricot-ink) }

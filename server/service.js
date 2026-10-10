@@ -4,7 +4,8 @@ const crypto = require("node:crypto");
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
 const { TYPES, hm, first } = require("./domain");
-const { rankCandidates, parseReply, planOffer } = require("./refill");
+const { rankCandidates, parseReply, planOffer, suggestSlots } = require("./refill");
+const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
 const sandbox = require("./sandbox");
 const bus = require("./bus");
@@ -285,4 +286,68 @@ function metrics() {
   };
 }
 
-module.exports = { settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+/* ---------- Booking a new visit ---------- */
+
+/** Who the booking is for: an existing patient, or details typed in for a new one (not saved yet). */
+function bookingPatient(input) {
+  if (input.patientId && input.patientId !== "new") {
+    const p = getPatient(input.patientId);
+    if (!p) throw new HttpError(404, "Patient not found.");
+    return p;
+  }
+  const name = String(input.name || "").trim();
+  const pc = String(input.pc || "").trim().toUpperCase();
+  if (!name) throw new HttpError(400, "Enter the patient's name.");
+  if (!travel.known(pc)) throw new HttpError(400, "Enter a Leeds postcode district, like LS6 or LS16, so we can work out travel.");
+  return { id: null, name, pc, addr: String(input.addr || "").trim() || "Address to confirm", phone: String(input.phone || "").trim() || "07700 900000", alerts: [] };
+}
+
+function slotsFor(patient, type, avail) {
+  if (!TYPES[type]) throw new HttpError(400, "Choose a visit type.");
+  const clinicians = all("SELECT * FROM clinicians ORDER BY id").map(map.clinician);
+  const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled'`)
+    .map((r) => ({ ...map.appt(r), pc: r.pc, name: r.name }));
+  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, now: sandbox.nowMin() });
+}
+
+/** Ranked options for the booking screen. */
+function findSlots(input) {
+  const patient = bookingPatient(input);
+  const slots = slotsFor(patient, input.type, input.avail).slice(0, 6);
+  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, slots };
+}
+
+/** Book a visit into a slot. The slot is re-checked here, so two people can't book the same gap. */
+function bookVisit(input, user) {
+  return tx(() => {
+    const draft = bookingPatient(input);
+    const c = getClinician(String(input.clinicianId || ""));
+    if (!c) throw new HttpError(400, "Choose a clinician.");
+    const start = Number(input.start);
+    const slot = slotsFor(draft, input.type, input.avail).find((x) => x.clinicianId === c.id && x.start === start);
+    if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
+    let p = draft;
+    if (!draft.id) {
+      const id = newId("p");
+      run("INSERT INTO patients (id, name, age, addr, pc, phone) VALUES (?, ?, NULL, ?, ?, ?)", id, draft.name, draft.addr, draft.pc, draft.phone);
+      p = getPatient(id);
+    }
+    const t = TYPES[input.type];
+    const id = newId("v");
+    const note = `New visit booked by the office: ${p.name} (${t.name.toLowerCase()}) at ${hm(start)}, ${p.addr}.`;
+    run("INSERT INTO appointments (id, clinician_id, patient_id, type, start_min, drive, status, note, booked_min) VALUES (?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
+      id, c.id, p.id, input.type, start, slot.driveIn, note, sandbox.nowMin());
+    // The visit after this one is now reached from the new patient's house.
+    const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, start);
+    if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
+    run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
+    addNote(p.id, `Booked for today at ${hm(start)} with ${c.name}.`, user, { silent: true });
+    sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${BRAND} is booked for today at ${hm(start)} (${t.name.toLowerCase()}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
+    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${t.name.toLowerCase()}, ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
+    audit(user.name, "appointment.book", id, `${p.name} at ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
+    bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, start, extraDrive: slot.extraDrive });
+    return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, start, label: slot.label, extraDrive: slot.extraDrive };
+  });
+}
+
+module.exports = { findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

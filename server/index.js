@@ -144,6 +144,10 @@ route("POST", "/api/appointments/:id/cancel", {}, (req, body, user, { id }) => {
 
 route("POST", "/api/waitlist", {}, (req, body, user) => { needAdmin(user); return svc.addToWaitlist(body, user); });
 
+// Booking: ranked slots across every round for one patient, then book the chosen one.
+route("POST", "/api/slots", {}, (req, body, user) => { needAdmin(user); return svc.findSlots(body); });
+route("POST", "/api/bookings", {}, (req, body, user) => { needAdmin(user); return svc.bookVisit(body, user); });
+
 route("PUT", "/api/settings", {}, (req, body, user) => {
   needAdmin(user);
   const st = sandbox.current().settings;
