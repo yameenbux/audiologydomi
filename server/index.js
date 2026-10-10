@@ -78,7 +78,7 @@ function clinicianCanSee(user, patientId) {
 }
 
 route("GET", "/api/meta", { public: true }, () => ({
-  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, smsProvider: provider,
+  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, days: D.DAYS, smsProvider: provider,
   demoUsers: USERS.map(({ id, name, role, title, color }) => ({ id, name, role, title, color })),
 }));
 

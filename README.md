@@ -37,12 +37,12 @@ How the free tier behaves:
 
 | | |
 |---|---|
-| **Office view** | Every clinician's diary for the day, the waiting list, and every text sent. Cancel any visit to start a refill. |
+| **Office view** | Every clinician's diary for any day this week, a week grid showing how full each round is, the waiting list, and every text sent. Cancel any visit, today or later in the week, to start a refill. |
 | **Clinician view** | Phone-first. Today's round with drive times, patient records (alerts, audiogram, aids, history), quick note chips, *On my way* (texts the patient), *Arrived*, *Complete visit*. |
 | **Refill engine** | Hard rules: same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons. |
-| **Offers that respect the clock** | Hours away: one person at a time, with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready. |
+| **Offers that respect the clock** | Days or hours away: one person at a time (patients who need 24 hours' notice qualify for later days), with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready. |
 | **Patients cancel by text** | A patient texting CANCEL cancels today's visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone. |
-| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system finds every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add. Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are estimated from postcode districts (`server/travel.js`). |
+| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system searches the whole week for every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add, weighed against how soon it is (urgent patients are pulled towards sooner days, routine ones towards less driving). Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are estimated from postcode districts (`server/travel.js`). |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, calculated from the office's own fee per visit. |
 | **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
 | **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
@@ -91,9 +91,10 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 4. Reply **NO** as Gerald, then **YES** as Margaret. Sylvia is told it's gone and keeps her place.
 5. Hold up the phone. The banner, the new visit and the office's text are already there. The income panel now shows the visit recovered.
 6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. The slot refills with nobody in the office touching it, one patient at a time because there's more time.
-7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 with Amira, between Peter and Ken, because that adds the least driving. Book it and show the phone.
-8. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
+7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 today with Amira, between Peter and Ken, and later options across the week. Book it and show the phone.
+8. Click **Week** to show how full each round is this week. Open Thursday and cancel a visit: with days to spare, it asks one person at a time.
+9. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
 
 ## Deliberately out of scope for the demo
 
-Real accounts with two-factor sign-in, UK-hosted Postgres with backups, offline mode for poor signal, a multi-day diary and booking new visits, GP letters, invoicing, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).
+Real accounts with two-factor sign-in, UK-hosted Postgres with backups, offline mode for poor signal, recurring visits and diaries beyond this week, GP letters, invoicing, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).

@@ -21,7 +21,7 @@ function freeWindow(slot, dayAppts) {
  * Hard rules decide who is eligible; soft rules decide the order.
  * Returns every entry with `ok`, `score`, `why` (reasons for) and `reason` (why not).
  */
-function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, declined = [] }) {
+function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, declined = [], sameDay = true }) {
   const win = freeWindow(slot, dayAppts);
   const out = [];
   for (const w of waitlist) {
@@ -34,7 +34,7 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
     let reason = "";
     let score = PRIO[w.prio].pts;
 
-    if (!w.shortNotice) { ok = false; reason = "Needs 24h notice"; }
+    if (!w.shortNotice && sameDay) { ok = false; reason = "Needs 24h notice"; }
     else if (t.dur > win) { ok = false; reason = `Needs ${t.dur} min, slot is ${win}`; }
     else if (w.avail === "am" && slot.start >= 720) { ok = false; reason = "Mornings only"; }
     else if (w.avail === "pm" && slot.start < 720) { ok = false; reason = "Afternoons only"; }
@@ -87,7 +87,7 @@ function parseReply(body) {
 
 
 /**
- * Best places to fit a new home visit into today's rounds.
+ * Best places to fit a new home visit into this week's rounds (today plus the following working days).
  * For every gap in every clinician's day, the visit must fit with the drive in from the previous visit
  * and the drive on to the next one. Options are ranked by the extra driving they add to the round.
  * @param {object} p
@@ -95,22 +95,28 @@ function parseReply(body) {
  * @param {string} p.type          visit type key
  * @param {"any"|"am"|"pm"} p.avail when the patient is home
  * @param {object[]} p.clinicians   [{id, first, patch, near}]
- * @param {object[]} p.appts        active appointments today: {id, clinicianId, start, type, pc, name}
+ * @param {object[]} p.appts        active appointments this week: {id, clinicianId, day, start, type, pc, name}
+ * @param {number} [p.days]        how many working days to search, starting today
  * @param {number} p.now           demo time in minutes
  * @param {number} [p.noticeMin]   how much warning the patient needs
+ * @param {string} [p.prio]        waiting-list priority; urgent patients are pulled towards sooner days
  */
 const ROUND5 = (m) => Math.ceil(m / 5) * 5;
-function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30 }) {
+// Points lost per day later. The more urgent the patient, the more a sooner visit is worth against extra driving.
+const DAY_PENALTY = { urgent: 25, soon: 14, routine: 6 };
+function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30, days = 5, prio = "routine" }) {
+  const perDay = DAY_PENALTY[prio] || DAY_PENALTY.routine;
   const dur = TYPES[type].dur;
   const d = district(pc);
-  const earliestAllowed = ROUND5(Math.max(DAY_START, now + noticeMin));
   const out = [];
+  for (let day = 0; day < days; day++) {
+  const earliestAllowed = day === 0 ? ROUND5(Math.max(DAY_START, now + noticeMin)) : DAY_START;
   for (const c of clinicians) {
     const area = c.patch.includes(d) ? "patch" : c.near.includes(d) ? "near" : "outside";
     if (area === "outside") continue; // too far to be worth fitting in
-    const day = appts.filter((a) => a.clinicianId === c.id).sort((x, y) => x.start - y.start);
+    const round = appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === day).sort((x, y) => x.start - y.start);
     const base = { pc: c.patch[0], name: "start of round", end: DAY_START };
-    const stops = [base, ...day.map((a) => ({ pc: a.pc, name: a.name, start: a.start, end: a.start + TYPES[a.type].dur }))];
+    const stops = [base, ...round.map((a) => ({ pc: a.pc, name: a.name, start: a.start, end: a.start + TYPES[a.type].dur }))];
     for (let i = 0; i < stops.length; i++) {
       const prev = stops[i], next = stops[i + 1] || null;
       const driveIn = driveMinutes(prev.pc, pc);
@@ -126,10 +132,11 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
       const why = [`${extraDrive} min extra driving`];
       why.push(area === "patch" ? `In ${c.first}'s patch (${d})` : `Next to ${c.first}'s patch (${d})`);
       why.push(next ? `Between ${prev.name} and ${next.name}` : `After ${prev.name}`);
-      // Fewer extra miles first; then the clinician's own patch; then sooner in the day.
-      const score = 100 - extraDrive * 2 + (area === "patch" ? 10 : 0) - Math.round((start - now) / 60);
-      out.push({ clinicianId: c.id, start, end: start + dur, driveIn, driveOut, extraDrive, area, prev: prev.name, next: next ? next.name : null, score, why, label: `${hm(start)}–${hm(start + dur)}` });
+      // Fewer extra miles first; then the clinician's own patch; then sooner.
+      const score = 100 - extraDrive * 2 + (area === "patch" ? 10 : 0) - day * perDay - Math.round((start - DAY_START) / 120);
+      out.push({ clinicianId: c.id, day, start, end: start + dur, driveIn, driveOut, extraDrive, area, prev: prev.name, next: next ? next.name : null, score, why, label: `${hm(start)}–${hm(start + dur)}` });
     }
+  }
   }
   return out.sort((a, b) => b.score - a.score);
 }

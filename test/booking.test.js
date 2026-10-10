@@ -18,7 +18,7 @@ test("drive estimates are symmetric, short within a district and unknown outside
 });
 
 test("a visit only fits where the drive in and the drive on both fit", () => {
-  const slots = suggestSlots({ pc: "LS17", type: "review", clinicians, appts, now: 620 });
+  const slots = suggestSlots({ pc: "LS17", type: "review", clinicians, appts, now: 620, days: 1 });
   for (const s of slots) {
     const prevEnd = s.prev === "Peter" ? 735 : s.prev === "Ken" ? 870 : 540;
     assert.ok(s.start >= prevEnd + s.driveIn, `${s.label} leaves time to drive from ${s.prev}`);
@@ -39,4 +39,21 @@ test("mornings-only and afternoons-only are respected; far-away patients get no 
   assert.ok(suggestSlots({ pc: "LS17", type: "review", avail: "am", clinicians, appts, now: 620 }).every((s) => s.start < 720));
   assert.ok(suggestSlots({ pc: "LS17", type: "review", avail: "pm", clinicians, appts, now: 620 }).every((s) => s.start >= 720));
   assert.deepStrictEqual(suggestSlots({ pc: "LS27", type: "review", clinicians, appts, now: 620 }), []);
+});
+
+test("later days are searched too, without same-day notice, and sooner wins on equal driving", () => {
+  const slots = suggestSlots({ pc: "LS17", type: "review", clinicians, appts, now: 620 });
+  assert.ok(slots.some((s) => s.day > 0), "an empty Tuesday offers slots");
+  assert.ok(slots.some((s) => s.day === 1 && s.start < 600 && s.start >= 540 + s.driveIn), "first thing on a later day, after the drive from the start of the round");
+  const equal = slots.filter((s) => s.extraDrive === slots[0].extraDrive && s.area === slots[0].area);
+  assert.ok(equal.every((s, i) => i === 0 || s.day >= equal[0].day), "ties go to the sooner day");
+});
+
+test("urgent patients are pulled towards sooner days; routine ones towards less driving", () => {
+  // A Thursday visit next door in LS17 makes Thursday the cheapest drive.
+  const week = [...appts, { id: "t", clinicianId: "c1", day: 3, start: 600, type: "assess", pc: "LS17", name: "Doreen" }];
+  const routine = suggestSlots({ pc: "LS17", type: "review", clinicians, appts: week, now: 620, prio: "routine" });
+  const urgent = suggestSlots({ pc: "LS17", type: "review", clinicians, appts: week, now: 620, prio: "urgent" });
+  assert.ok(urgent[0].day <= routine[0].day);
+  assert.strictEqual(urgent[0].day, 0, "urgent goes today if it fits");
 });
