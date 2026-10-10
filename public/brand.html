@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Domi Hearing Brand</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<style>
+  .b-wrap { max-width: 1200px; margin: 0 auto; padding-inline: 24px; padding-block: 48px 96px; display: flex; flex-direction: column; gap: 56px }
+  .b-hero h1 { font-size: clamp(48px, 7vw, 88px); line-height: .95 }
+  .b-hero p { max-width: 60ch; color: var(--muted); font-size: 16px; margin: 16px 0 0 }
+  .b-sec h2 { font-size: 36px; margin-bottom: 18px }
+  .logos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px }
+  .logo-card { border-radius: 24px; padding: 36px; display: flex; flex-direction: column; gap: 18px; justify-content: space-between; min-height: 220px; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface) }
+  .logo-card.forest { background: #1E4D40; color: #fff; box-shadow: none }
+  .logo-card.ink { background: #0E1513; color: #E7EEEA; box-shadow: none }
+  .big-lockup { display: flex; align-items: center; gap: 16px }
+  .big-lockup img { width: 72px; height: 72px }
+  .big-lockup b { font: 400 52px/0.9 var(--f-display); display: block }
+  .big-lockup span { font-size: 11px; font-weight: 700; letter-spacing: .22em; color: #E07B4F }
+  .marks { display: flex; align-items: flex-end; gap: 24px }
+  .marks img { display: block }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px }
+  .swatch { border-radius: 16px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface) }
+  .swatch .chip { height: 72px; display: grid; grid-template-columns: 1fr 1fr }
+  .swatch .meta { padding: 10px 12px; font-size: 13px }
+  .swatch .meta b { display: block; font-weight: 600 }
+  .type-row { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--line) }
+  .rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px }
+  .rule { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); border-radius: 20px; padding: 22px }
+  .rule h3 { font-size: 24px; margin-bottom: 6px }
+  .rule p { margin: 0; color: var(--muted); font-size: 14px }
+  @media (max-width: 900px) { .logos, .rules { grid-template-columns: minmax(0, 1fr) } .type-row { grid-template-columns: minmax(0, 1fr); gap: 6px } }
+</style>
+</head>
+<body>
+<div class="b-wrap">
+  <header class="b-hero">
+    <div class="caps" style="color:var(--apricot)">Brand & design tokens</div>
+    <h1 style="margin-top:12px">Domi Hearing</h1>
+    <p>A placeholder identity for the demo. The mark is a roof over sound waves: hearing care that comes to the patient's home. Swap the wordmark for the practice's own name and the system still holds.</p>
+  </header>
+
+  <section class="b-sec">
+    <h2>Logo</h2>
+    <div class="logos">
+      <div class="logo-card"><span class="caps">Primary</span><div class="big-lockup"><img src="/logo.svg" alt=""><div><b>Domi</b><span>HEARING AT HOME</span></div></div></div>
+      <div class="logo-card forest"><span class="caps" style="color:inherit;opacity:.7">On brand colour</span><div class="big-lockup"><img src="/logo.svg" alt="" style="box-shadow:0 0 0 2px rgba(255,255,255,.25);border-radius:16px"><div><b>Domi</b><span>HEARING AT HOME</span></div></div></div>
+      <div class="logo-card"><span class="caps">Mark sizes</span><div class="marks"><img src="/logo.svg" width="96" height="96" alt=""><img src="/logo.svg" width="48" height="48" alt=""><img src="/logo.svg" width="32" height="32" alt=""><img src="/logo.svg" width="20" height="20" alt=""></div></div>
+    </div>
+  </section>
+
+  <section class="b-sec">
+    <h2>Colour</h2>
+    <p class="muted" style="margin:-8px 0 18px">Each swatch shows light mode on the left and dark mode on the right. The app switches automatically with the device.</p>
+    <div class="swatches" id="swatches"></div>
+  </section>
+
+  <section class="b-sec">
+    <h2>Type</h2>
+    <div>
+      <div class="type-row"><span class="mono muted">Display · Instrument Serif</span><span style="font:400 56px/1 var(--f-display)">Today across the team</span></div>
+      <div class="type-row"><span class="mono muted">Numbers · Instrument Serif</span><span style="font:400 44px/1 var(--f-display)">£170 recovered</span></div>
+      <div class="type-row"><span class="mono muted">Heading · Jakarta 600</span><span style="font-weight:600;font-size:18px">Margaret Holt · Hearing aid fitting</span></div>
+      <div class="type-row"><span class="mono muted">Body · Jakarta 400</span><span>A home visit has opened up today at 11:00. The first person to reply YES gets it.</span></div>
+      <div class="type-row"><span class="mono muted">Label · Jakarta 700 caps</span><span class="caps">Waiting list</span></div>
+      <div class="type-row"><span class="mono muted">Data · JetBrains Mono</span><span class="mono">10:20 · 11:00–12:15 · 07700 900533</span></div>
+    </div>
+  </section>
+
+  <section class="b-sec">
+    <h2>Principles</h2>
+    <div class="rules">
+      <div class="rule"><h3>Calm, not clinical</h3><p>Forest green and warm stone instead of hospital blue. The people using it are on the road, not in a ward.</p></div>
+      <div class="rule"><h3>Apricot means "changed"</h3><p>The accent is saved for moments that need attention: a visit moved forward, an offer waiting, the time now.</p></div>
+      <div class="rule"><h3>One hand, one glance</h3><p>Clinician screens put the next action in the biggest button, with the time and address readable at arm's length.</p></div>
+    </div>
+  </section>
+</div>
+<script>
+  const T = [
+    ["Canvas","#F4F6F3","#0E1513"],["Surface","#FFFFFF","#151E1B"],["Subtle","#EBEFEA","#1C2723"],["Ink","#15241F","#E7EEEA"],["Muted","#5C6B65","#95A59F"],["Line","#DCE3DE","#26332E"],
+    ["Forest","#1E4D40","#7CC3A6"],["Forest soft","#DCEAE3","#1D3A31"],["Apricot","#E07B4F","#F09A72"],["Apricot soft","#FBE7DC","#3A251A"],["Apricot ink","#8A3D1C","#F6C1A6"],
+    ["OK","#2F7A4F","#6CC592"],["Warning","#A86A12","#E6B058"],["Critical","#B4443A","#EE7F74"],["Right ear","#C2413A","#F07B72"],["Left ear","#2E5FA8","#86AAF0"],
+  ];
+  document.getElementById("swatches").innerHTML = T.map(([n, l, d]) =>
+    `<div class="swatch"><div class="chip"><span style="background:${l}"></span><span style="background:${d}"></span></div><div class="meta"><b>${n}</b><span class="mono muted">${l} · ${d}</span></div></div>`).join("");
+</script>
+</body>
+</html>

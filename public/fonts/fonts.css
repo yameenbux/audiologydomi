@@ -1,0 +1,10 @@
+/* Self-hosted fonts (SIL Open Font License 1.1, via Fontsource). No third-party requests from patient-facing pages. */
+@font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/instrument-serif-latin-400-normal.woff2) format("woff2") }
+@font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url(/fonts/instrument-serif-latin-400-italic.woff2) format("woff2") }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-400-normal.woff2) format("woff2") }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-500-normal.woff2) format("woff2") }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-600-normal.woff2) format("woff2") }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-700-normal.woff2) format("woff2") }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/jetbrains-mono-latin-400-normal.woff2) format("woff2") }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(/fonts/jetbrains-mono-latin-500-normal.woff2) format("woff2") }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url(/fonts/jetbrains-mono-latin-600-normal.woff2) format("woff2") }

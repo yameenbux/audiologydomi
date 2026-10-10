@@ -1,40 +1,49 @@
 "use strict";
 // HTTP API + static frontend. Zero dependencies: node:http, node:sqlite, node:crypto.
+// Every request runs inside the caller's sandbox (see sandbox.js), so visitors never share data.
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { db, reset, map, TABLES, FILE } = require("./db");
+const sandbox = require("./sandbox");
+const { db, map, TABLES, USERS } = require("./db");
 const D = require("./domain");
 const svc = require("./service");
 const bus = require("./bus");
-const { provider } = require("./notify");
+const { provider, verifyTwilio } = require("./notify");
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const PUBLIC = path.join(__dirname, "..", "public");
-const DEMO_NOW = 10 * 60 + 20; // the demo diary is frozen at 10:20 so the story is the same every time
 
-/* ---------- Auth: signed tokens. Demo sign-in picks a user; production would use passwords + 2FA. ---------- */
-const sign = (uid) => { const p = Buffer.from(JSON.stringify({ uid, iat: Date.now() })).toString("base64url"); return p + "." + crypto.createHmac("sha256", SECRET).update(p).digest("base64url"); };
+/* ---------- Sessions: HMAC-signed tokens carrying the user and their sandbox ---------- */
+const sign = (uid, sid) => {
+  const p = Buffer.from(JSON.stringify({ uid, sid, iat: Date.now() })).toString("base64url");
+  return p + "." + crypto.createHmac("sha256", SECRET).update(p).digest("base64url");
+};
 function verify(tok) {
   if (!tok) return null;
   const [p, s] = String(tok).split(".");
   if (!p || !s) return null;
   const good = crypto.createHmac("sha256", SECRET).update(p).digest("base64url");
   if (s.length !== good.length || !crypto.timingSafeEqual(Buffer.from(s), Buffer.from(good))) return null;
-  const { uid, iat } = JSON.parse(Buffer.from(p, "base64url").toString());
-  if (Date.now() - iat > 12 * 3600e3) return null; // a working day
-  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(uid);
-  return u && { id: u.id, name: u.name, role: u.role, clinicianId: u.clinician_id };
+  let claims;
+  try { claims = JSON.parse(Buffer.from(p, "base64url").toString()); } catch { return null; }
+  if (Date.now() - claims.iat > 12 * 3600e3) return null;
+  const sb = sandbox.get(claims.sid);
+  const u = USERS.find((x) => x.id === claims.uid);
+  if (!sb || !u) return null;
+  return { sb, user: { id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId } };
 }
 
-/* ---------- Request log for the "Under the hood" page ---------- */
-const reqLog = [];
-function logRequest(entry) {
-  reqLog.unshift(entry);
-  reqLog.length = Math.min(reqLog.length, 80);
-  bus.emit({ type: "http", ...entry });
+/* ---------- Request log per sandbox, for the "Under the hood" page ---------- */
+const reqLogs = new Map();
+function logRequest(sb, entry) {
+  const list = reqLogs.get(sb.id) || [];
+  list.unshift(entry);
+  list.length = Math.min(list.length, 80);
+  reqLogs.set(sb.id, list);
+  sandbox.run(sb, () => bus.emit({ type: "http", ...entry }));
 }
 
 /* ---------- Routing ---------- */
@@ -42,7 +51,7 @@ const routes = [];
 const route = (method, pattern, opts, handler) => {
   const keys = [];
   const re = new RegExp("^" + pattern.replace(/:(\w+)/g, (_, k) => (keys.push(k), "([^/]+)")) + "$");
-  routes.push({ method, re, keys, handler, ...opts });
+  routes.push({ method, pattern, re, keys, handler, ...opts });
 };
 
 const send = (res, status, data) => {
@@ -69,16 +78,21 @@ function clinicianCanSee(user, patientId) {
 }
 
 route("GET", "/api/meta", { public: true }, () => ({
-  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, now: DEMO_NOW,
-  smsProvider: provider,
-  demoUsers: db.prepare("SELECT u.id, u.name, u.role, c.role AS title, c.color FROM users u LEFT JOIN clinicians c ON c.id = u.clinician_id ORDER BY u.role, u.name").all().map((r) => ({ ...r })),
+  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, smsProvider: provider,
+  demoUsers: USERS.map(({ id, name, role, title, color }) => ({ id, name, role, title, color })),
 }));
 
+// Sign in. Without a sandbox code this starts a fresh private demo; with one it joins it (laptop + phone).
 route("POST", "/api/login", { public: true }, (req, body) => {
-  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(String(body.userId || ""));
+  const u = USERS.find((x) => x.id === String(body.userId || ""));
   if (!u) throw new svc.HttpError(401, "Unknown user.");
-  svc.audit(u.name, "auth.login", u.id, u.role);
-  return { token: sign(u.id), user: { id: u.id, name: u.name, role: u.role, clinicianId: u.clinician_id } };
+  let sb = null;
+  if (body.sandbox) {
+    sb = sandbox.get(body.sandbox);
+    if (!sb) throw new svc.HttpError(404, "That demo code has expired. Start a new demo instead.");
+  } else sb = sandbox.create();
+  sandbox.run(sb, () => svc.audit(u.name, "auth.login", u.id, `${u.role} joined demo ${sb.id}`));
+  return { token: sign(u.id, sb.id), sandbox: sb.id, user: { id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId } };
 });
 
 route("GET", "/api/state", {}, (req, body, user) => {
@@ -90,23 +104,27 @@ route("GET", "/api/state", {}, (req, body, user) => {
     .filter((p) => isAdmin || appts.some((a) => a.patientId === p.id) || me.patch.includes(D.district(p.pc)));
   const messages = (isAdmin ? db.prepare("SELECT * FROM messages ORDER BY id DESC LIMIT 100").all()
     : db.prepare("SELECT * FROM messages WHERE to_clinician_id = ? OR from_clinician_id = ? ORDER BY id DESC").all(user.clinicianId, user.clinicianId)).map(map.msg);
-  const waitlist = isAdmin ? db.prepare("SELECT * FROM waitlist ORDER BY added_at, id").all().map(map.wait) : [];
+  const waitlist = isAdmin ? db.prepare("SELECT * FROM waitlist ORDER BY added_seq").all().map(map.wait) : [];
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
-  const refilled = db.prepare("SELECT COUNT(*) AS n FROM appointments WHERE moved = 1").get().n;
-  return { user, clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, offers, refilled, settings: svc.settings };
+  const sb = sandbox.current();
+  return {
+    user, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, offers,
+    metrics: isAdmin ? svc.metrics() : null, settings: sb.settings,
+  };
 });
 
+// `background=1` is the app refreshing after a live update: not a person opening the record, so not audited.
 route("GET", "/api/patients/:id", {}, (req, body, user, { id }) => {
   if (!clinicianCanSee(user, id)) throw new svc.HttpError(403, "This patient isn't on your round or in your area.");
   const p = svc.getPatient(id);
   if (!p) throw new svc.HttpError(404, "Patient not found.");
-  svc.audit(user.name, "patient.view", id, p.name); // every look at a record is logged
+  if (new URL(req.url, "http://x").searchParams.get("background") !== "1") svc.audit(user.name, "patient.view", id, p.name);
   return { ...p, history: db.prepare("SELECT * FROM notes WHERE patient_id = ? ORDER BY id DESC").all(id).map(map.note) };
 });
 
 route("POST", "/api/patients/:id/notes", {}, (req, body, user, { id }) => {
   if (!clinicianCanSee(user, id)) throw new svc.HttpError(403, "This patient isn't on your round or in your area.");
-  return svc.addNote(id, body.body, user);
+  return svc.tx(() => svc.addNote(id, body.body, user));
 });
 
 route("POST", "/api/appointments/:id/status", {}, (req, body, user, { id }) => svc.setStatus(id, body.status, user));
@@ -114,14 +132,6 @@ route("POST", "/api/appointments/:id/status", {}, (req, body, user, { id }) => s
 route("POST", "/api/appointments/:id/seen", {}, (req, body, user, { id }) => {
   db.prepare("UPDATE appointments SET seen = 1 WHERE id = ? AND (clinician_id = ? OR ? = 'admin')").run(id, user.clinicianId, user.role);
   return { ok: true };
-});
-
-route("GET", "/api/appointments/:id/candidates", {}, (req, body, user, { id }) => {
-  needAdmin(user);
-  const a = svc.getAppt(id);
-  if (!a) throw new svc.HttpError(404, "That visit no longer exists.");
-  const { window, candidates } = svc.rank(a, []);
-  return { window, candidates };
 });
 
 route("POST", "/api/appointments/:id/cancel", {}, (req, body, user, { id }) => {
@@ -136,11 +146,13 @@ route("POST", "/api/waitlist", {}, (req, body, user) => { needAdmin(user); retur
 
 route("PUT", "/api/settings", {}, (req, body, user) => {
   needAdmin(user);
-  if (body.mode === "offer" || body.mode === "instant") svc.settings.mode = body.mode;
-  if (Number(body.offerMinutes) >= 1 && Number(body.offerMinutes) <= 240) svc.settings.offerMinutes = Number(body.offerMinutes);
-  svc.audit(user.name, "settings.update", "settings", JSON.stringify(svc.settings));
-  bus.emit({ type: "settings.updated", settings: svc.settings });
-  return svc.settings;
+  const st = sandbox.current().settings;
+  if (body.mode === "offer" || body.mode === "instant") st.mode = body.mode;
+  if (Number(body.offerMinutes) >= 1 && Number(body.offerMinutes) <= 240) st.offerMinutes = Number(body.offerMinutes);
+  if (body.fee !== undefined && Number(body.fee) >= 0 && Number(body.fee) <= 2000) st.fee = Math.round(Number(body.fee));
+  svc.audit(user.name, "settings.update", "settings", JSON.stringify(st));
+  bus.emit({ type: "settings.updated", settings: st });
+  return st;
 });
 
 route("POST", "/api/messages/read", {}, (req, body, user) => {
@@ -148,33 +160,51 @@ route("POST", "/api/messages/read", {}, (req, body, user) => {
   return { ok: true };
 });
 
-// Twilio-compatible inbound webhook. In production: verify the X-Twilio-Signature header before trusting it.
-route("POST", "/api/sms/inbound", { public: true }, (req, body) => {
-  const from = body.From || body.from;
-  const text = body.Body || body.body;
-  if (!from || !text) throw new svc.HttpError(400, "Expected From and Body.");
-  return svc.handleInbound(from, text);
+// Demo only: the office plays the patient's phone. Signed-in office users, own sandbox only.
+route("POST", "/api/demo/sms", {}, (req, body, user) => {
+  needAdmin(user);
+  const patient = svc.getPatient(String(body.patientId || ""));
+  if (!patient) throw new svc.HttpError(404, "Patient not found.");
+  const text = String(body.body || "").slice(0, 300);
+  if (!text.trim()) throw new svc.HttpError(400, "Write the patient's reply.");
+  return svc.handleInbound(patient.phone, text);
+});
+
+// Real Twilio webhook. Only exists when Twilio is configured, and only accepts correctly signed requests.
+route("POST", "/api/sms/inbound", { public: true, raw: true }, (req, body) => {
+  if (provider !== "twilio") throw new svc.HttpError(404, "Inbound texts are switched off in demo mode.");
+  if (!verifyTwilio(req.headers["x-twilio-signature"], new URL(req.url, "http://x").pathname, body)) throw new svc.HttpError(403, "Signature check failed.");
+  const digits = String(body.From || "").replace(/\D/g, "").replace(/^44/, "0");
+  // Route to the most recently active sandbox where this number has a pending offer or a booked visit.
+  const sb = sandbox.all().sort((a, b) => b.lastSeen - a.lastSeen).find((s) => sandbox.run(s, () => db.prepare(
+    `SELECT 1 FROM patients p WHERE replace(p.phone, ' ', '') = ? AND (
+       EXISTS (SELECT 1 FROM waitlist w JOIN offers o ON o.waitlist_id = w.id WHERE w.patient_id = p.id AND o.status = 'pending')
+       OR EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = p.id AND a.status = 'booked'))`).get(digits)));
+  if (!sb) return { matched: false };
+  return sandbox.run(sb, () => svc.handleInbound(body.From, body.Body || ""));
 });
 
 route("POST", "/api/admin/reset", {}, (req, body, user) => {
   needAdmin(user);
-  reset();
-  svc.settings.mode = "offer";
+  const sb = sandbox.current();
+  sandbox.reset(sb);
+  reqLogs.delete(sb.id);
   bus.emit({ type: "reset" });
   return { ok: true };
 });
 
-/* ---------- Debug endpoints for the "Under the hood" page (office only) ---------- */
+/* ---------- "Under the hood" (office only, own sandbox) ---------- */
 route("GET", "/api/debug/overview", {}, (req, body, user) => {
   needAdmin(user);
+  const sb = sandbox.current();
   const counts = Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n]));
   return {
-    counts, requests: reqLog, events: bus.recent.filter((e) => e.type !== "http").slice(0, 40), liveConnections: bus.clients.size,
+    sandbox: sb.id, now: sandbox.stamp(), counts, requests: reqLogs.get(sb.id) || [], liveConnections: bus.connections(sb.id),
+    events: bus.recentFor(sb.id).filter((e) => e.type !== "http").slice(0, 40),
     audit: db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT 60").all().map((r) => ({ ...r })),
-    outbox: db.prepare("SELECT * FROM messages ORDER BY id DESC LIMIT 40").all().map(map.msg),
     offers: db.prepare("SELECT o.*, p.name AS patient FROM offers o JOIN waitlist w ON w.id = o.waitlist_id JOIN patients p ON p.id = w.patient_id ORDER BY o.id DESC").all().map((r) => ({ ...r })),
-    settings: svc.settings, smsProvider: provider, dbFile: path.basename(FILE), node: process.version,
-    routes: routes.map((r) => ({ method: r.method, path: r.re.source.slice(1, -1).replace(/\(\[\^\/\]\+\)/g, ":id").replace(/\\\//g, "/"), auth: r.public ? "public" : "signed in" })),
+    settings: sb.settings, smsProvider: provider, activeDemos: sandbox.all().length, node: process.version,
+    routes: routes.map((r) => ({ method: r.method, path: r.pattern, auth: r.public ? "public" : "signed in" })),
   };
 });
 route("GET", "/api/debug/table/:name", {}, (req, body, user, { name }) => {
@@ -185,16 +215,17 @@ route("GET", "/api/debug/table/:name", {}, (req, body, user, { name }) => {
 });
 
 /* ---------- Static files ---------- */
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".png": "image/png", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2" };
 function serveStatic(req, res) {
   let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
   if (p === "/") p = "/index.html";
   if (p === "/under-the-hood") p = "/under-the-hood.html";
+  if (p === "/brand") p = "/brand.html";
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found"); }
-    res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream" });
+    res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": path.extname(file) === ".html" ? "no-cache" : "public, max-age=3600" });
     res.end(data);
   });
 }
@@ -204,29 +235,31 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow"); // a demo with sample patients should never show up in search
   if (!url.pathname.startsWith("/api/")) return serveStatic(req, res);
 
   if (url.pathname === "/api/events") {
-    const user = verify(url.searchParams.get("token")); // EventSource cannot send headers
-    if (!user) return send(res, 401, { error: "Sign in again." });
-    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
-    res.write(`event: hello\ndata: ${JSON.stringify({ user: user.name })}\n\n`);
-    const ping = setInterval(() => res.write(": ping\n\n"), 25000);
+    const auth = verify(url.searchParams.get("token")); // EventSource cannot send headers
+    if (!auth) return send(res, 401, { error: "Sign in again." });
+    // X-Accel-Buffering stops hosting proxies (Render, nginx) holding events back
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+    res.write(`event: hello\ndata: ${JSON.stringify({ user: auth.user.name, sandbox: auth.sb.id })}\n\n`);
+    const ping = setInterval(() => { auth.sb.lastSeen = Date.now(); res.write(": ping\n\n"); }, 25000);
     res.on("close", () => clearInterval(ping));
-    return bus.subscribe(res, user);
+    return bus.subscribe(res, auth.user, auth.sb.id);
   }
 
   const t0 = process.hrtime.bigint();
   let status = 200;
-  let user = null;
+  let auth = null;
   try {
     const r = routes.find((x) => x.method === req.method && x.re.test(url.pathname));
     if (!r) throw new svc.HttpError(404, "No such endpoint.");
     const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(url.pathname.match(r.re)[i + 1])]));
-    user = verify((req.headers.authorization || "").replace(/^Bearer /, ""));
-    if (!r.public && !user) throw new svc.HttpError(401, "Sign in again.");
+    auth = verify((req.headers.authorization || "").replace(/^Bearer /, ""));
+    if (!r.public && !auth) throw new svc.HttpError(401, "Your demo session has ended. Sign in again.");
     const body = req.method === "GET" ? {} : await readBody(req);
-    const data = await r.handler(req, body, user, params);
+    const data = auth && !r.raw ? sandbox.run(auth.sb, () => r.handler(req, body, auth.user, params)) : await r.handler(req, body, auth && auth.user, params);
     send(res, 200, data);
   } catch (err) {
     status = err.status || 500;
@@ -234,15 +267,27 @@ const server = http.createServer(async (req, res) => {
     send(res, status, { error: status === 500 ? "Something went wrong on the server." : err.message });
   } finally {
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    if (!url.pathname.startsWith("/api/debug")) logRequest({ method: req.method, path: url.pathname, status, ms: Math.round(ms * 10) / 10, who: user ? user.name : "anonymous" });
+    if (auth && !url.pathname.startsWith("/api/debug")) {
+      logRequest(auth.sb, { method: req.method, path: url.pathname, status, ms: Math.round(ms * 10) / 10, who: auth.user.name, time: sandbox.stamp(auth.sb) });
+    }
   }
 });
 
-setInterval(() => { try { svc.sweepExpired(); } catch (e) { console.error("sweep failed", e); } }, 5000).unref();
+const sweeper = setInterval(() => {
+  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); } catch (e) { console.error("sweep failed", sb.id, e); } });
+}, 5000);
+sweeper.unref();
 
-server.listen(PORT, () => {
-  console.log(`Domi Hearing demo running on http://localhost:${PORT}`);
-  console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
-  console.log(`  Database:        ${FILE}`);
-  console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);
-});
+function start(port = PORT) {
+  return new Promise((resolve) => server.listen(port, () => resolve(server)));
+}
+
+if (require.main === module) {
+  start().then(() => {
+    console.log(`Domi Hearing demo running on http://localhost:${PORT}`);
+    console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
+    console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);
+  });
+}
+
+module.exports = { server, start };

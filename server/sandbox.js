@@ -1,0 +1,66 @@
+"use strict";
+// Every visitor gets a private copy of the demo: its own in-memory database, settings and clock.
+// Requests run inside AsyncLocalStorage, so the rest of the server code reads "the current sandbox"
+// without passing it around. Laptop and phone share one sandbox by joining with its code.
+const { AsyncLocalStorage } = require("node:async_hooks");
+const crypto = require("node:crypto");
+
+const als = new AsyncLocalStorage();
+const sandboxes = new Map();
+const MAX = Number(process.env.MAX_SANDBOXES || 100);
+const IDLE_MS = 3 * 3600e3;
+const DEMO_START = 10 * 60 + 20; // each demo opens at 10:20 on the sample Monday
+const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I/L, so codes are easy to read aloud
+
+let openDb = null; // injected by db.js to avoid a require cycle
+const defaults = () => ({ mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85 });
+
+function newCode() {
+  let c;
+  do { c = Array.from(crypto.randomBytes(6), (b) => ALPHABET[b % ALPHABET.length]).join(""); } while (sandboxes.has(c));
+  return c;
+}
+
+function evict() {
+  const now = Date.now();
+  for (const [id, sb] of sandboxes) if (now - sb.lastSeen > IDLE_MS) { sb.db.close(); sandboxes.delete(id); }
+  while (sandboxes.size >= MAX) {
+    const oldest = [...sandboxes.values()].sort((a, b) => a.lastSeen - b.lastSeen)[0];
+    oldest.db.close(); sandboxes.delete(oldest.id);
+  }
+}
+
+function create() {
+  evict();
+  const sb = { id: newCode(), db: openDb(), settings: defaults(), t0: Date.now(), lastSeen: Date.now(), txDepth: 0, pending: null };
+  sandboxes.set(sb.id, sb);
+  return sb;
+}
+
+function get(id) {
+  const sb = sandboxes.get(String(id || "").toUpperCase());
+  if (sb) sb.lastSeen = Date.now();
+  return sb || null;
+}
+
+function reset(sb) {
+  sb.db.close();
+  sb.db = openDb();
+  sb.settings = defaults();
+  sb.t0 = Date.now();
+}
+
+const run = (sb, fn) => als.run(sb, fn);
+function current() {
+  const sb = als.getStore();
+  if (!sb) throw new Error("No sandbox in context");
+  return sb;
+}
+
+/* Demo clock: starts at 10:20 when the sandbox is created and runs in real time. */
+const nowSec = (sb = current()) => DEMO_START * 60 + Math.floor((Date.now() - sb.t0) / 1000);
+const nowMin = (sb = current()) => Math.floor(nowSec(sb) / 60);
+const pad = (n) => String(n).padStart(2, "0");
+const stamp = (sb = current()) => { const s = nowSec(sb); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`; };
+
+module.exports = { create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };

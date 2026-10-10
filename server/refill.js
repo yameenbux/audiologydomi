@@ -53,12 +53,35 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
   return { window: win, candidates: out.sort((a, b) => (b.ok - a.ok) || (b.score - a.score)) };
 }
 
-/** Read a patient's text reply. Generous with wording, strict with ambiguity. */
+/**
+ * Decide how to offer a freed slot, given how soon it starts.
+ * The patient must be confirmed before the clinician has to set off, so the reply window shrinks as the
+ * visit gets closer. Under an hour of slack, the top few are asked at once and the first YES wins.
+ * @param {number} leadMin      minutes from now until the visit starts
+ * @param {number} drive        minutes the clinician needs to get there
+ * @param {number} offerMinutes the office's normal reply window
+ * @param {number} eligible     how many suitable patients are waiting
+ */
+const PREP_MIN = 10;
+const PARALLEL_BELOW = 60;
+function planOffer({ leadMin, drive, offerMinutes, eligible }) {
+  const slack = leadMin - (drive || 0) - PREP_MIN;
+  if (!eligible) return { mode: "none", slack };
+  if (slack < 3) return { mode: "too-late", slack };
+  if (slack < PARALLEL_BELOW) {
+    return { mode: "parallel", count: Math.min(3, eligible), windowMin: Math.max(2, Math.min(offerMinutes, Math.floor(slack / 2))), slack };
+  }
+  // Leave time for at least three rounds before the clinician must leave.
+  return { mode: "single", count: 1, windowMin: Math.max(5, Math.min(offerMinutes, Math.floor(slack / 3))), slack };
+}
+
+/** Read a patient's text. "cancel" is only returned for an explicit cancellation. */
 function parseReply(body) {
   const s = String(body || "").trim().toLowerCase();
+  if (/\bcancel/.test(s)) return "cancel";
   if (/^(y|yes|yeah|yep|ok|okay|please|yes please)\b/.test(s)) return "yes";
-  if (/^(n|no|nope|can't|cannot|not today)\b/.test(s)) return "no";
+  if (/^(n|no|nope|can't|cannot|can not|not today|i can't|i cannot)\b/.test(s)) return "no";
   return "unknown";
 }
 
-module.exports = { freeWindow, rankCandidates, parseReply };
+module.exports = { freeWindow, rankCandidates, parseReply, planOffer };
