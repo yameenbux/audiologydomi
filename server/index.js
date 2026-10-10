@@ -204,12 +204,14 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow"); // a demo with sample patients should never show up in search
   if (!url.pathname.startsWith("/api/")) return serveStatic(req, res);
 
   if (url.pathname === "/api/events") {
     const user = verify(url.searchParams.get("token")); // EventSource cannot send headers
     if (!user) return send(res, 401, { error: "Sign in again." });
-    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
+    // X-Accel-Buffering stops hosting proxies (Render, nginx) holding events back
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     res.write(`event: hello\ndata: ${JSON.stringify({ user: user.name })}\n\n`);
     const ping = setInterval(() => res.write(": ping\n\n"), 25000);
     res.on("close", () => clearInterval(ping));

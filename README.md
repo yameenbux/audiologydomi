@@ -19,6 +19,20 @@ npm run reset      # wipe the database (it reseeds on next start)
 
 To try it on a phone on the same Wi-Fi, open `http://<your-laptop-ip>:3000`.
 
+## Put it online (Render, free)
+
+The repo includes a `render.yaml` Blueprint, so Render reads the settings from the repo.
+
+1. Sign in at [dashboard.render.com](https://dashboard.render.com) with GitHub and give Render access to this repo.
+2. **New → Blueprint**, choose this repo and the branch, then **Apply**.
+3. Wait about two minutes for the build (it runs the tests) and the start. The link looks like `https://domi-hearing-demo.onrender.com`.
+
+How the free tier behaves:
+- **It sleeps after 15 minutes without visits.** The first visit after that takes about a minute to wake it. Open the link a couple of minutes before a meeting.
+- **Data resets whenever it wakes or redeploys.** For a demo that's useful: every viewing starts from the same story.
+- **Everyone with the link shares one diary**, and demo sign-in has no passwords. Send the link only to people you're pitching. To reset it by hand, use the Reset button.
+- Pages send `noindex`, so search engines won't list it.
+
 ## What's in it
 
 | | |
