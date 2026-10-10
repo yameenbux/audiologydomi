@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2D3F7A">
+<title>Domi Hearing Diary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: admin = day board of clinician columns + side rail (waiting list, texts sent); clinician = phone-width app with bottom tabs. */
+:root{
+  --bg:#F3F4F7; --surface:#FFFFFF; --surface-2:#E9ECF2; --ink:#1A2033; --muted:#5F677D; --line:#DCE0E8;
+  --accent:#2D3F7A; --accent-ink:#FFFFFF; --accent-soft:#E3E7F4;
+  --brass:#9A6F22; --brass-soft:#F5EBD9;
+  --ok:#2F7A4F; --ok-soft:#DDF0E4; --warn:#A06A12; --warn-soft:#F8ECD3; --crit:#B23F35; --crit-soft:#F7DFDC;
+  --ear-r:#C2413A; --ear-l:#2E5FA8;
+  --shadow:0 1px 2px rgba(26,32,51,.06),0 8px 24px rgba(26,32,51,.07);
+  --f-display:"Newsreader",Georgia,"Times New Roman",serif;
+  --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:12px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0F1320; --surface:#171C2C; --surface-2:#1F2638; --ink:#E8EAF2; --muted:#9AA1B8; --line:#2A3146;
+  --accent:#A3B4F2; --accent-ink:#0F1320; --accent-soft:#252F52; --brass:#E0B566; --brass-soft:#3A3020;
+  --ok:#6CC592; --ok-soft:#1C3527; --warn:#E6B058; --warn-soft:#3A2E17; --crit:#EE7F74; --crit-soft:#3F2220;
+  --ear-r:#F07B72; --ear-l:#86AAF0; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F1320; --surface:#171C2C; --surface-2:#1F2638; --ink:#E8EAF2; --muted:#9AA1B8; --line:#2A3146;
+  --accent:#A3B4F2; --accent-ink:#0F1320; --accent-soft:#252F52; --brass:#E0B566; --brass-soft:#3A3020;
+  --ok:#6CC592; --ok-soft:#1C3527; --warn:#E6B058; --warn-soft:#3A2E17; --crit:#EE7F74; --crit-soft:#3F2220;
+  --ear-r:#F07B72; --ear-l:#86AAF0; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3); color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+h1,h2,h3{font-family:var(--f-display);font-weight:500;letter-spacing:-.01em;text-wrap:balance;margin:0}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.label{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* Top bar */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top-in{max-width:1320px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+.brand-mark{width:32px;height:32px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}
+.brand-mark svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
+.brand b{font-family:var(--f-display);font-size:20px;font-weight:500}
+.brand .demo{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--brass-soft);color:var(--brass);font-weight:600;letter-spacing:.04em}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:10px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;padding:7px 14px;border-radius:8px;font-weight:600;font-size:13.5px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.date-chip{font-size:13.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.ghost{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:7px 12px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.ghost:hover{border-color:var(--muted)}
+
+.wrap{max-width:1320px;margin:0 auto;padding-inline:20px;padding-block:22px 60px}
+
+/* Admin */
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px}
+.hero h1{font-size:clamp(26px,3.2vw,36px);line-height:1.1}
+.hero p{margin:6px 0 0;color:var(--muted);max-width:60ch}
+.stats{display:flex;gap:28px;flex-wrap:wrap}
+.stat .n{font-family:var(--f-display);font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
+.stat .n small{font-size:15px;color:var(--muted);font-family:var(--f-body)}
+.stat .t{font-size:12.5px;color:var(--muted);margin-top:4px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+@media (max-width:1040px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;min-width:0}
+.panel-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.panel-h h2{font-size:19px}
+
+.board-scroll{overflow-x:auto}
+.board{display:grid;grid-template-columns:52px repeat(3,minmax(210px,1fr));min-width:700px}
+.col-h{padding:12px 12px 10px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;min-width:0}
+.avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;flex:none;color:#fff}
+.col-h .nm{font-weight:600;font-size:14px;line-height:1.2}
+.col-h .rl{font-size:12px;color:var(--muted)}
+.col-h > div{min-width:0}
+.times,.lane{position:relative}
+.times{border-right:1px solid var(--line)}
+.tick{position:absolute;left:0;right:6px;text-align:right;font-size:11px;color:var(--muted);transform:translateY(-7px)}
+.lane{border-right:1px solid var(--line);background-image:repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px 100%);}
+.lane:last-child{border-right:0}
+.now{position:absolute;left:0;right:0;height:0;border-top:1.5px solid var(--crit);z-index:3;pointer-events:none}
+.now::before{content:"";position:absolute;left:-4px;top:-4.5px;width:7px;height:7px;border-radius:50%;background:var(--crit)}
+.appt{position:absolute;left:6px;right:6px;border-radius:10px;padding:7px 9px;background:var(--accent-soft);border:1px solid transparent;text-align:left;overflow:hidden;display:flex;flex-direction:column;gap:1px;transition:transform .15s,box-shadow .15s}
+.appt:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.appt .tm{font-size:11.5px;color:var(--muted)}
+.appt .pn .tm{font-weight:400;margin-right:4px}
+.appt .pn{font-weight:600;font-size:13.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appt .ty{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appt.done{background:var(--surface-2);opacity:.75}
+.appt.live{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.appt.moved{background:var(--brass-soft);border-color:color-mix(in srgb,var(--brass) 45%,transparent);animation:glow 2.4s ease-out 1}
+.appt.gap{background:repeating-linear-gradient(135deg,var(--surface-2) 0 6px,transparent 6px 12px);border:1px dashed var(--line);color:var(--muted)}
+.travel{position:absolute;left:14px;font-size:10.5px;color:var(--muted);display:flex;gap:4px;align-items:center}
+.travel svg{width:11px;height:11px}
+@keyframes glow{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--brass) 60%,transparent)}100%{box-shadow:0 0 0 14px transparent}}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 6px;border-radius:99px;width:max-content}
+.b-brass{background:var(--brass);color:var(--surface)}
+.b-ok{background:var(--ok-soft);color:var(--ok)}
+.b-warn{background:var(--warn-soft);color:var(--warn)}
+.b-crit{background:var(--crit-soft);color:var(--crit)}
+.b-plain{background:var(--surface-2);color:var(--muted)}
+
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:6px}
+.sw{width:10px;height:10px;border-radius:3px}
+
+.rail{display:flex;flex-direction:column;gap:20px;min-width:0}
+.mode{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.mode .seg{width:100%}
+.mode .seg button{flex:1;justify-content:center;font-size:12.5px;padding:7px 8px}
+.mode p{margin:0;font-size:12.5px;color:var(--muted)}
+.wl{list-style:none;margin:0;padding:6px}
+.wl li{padding:11px 10px;border-radius:10px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start}
+.wl li + li{border-top:1px solid var(--line);border-radius:0}
+.pos{width:24px;height:24px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--muted)}
+.wl .nm{font-weight:600}
+.wl .meta{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:2px}
+.wl li.booked{opacity:.55}
+.btn{border:0;background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:9px 14px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:7px;justify-content:center}
+.btn:hover{filter:brightness(1.08)}
+.btn.sm{padding:7px 11px;font-size:13px;border-radius:9px}
+.btn.secondary{background:var(--surface-2);color:var(--ink)}
+.btn.danger{background:var(--crit-soft);color:var(--crit)}
+.btn.brass{background:var(--brass);color:var(--surface)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.sms-list{display:flex;flex-direction:column;gap:12px;padding:14px 16px;max-height:460px;overflow:auto}
+.sms{display:flex;flex-direction:column;gap:4px;max-width:92%}
+.sms .who{font-size:11.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.sms .bub{background:var(--surface-2);padding:9px 12px;border-radius:14px 14px 14px 4px;font-size:13.5px;line-height:1.45}
+.sms.in{align-self:flex-end;align-items:flex-end}
+.sms.in .bub{background:var(--accent);color:var(--accent-ink);border-radius:14px 14px 4px 14px}
+.sms.clin .bub{background:var(--brass-soft)}
+.empty{padding:22px 16px;color:var(--muted);font-size:13.5px;text-align:center}
+
+/* Clinician */
+.clin-stage{display:grid;grid-template-columns:minmax(0,1fr) 400px minmax(0,1fr);gap:40px;align-items:start}
+.clin-side{padding-top:30px;min-width:0}
+.clin-side h2{font-size:26px;margin-bottom:8px}
+.clin-side p{color:var(--muted);margin:0 0 14px;max-width:42ch}
+.clin-side ul{margin:0;padding-left:18px;color:var(--muted);font-size:14px;display:flex;flex-direction:column;gap:6px;max-width:42ch}
+@media (max-width:1040px){.clin-stage{grid-template-columns:minmax(0,1fr)}.clin-side{display:none}}
+.phone{width:100%;max-width:400px;margin:0 auto;background:var(--bg);border:1px solid var(--line);border-radius:38px;box-shadow:var(--shadow);overflow:hidden;height:min(820px,calc(100vh - 120px));min-height:600px;display:flex;flex-direction:column;position:relative}
+@media (max-width:520px){
+  .phone{border-radius:0;border:0;box-shadow:none;height:auto;min-height:0;overflow:visible}
+  .wrap.cl{padding-inline:0;padding-block:0}
+  .ph-scroll{overflow:visible;padding-bottom:96px}
+  .ph-tabs{position:fixed;left:0;right:0;bottom:0;z-index:15}
+  .actionbar{bottom:calc(62px + env(safe-area-inset-bottom,0px));margin-bottom:0}
+  .toasts{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+  #reset span{display:none}
+}
+.ph-scroll{flex:1;overflow-y:auto;padding:18px 16px 24px}
+.ph-tabs{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:var(--surface);padding-bottom:env(safe-area-inset-bottom,0px)}
+.ph-tabs button{border:0;background:transparent;padding:10px 0 12px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;font-weight:600;color:var(--muted);position:relative}
+.ph-tabs button svg{width:21px;height:21px}
+.ph-tabs button[aria-current="page"]{color:var(--accent)}
+.dot{position:absolute;top:7px;left:calc(50% + 6px);min-width:16px;height:16px;border-radius:8px;background:var(--crit);color:#fff;font-size:10px;display:grid;place-items:center;padding:0 4px}
+.greet{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px}
+.greet h2{font-size:26px;line-height:1.15}
+.greet select{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:6px 8px;font-size:12.5px;max-width:140px}
+.progress{height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin:6px 0 4px}
+.progress i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.banner{background:var(--brass-soft);border:1px solid color-mix(in srgb,var(--brass) 40%,transparent);border-radius:14px;padding:12px 14px;margin:14px 0;display:flex;gap:10px;align-items:flex-start;font-size:13.5px}
+.banner svg{color:var(--brass);width:18px;height:18px;margin-top:2px}
+.banner b{display:block}
+.visits{display:flex;flex-direction:column;gap:0;margin-top:10px}
+.v{display:grid;grid-template-columns:54px minmax(0,1fr);gap:12px;text-align:left;border:0;background:transparent;padding:0;width:100%}
+.v .tl{display:flex;flex-direction:column;align-items:center;padding-top:14px}
+.v .tl .t{font-size:13px;font-weight:500}
+.v .tl .ln{flex:1;width:1.5px;background:var(--line);margin-top:6px;min-height:20px}
+.v .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:6px 0;display:flex;flex-direction:column;gap:4px;min-width:0}
+.v.moved .card{border-color:color-mix(in srgb,var(--brass) 55%,transparent);background:linear-gradient(var(--brass-soft),var(--surface) 70%)}
+.v.done .card{opacity:.6}
+.v.live .card{border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
+.v .pn{font-weight:600;font-size:15.5px}
+.v .ad{font-size:13px;color:var(--muted);display:flex;gap:5px;align-items:center;min-width:0}
+.v .ad span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v .row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.drive{font-size:11.5px;color:var(--muted);display:flex;gap:5px;align-items:center;padding:2px 0 2px 66px}
+.drive svg{width:13px;height:13px}
+.type-chip{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent)}
+
+/* Patient record */
+.back{border:0;background:transparent;display:flex;align-items:center;gap:4px;color:var(--accent);font-weight:600;padding:0;margin-bottom:12px}
+.rec-h h2{font-size:27px;line-height:1.15}
+.rec-h .sub{color:var(--muted);font-size:13.5px;margin-top:2px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.tag{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-2);color:var(--ink);display:flex;gap:5px;align-items:center}
+.tag.alert{background:var(--warn-soft);color:var(--warn)}
+.quick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+.quick a,.quick button{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--ink);text-decoration:none}
+.quick svg{width:19px;height:19px;color:var(--accent)}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:12px}
+.sec h3{font-size:17px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;font-size:13.5px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+textarea{width:100%;min-height:92px;border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:10px 12px;resize:vertical;font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}
+.chips button{border:1px solid var(--line);background:var(--bg);border-radius:99px;padding:5px 10px;font-size:12.5px}
+.chips button:hover{border-color:var(--accent);color:var(--accent)}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.hist li{display:grid;grid-template-columns:10px minmax(0,1fr);gap:10px;font-size:13.5px}
+.hist li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px}
+.hist .d{font-size:12px;color:var(--muted)}
+.actionbar{position:sticky;bottom:0;margin:16px -16px -24px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line);display:flex;gap:8px}
+.actionbar .btn{flex:1;padding:12px}
+.aud{width:100%;height:auto;display:block}
+.aud text{font-family:var(--f-mono);font-size:9px;fill:var(--muted)}
+.aud-leg{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:6px}
+.aud-leg b{font-family:var(--f-mono)}
+.search{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+.plist{display:flex;flex-direction:column;gap:8px}
+.plist button{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 13px;text-align:left;display:flex;justify-content:space-between;gap:10px;align-items:center}
+
+/* Modal */
+.scrim{position:fixed;inset:0;background:rgba(10,14,25,.45);z-index:50;display:grid;place-items:center;padding:16px;animation:fade .15s}
+.modal{background:var(--surface);border-radius:20px;width:100%;max-width:520px;max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);animation:rise .2s ease-out}
+.modal-h{padding:18px 20px 6px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.modal-h h2{font-size:23px;line-height:1.2}
+.modal-b{padding:8px 20px 20px}
+.x{border:0;background:var(--surface-2);border-radius:50%;width:32px;height:32px;display:grid;place-items:center;flex:none}
+@keyframes fade{from{opacity:0}}
+@keyframes rise{from{transform:translateY(12px);opacity:0}}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.field label{font-size:13px;font-weight:600}
+.field select,.field input{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 11px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.steps{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;padding-bottom:16px;position:relative}
+.step:not(:last-child)::after{content:"";position:absolute;left:13.5px;top:30px;bottom:2px;width:1.5px;background:var(--line)}
+.step .ic{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);color:var(--muted)}
+.step .ic svg{width:15px;height:15px}
+.step.ok .ic{background:var(--ok-soft);color:var(--ok)}
+.step.wait .ic{background:var(--brass-soft);color:var(--brass)}
+.step.wait .ic svg{animation:spin 1.2s linear infinite}
+.step.no .ic{background:var(--crit-soft);color:var(--crit)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.step .st{font-weight:600;padding-top:3px}
+.step .sd{font-size:13.5px;color:var(--muted);margin-top:2px}
+.cands{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.cand{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--bg);font-size:13px}
+.cand.top{background:var(--brass-soft)}
+.cand .sc{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.why{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.why span{font-size:11px;padding:1px 6px;border-radius:99px;background:var(--surface);color:var(--muted)}
+.sms-prev{margin-top:8px}
+
+.toasts{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center;width:max-content;max-width:calc(100vw - 32px)}
+.toast{background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:500;box-shadow:var(--shadow);animation:rise .2s ease-out;display:flex;gap:8px;align-items:center}
+
+/* Sign-in + live status */
+a.ghost{color:var(--ink);text-decoration:none}
+.who-chip{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.who-chip i{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+.who-chip.off i{background:var(--crit);box-shadow:0 0 0 3px var(--crit-soft)}
+.signin{max-width:560px;margin:6vh auto 0;display:flex;flex-direction:column;gap:18px}
+.signin h1{font-size:clamp(30px,4vw,42px);line-height:1.08}
+.signin p{margin:0;color:var(--muted);max-width:52ch}
+.users{display:flex;flex-direction:column;gap:8px}
+.users button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.users button:hover{border-color:var(--accent)}
+.users .r{font-size:12.5px;color:var(--muted)}
+.hint{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+.err{background:var(--crit-soft);color:var(--crit);padding:10px 12px;border-radius:10px;font-size:13.5px}
+.webhook{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:6px 8px;margin-top:8px;overflow-x:auto;white-space:nowrap}
+@media (max-width:640px){.who-chip{display:none}.top-in > a.ghost{display:none}}
+@media (max-width:640px){.top-in{padding:10px 16px}.wrap{padding-inline:16px}.date-chip{display:none}.stats{gap:20px}.row2{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c1.8.7 3 2.4 3.5 5.2"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+    <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 16h14M6.5 16l1.4-5.2A2 2 0 0 1 9.8 9.3h4.4a2 2 0 0 1 1.9 1.5L17.5 16"/><rect x="3.5" y="13" width="17" height="5" rx="1.5"/><circle cx="7.5" cy="18.5" r="1.4"/><circle cx="16.5" cy="18.5" r="1.4"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 3.5h3l1.5 4-2 1.3a11 11 0 0 0 5.7 5.7l1.3-2 4 1.5v3a2 2 0 0 1-2.2 2A16 16 0 0 1 3 5.7 2 2 0 0 1 5 3.5z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5 10-11"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5H11l-1 8 8.5-11H12z"/></symbol>
+    <symbol id="i-spin" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/></symbol>
+    <symbol id="i-ear" viewBox="0 0 24 24"><path d="M7 9a5 5 0 0 1 10 0c0 3-2.5 4-3.5 6s-1 4.5-3.5 4.5A2.8 2.8 0 0 1 7.2 17"/><path d="M10 9.5a2 2 0 0 1 4 0c0 1.3-1.2 1.8-1.5 2.7"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5M4 3.5v5h5"/></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <div class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 11v2"/></svg></div>
+      <b>Domi Hearing</b><span class="demo">DEMO</span>
+    </div>
+    <div class="date-chip"><svg class="i"><use href="#i-cal"/></svg><span>Monday 12 October · <span class="mono">10:20</span></span></div>
+    <div class="seg" role="group" aria-label="Switch view">
+      <button id="role-admin" type="button" aria-pressed="true"><svg class="i"><use href="#i-cal"/></svg>Office</button>
+      <button id="role-clin" type="button" aria-pressed="false"><svg class="i"><use href="#i-phone"/></svg>Clinician</button>
+    </div>
+    <span class="who-chip" id="who" hidden></span>
+    <a class="ghost" href="/under-the-hood" target="_blank" rel="noopener"><svg class="i"><use href="#i-db"/></svg>Under the hood</a>
+    <button class="ghost" id="reset" type="button" title="Reset the demo data"><svg class="i"><use href="#i-reset"/></svg><span>Reset</span></button>
+  </div>
+</header>
+
+<main id="app"></main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="modal-root"></div>
+
+<script>
+(function(){
+"use strict";
+/* ============ API client ============ */
+let TOKEN = null, META = null, S = null, ES = null;
+const UI = { tab:"today", pid:null, q:"", rec:null, flow:null };
+try{ TOKEN = localStorage.getItem("domi-token"); }catch(e){}
+const setToken = t => { TOKEN = t; try{ t ? localStorage.setItem("domi-token", t) : localStorage.removeItem("domi-token"); }catch(e){} };
+
+async function api(method, url, body){
+  const res = await fetch(url, { method, headers: Object.assign({"Content-Type":"application/json"}, TOKEN?{Authorization:"Bearer "+TOKEN}:{}), body: body?JSON.stringify(body):undefined });
+  const data = await res.json().catch(()=>({error:"The server sent something unexpected."}));
+  if(res.status===401 && url!=="/api/login"){ setToken(null); S=null; render(); throw new Error(data.error); }
+  if(!res.ok) throw new Error(data.error||"Request failed");
+  return data;
+}
+const fail = e => toast(e.message, true);
+
+/* ============ helpers ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hm = m => String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+const clock = at => { if(!at) return ""; const d = new Date(at.replace(" ","T")+(at.endsWith("Z")?"":"Z")); return isNaN(d)?"":d.toTimeString().slice(0,5); };
+const icon = (n,cls) => `<svg class="i ${cls||""}"><use href="#i-${n}"/></svg>`;
+const pat = id => S.patients.find(p=>p.id===id) || {id, name:"Patient", pc:"", addr:"", alerts:[]};
+const cln = id => S.clinicians.find(c=>c.id===id);
+const first = n => String(n).split(" ")[0];
+const district = pc => String(pc).split(" ")[0];
+const active = a => a.status!=="cancelled";
+const dayAppts = c => S.appts.filter(a=>a.clinicianId===c && active(a)).sort((x,y)=>x.start-y.start);
+const initials = n => n.split(" ").map(w=>w[0]).join("").slice(0,2);
+const T = k => META.types[k];
+const isAdmin = () => S && S.user.role==="admin";
+
+function toast(msg, bad){
+  const t = document.createElement("div"); t.className="toast"; t.innerHTML = icon(bad?"x":"check")+esc(msg);
+  if(bad) t.style.background="var(--crit)";
+  $("#toasts").appendChild(t); setTimeout(()=>t.remove(),3800);
+}
+
+/* ============ data + live updates ============ */
+async function load(){
+  S = await api("GET","/api/state");
+  if(S.user.clinicianId) UI.lastClin = S.user.clinicianId;
+  if(UI.pid){ try{ UI.rec = await api("GET","/api/patients/"+UI.pid); }catch(e){ UI.pid=null; UI.rec=null; } }
+  render();
+}
+let refetchT = null;
+const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(()=>load().catch(()=>{}), 120); };
+
+function connect(){
+  if(ES) ES.close();
+  ES = new EventSource("/api/events?token="+encodeURIComponent(TOKEN));
+  const live = on => { const w=$("#who"); if(w) w.classList.toggle("off",!on); };
+  ES.addEventListener("hello", ()=>live(true));
+  ES.onerror = ()=>live(false);
+  ["appointment.cancelled","appointment.updated","offer.sent","offer.declined","offer.expired","slot.filled","slot.unfilled","sms.received","note.added","waitlist.added","settings.updated","reset"].forEach(type=>{
+    ES.addEventListener(type, ev=>{
+      const e = JSON.parse(ev.data);
+      if(type==="reset"){ UI.pid=null; UI.rec=null; closeModal(); toast("Demo data was reset"); }
+      if(type==="slot.filled" && !isAdmin()) toast(`Diary changed: ${e.patient} at ${hm(e.start)}`);
+      if(UI.flow && e.slotId===UI.flow.slotId) flowEvent(type,e);
+      refetch();
+    });
+  });
+}
+
+async function signIn(userId){
+  const r = await api("POST","/api/login",{userId});
+  setToken(r.token); UI.tab="today"; UI.pid=null; UI.rec=null;
+  await load(); connect();
+}
+
+/* ============ render ============ */
+function render(){
+  const who = $("#who");
+  if(!S){ who.hidden=true; $("#role-admin").setAttribute("aria-pressed","false"); $("#role-clin").setAttribute("aria-pressed","false"); $("#app").innerHTML = signInView(); return; }
+  who.hidden=false; who.innerHTML = `<i></i>${esc(S.user.name)}`;
+  $("#role-admin").setAttribute("aria-pressed", isAdmin());
+  $("#role-clin").setAttribute("aria-pressed", !isAdmin());
+  $("#app").innerHTML = isAdmin() ? adminView() : clinView();
+}
+
+function signInView(){
+  const users = META ? META.demoUsers : [];
+  return `<div class="wrap"><div class="signin">
+    <div><div class="label">Demo sign-in</div><h1>Who's using the diary?</h1></div>
+    <p>Office staff see every clinician's round and the waiting list. Clinicians see only their own visits and patients. The server enforces this, not the screen.</p>
+    <div class="users">${users.map(u=>`<button type="button" data-act="signin" data-id="${u.id}">
+      <span class="avatar" style="background:${u.color||"var(--brass)"}">${initials(u.name)}</span>
+      <span><b>${esc(u.name)}</b><div class="r">${u.role==="admin"?"Office manager":esc(u.title)}</div></span>${icon("back","")}</button>`).join("").replace(/i-back/g,"i-send")}</div>
+    <div class="hint">Tip: open the app on your phone as a clinician and on a laptop as the office. Cancel a visit on the laptop and watch the phone update.</div>
+  </div></div>`;
+}
+
+function adminView(){
+  const all = S.appts.filter(active);
+  const waiting = S.waitlist.filter(w=>w.status!=="booked");
+  const st = S.settings;
+  return `<div class="wrap">
+    <div class="hero">
+      <div><div class="label">Office view</div><h1>Today across the team</h1>
+      <p>Every clinician's round in one place. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p></div>
+      <div class="stats">
+        <div class="stat"><div class="n">${all.length}</div><div class="t">Home visits today</div></div>
+        <div class="stat"><div class="n">${waiting.length}</div><div class="t">On the waiting list</div></div>
+        <div class="stat"><div class="n">${S.refilled}</div><div class="t">Cancellations refilled</div></div>
+      </div>
+    </div>
+    <div class="grid">
+      <section class="panel" aria-label="Day board">
+        <div class="panel-h"><h2>Diaries</h2>
+          <div class="legend"><span><i class="sw" style="background:var(--surface-2)"></i>Done</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--accent-soft)"></i>Booked</span><span><i class="sw" style="background:var(--brass-soft)"></i>Moved forward</span></div>
+        </div>
+        <div class="board-scroll">${board()}</div>
+      </section>
+      <aside class="rail">
+        <section class="panel" aria-label="Waiting list">
+          <div class="panel-h"><h2>Waiting list</h2><button class="btn sm" data-act="add-wl" type="button">${icon("plus")}Add patient</button></div>
+          <div class="mode"><div class="label">When a visit is cancelled</div>
+            <div class="seg" role="group" aria-label="Refill mode">
+              <button type="button" data-act="mode" data-v="offer" aria-pressed="${st.mode==="offer"}">${icon("msg")}Text an offer first</button>
+              <button type="button" data-act="mode" data-v="instant" aria-pressed="${st.mode==="instant"}">${icon("bolt")}Book instantly</button>
+            </div>
+            <p>${st.mode==="offer"?`The patient replies YES to take the slot. If they say no, or don't reply within <select id="offer-min" aria-label="Reply window" style="border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:0 4px">${[1,5,20,60].map(m=>`<option value="${m}" ${m===st.offerMinutes?"selected":""}>${m} min</option>`).join("")}</select>, the next person is offered it.`:"The slot is booked straight away and the patient is told by text. They can reply NO to keep their place."}</p>
+          </div>
+          <ul class="wl">${S.waitlist.map((w,i)=>wlItem(w,i)).join("")}</ul>
+        </section>
+        <section class="panel" aria-label="Texts">
+          <div class="panel-h"><h2>Texts</h2><span class="muted" style="font-size:12.5px">${S.messages.length} today · ${META.smsProvider==="twilio"?"sending live":"demo outbox"}</span></div>
+          ${S.messages.length? `<div class="sms-list">${S.messages.map(smsBubble).join("")}</div>` : `<div class="empty">Cancel a visit in a diary to see the texts that go out to patients and clinicians.</div>`}
+        </section>
+      </aside>
+    </div></div>`;
+}
+function wlItem(w,i){
+  const p = pat(w.patientId), t = T(w.type);
+  const badge = w.status==="booked"?`<span class="badge b-ok">Booked</span>`:w.status==="offered"?`<span class="badge b-brass">Offered</span>`:`<span class="badge ${w.prio==="urgent"?"b-crit":w.prio==="soon"?"b-warn":"b-plain"}">${META.prio[w.prio].label}</span>`;
+  return `<li class="${w.status==="booked"?"booked":""}">
+    <span class="pos">${w.status==="booked"?icon("check"):i+1}</span>
+    <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
+      <div class="meta"><span>${t.name}</span><span>${district(p.pc)}</span><span>${META.avail[w.avail]}</span>${w.shortNotice?"":"<span>Needs 24h notice</span>"}<span>${w.days}d waiting</span></div></div>
+    ${badge}</li>`;
+}
+function smsBubble(m){
+  const cls = m.dir==="in"?"in":(m.toClin?"clin":"");
+  return `<div class="sms ${cls}"><div class="who">${m.dir==="in"?esc(m.name)+" replied":"To "+esc(m.name)} · <span class="mono">${m.time||clock(m.at)}</span></div><div class="bub">${esc(m.body)}</div></div>`;
+}
+function board(){
+  const PX = 1.35, DS = META.dayStart, DE = META.dayEnd, H = (DE-DS)*PX;
+  let ticks = "";
+  for(let m=DS;m<=DE;m+=60) ticks += `<div class="tick mono" style="top:${(m-DS)*PX}px">${hm(m)}</div>`;
+  const nowY = (META.now-DS)*PX;
+  const lanes = S.clinicians.map(c=>{
+    const blocks = dayAppts(c.id).map(a=>{
+      const p = pat(a.patientId), t = T(a.type), top=(a.start-DS)*PX, h=Math.max(t.dur*PX-3,34);
+      const cls = a.moved?"moved":a.status==="done"?"done":a.status==="live"?"live":"";
+      const drive = a.drive>=10? `<div class="travel" style="top:${top-a.drive*PX+2}px;height:${a.drive*PX}px">${icon("car")}${a.drive} min</div>`:"";
+      return `${drive}<button class="appt ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}">
+        ${h<50?`<span class="pn"><span class="tm mono">${hm(a.start)}</span> ${esc(p.name)}</span>`:`<span class="tm mono">${hm(a.start)}–${hm(a.start+t.dur)}</span><span class="pn">${esc(p.name)}</span>`}${h>60?`<span class="ty">${t.name}</span>`:""}${a.status==="enroute"&&h>78?`<span class="badge b-warn">On the way</span>`:""}${a.moved&&h>78?`<span class="badge b-brass">${icon("bolt")}Moved forward</span>`:""}
+      </button>`;
+    }).join("");
+    const filled = new Set(dayAppts(c.id).map(a=>a.start));
+    const gaps = S.appts.filter(a=>a.clinicianId===c.id&&a.status==="cancelled"&&!filled.has(a.start)).map(a=>{
+      const t=T(a.type), pending = S.offers.some(o=>o.slot_id===a.id);
+      return `<div class="appt gap" style="top:${(a.start-DS)*PX}px;height:${t.dur*PX-3}px"><span class="tm mono">${hm(a.start)}</span><span class="ty">${pending?"Offer out, awaiting reply":"Open slot"}</span></div>`;}).join("");
+    return `<div class="lane" style="height:${H}px;background-size:100% ${60*PX}px">${blocks}${gaps}<div class="now" style="top:${nowY}px"></div></div>`;
+  }).join("");
+  const heads = S.clinicians.map(c=>`<div class="col-h"><div class="avatar" style="background:${c.color}">${initials(c.name)}</div><div><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div></div></div>`).join("");
+  return `<div class="board" style="grid-template-columns:52px repeat(${S.clinicians.length},minmax(210px,1fr))"><div class="col-h"></div>${heads}<div class="times" style="height:${H}px">${ticks}</div>${lanes}</div>`;
+}
+
+/* ============ Clinician ============ */
+function clinView(){
+  const c = S.clinicians[0];
+  let body;
+  if(UI.pid && UI.rec) body = record(UI.rec);
+  else if(UI.tab==="patients") body = patientsTab(c);
+  else if(UI.tab==="msgs") body = msgsTab(c);
+  else body = todayTab(c);
+  const unread = S.messages.filter(m=>m.toClin===c.id && !m.read).length;
+  return `<div class="wrap cl"><div class="clin-stage">
+    <div class="clin-side"><div class="label">Clinician view</div><h2>${esc(c.first)}'s phone</h2>
+      <p>What a clinician carries on the round. Built for one-handed use between visits.</p>
+      <ul><li>Today's visits in order, with drive times</li><li>Tap a visit to open the patient record, audiogram and notes</li><li>"On my way" texts the patient automatically</li><li>Diary changes from the office arrive here live</li></ul></div>
+    <div class="phone">
+      <div class="ph-scroll" id="ph-scroll">${body}</div>
+      <nav class="ph-tabs" aria-label="Clinician sections">
+        <button type="button" data-act="tab" data-v="today" aria-current="${!UI.pid&&UI.tab==="today"?"page":"false"}">${icon("cal")}Today</button>
+        <button type="button" data-act="tab" data-v="patients" aria-current="${UI.tab==="patients"||UI.pid?"page":"false"}">${icon("users")}Patients</button>
+        <button type="button" data-act="tab" data-v="msgs" aria-current="${!UI.pid&&UI.tab==="msgs"?"page":"false"}">${icon("msg")}Messages${unread?`<span class="dot">${unread}</span>`:""}</button>
+      </nav>
+    </div><div></div></div></div>`;
+}
+function todayTab(c){
+  const list = dayAppts(c.id), done = list.filter(a=>a.status==="done").length;
+  const moved = list.find(a=>a.moved && !a.seen);
+  const cards = list.map((a,i)=>{
+    const p=pat(a.patientId), t=T(a.type);
+    const cls = a.moved?"moved":a.status==="done"?"done":a.status==="live"?"live":"";
+    const st = a.status==="done"?`<span class="badge b-plain">Done</span>`:a.status==="live"?`<span class="badge b-ok">With patient</span>`:a.status==="enroute"?`<span class="badge b-warn">On my way</span>`:a.moved?`<span class="badge b-brass">${icon("bolt")}New</span>`:"";
+    return `${a.drive&&i>0?`<div class="drive">${icon("car")}${a.drive} min drive</div>`:""}
+    <button class="v ${cls}" type="button" data-act="open-p" data-id="${p.id}" data-appt="${a.id}">
+      <div class="tl"><span class="t mono">${hm(a.start)}</span><span class="ln"></span></div>
+      <div class="card"><div class="row"><span class="type-chip">${t.name}</span>${st}</div>
+        <div class="pn">${esc(p.name)}</div>
+        <div class="ad">${icon("pin")}<span>${esc(p.addr)}, ${esc(p.pc)}</span></div>
+        ${p.alerts.length?`<div class="ad" style="color:var(--warn)">${icon("users")}<span>${esc(p.alerts[0])}</span></div>`:""}
+      </div></button>`;
+  }).join("");
+  return `<div class="greet"><div><div class="label">Mon 12 Oct</div><h2>Morning, ${esc(c.first)}</h2></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:13px"><span class="muted">${done} of ${list.length} visits done</span><span class="muted">${esc(c.areaName)}</span></div>
+    <div class="progress"><i style="width:${list.length?done/list.length*100:0}%"></i></div>
+    ${moved?`<div class="banner">${icon("bolt")}<div><b>Your diary changed</b>${esc(moved.note)}</div></div>`:""}
+    <div class="visits">${cards||`<div class="empty">No visits today.</div>`}</div>`;
+}
+function patientsTab(c){
+  const q = UI.q.toLowerCase();
+  const list = S.patients.filter(p=>!q||p.name.toLowerCase().includes(q)||p.pc.toLowerCase().includes(q));
+  return `<div class="greet"><div><div class="label">${esc(c.areaName)}</div><h2>Patients</h2></div></div>
+    <input class="search" id="psearch" type="search" placeholder="Search by name or postcode" value="${esc(UI.q)}" aria-label="Search patients">
+    <div class="plist">${list.map(p=>`<button type="button" data-act="open-p" data-id="${p.id}"><div><div style="font-weight:600">${esc(p.name)}</div><div class="muted" style="font-size:12.5px">${esc(p.addr)}, ${esc(p.pc)}</div></div>${icon("send")}</button>`).join("")||`<div class="empty">No patients match.</div>`}</div>`;
+}
+function msgsTab(c){
+  if(S.messages.some(m=>m.toClin===c.id && !m.read)) api("POST","/api/messages/read").then(refetch).catch(()=>{});
+  return `<div class="greet"><div><div class="label">From the office</div><h2>Messages</h2></div></div>
+    ${S.messages.length?`<div class="sms-list" style="padding:0;max-height:none">${S.messages.map(smsBubble).join("")}</div>`:`<div class="empty">Diary changes and texts sent on your behalf appear here.</div>`}`;
+}
+function audiogram(a){
+  const FREQS=[250,500,1000,2000,4000,8000], W=300,H=200,l=34,r=10,t=14,b=24, iw=W-l-r, ih=H-t-b;
+  const x = i => l + i*(iw/(FREQS.length-1));
+  const y = db => t + (db+10)/130*ih;
+  let g = `<rect x="${l}" y="${y(-10)}" width="${iw}" height="${y(20)-y(-10)}" fill="var(--ok-soft)" opacity=".6"/>`;
+  for(let db=-10;db<=120;db+=10){ g+=`<line x1="${l}" x2="${W-r}" y1="${y(db)}" y2="${y(db)}" stroke="var(--line)" stroke-width="${db%20===0?1:.5}"/>`; if(db%20===0) g+=`<text x="${l-6}" y="${y(db)+3}" text-anchor="end">${db}</text>`; }
+  FREQS.forEach((f,i)=>{ g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${t}" y2="${H-b}" stroke="var(--line)" stroke-width=".5"/><text x="${x(i)}" y="${H-b+14}" text-anchor="middle">${f>=1000?f/1000+"k":f}</text>`; });
+  const line = (arr,col) => `<polyline fill="none" stroke="${col}" stroke-width="1.6" points="${arr.map((v,i)=>x(i)+","+y(v)).join(" ")}"/>`;
+  g += line(a.R,"var(--ear-r)") + line(a.L,"var(--ear-l)");
+  a.R.forEach((v,i)=>{ g+=`<circle cx="${x(i)}" cy="${y(v)}" r="4.2" fill="var(--surface)" stroke="var(--ear-r)" stroke-width="1.6"/>`; });
+  a.L.forEach((v,i)=>{ const cx=x(i),cy=y(v); g+=`<path d="M${cx-4} ${cy-4}L${cx+4} ${cy+4}M${cx+4} ${cy-4}L${cx-4} ${cy+4}" stroke="var(--ear-l)" stroke-width="1.8"/>`; });
+  return `<svg class="aud" viewBox="0 0 ${W} ${H}" role="img" aria-label="Audiogram: right ear circles, left ear crosses">${g}<text x="4" y="${t+ih/2}" transform="rotate(-90 8 ${t+ih/2})" text-anchor="middle">dB HL</text></svg>
+    <div class="aud-leg"><span><b style="color:var(--ear-r)">O</b> Right ear</span><span><b style="color:var(--ear-l)">X</b> Left ear</span><span>Shaded band: normal hearing</span></div>`;
+}
+function record(p){
+  const a = S.appts.find(x=>x.patientId===p.id && active(x) && x.status!=="done");
+  const t = a ? T(a.type) : null;
+  let actions = "";
+  if(a){
+    if(a.status==="booked") actions = `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button><button class="btn" type="button" data-act="status" data-v="enroute" data-id="${a.id}">${icon("car")}On my way</button>`;
+    else if(a.status==="enroute") actions = `<button class="btn" type="button" data-act="status" data-v="live" data-id="${a.id}">${icon("pin")}I've arrived</button>`;
+    else if(a.status==="live") actions = `<button class="btn" type="button" data-act="status" data-v="done" data-id="${a.id}">${icon("check")}Complete visit</button>`;
+  }
+  const maps = "https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(p.addr+", Leeds "+p.pc);
+  return `<button class="back" type="button" data-act="back">${icon("back")}Back</button>
+    <div class="rec-h"><div class="label">${a?`${hm(a.start)} · ${t.name}`:"Patient record"}</div><h2>${esc(p.name)}</h2>
+      <div class="sub">${p.age?p.age+" years · ":""}${esc(p.addr)}, ${esc(p.pc)}</div></div>
+    <div class="tags"><span class="tag">${icon("msg")}Prefers: ${esc(p.contact)}</span>${p.alerts.map(x=>`<span class="tag alert">${esc(x)}</span>`).join("")}</div>
+    <div class="quick">
+      <a href="${maps}" target="_blank" rel="noopener">${icon("pin")}Directions</a>
+      <button type="button" data-act="copy" data-v="${esc(p.phone)}">${icon("phone")}<span class="mono">${esc(p.phone.slice(-6))}</span></button>
+      <button type="button" data-act="focus-note">${icon("plus")}Add note</button>
+    </div>
+    ${a&&a.moved?`<div class="banner">${icon("bolt")}<div><b>Moved forward today</b>${esc(a.note)}</div></div>`:""}
+    <div class="sec"><h3>Visit notes ${a&&a.status==="live"?`<span class="badge b-ok">In progress</span>`:""}</h3>
+      <div class="chips">${["Otoscopy clear","Wax removed R","Wax removed L","Aids cleaned & retubed","Domes replaced","Fine-tuned gain","Advised on batteries","Follow-up in 6 weeks"].map(c=>`<button type="button" data-act="chip">${c}</button>`).join("")}</div>
+      <textarea id="note" placeholder="What did you do on this visit?"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
+    </div>
+    <div class="sec"><h3>Hearing</h3>${p.audio?audiogram(p.audio):`<p class="muted" style="margin:0;font-size:13.5px">No audiogram yet. Results are added after the assessment.</p>`}</div>
+    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Hearing aids</dt><dd>${esc(p.aids)}</dd><dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
+    <div class="sec"><h3>History</h3>${p.history.length?`<ul class="hist">${p.history.map(h=>`<li><div><div class="d">${esc(h.label)}${h.by?" · "+esc(h.by):""}</div>${esc(h.body)}</div></li>`).join("")}</ul>`:`<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
+    ${actions?`<div class="actionbar">${actions}</div>`:""}`;
+}
+
+/* ============ Modals ============ */
+function modal(html){ $("#modal-root").innerHTML = `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`; }
+function closeModal(){ $("#modal-root").innerHTML=""; UI.flow=null; }
+
+function apptModal(id){
+  const a = S.appts.find(x=>x.id===id); if(!a) return;
+  const p=pat(a.patientId), t=T(a.type), c=cln(a.clinicianId);
+  const canCancel = a.status==="booked"||a.status==="enroute";
+  modal(`<div class="modal-h"><div><div class="label">${hm(a.start)}–${hm(a.start+t.dur)} · ${esc(c.name)}</div><h2>${esc(p.name)}</h2></div><button class="x" type="button" data-act="close" aria-label="Close">${icon("x")}</button></div>
+  <div class="modal-b">
+    <dl class="kv" style="margin-bottom:14px"><dt>Visit</dt><dd>${t.name} (${t.dur} min)</dd><dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd class="mono">${esc(p.phone)} (${esc(p.contact.toLowerCase())})</dd>${p.alerts.length?`<dt>Note</dt><dd>${esc(p.alerts.join(". "))}</dd>`:""}</dl>
+    ${canCancel?`<div class="field"><label for="reason">Reason for cancelling</label><select id="reason">${META.reasons.map(r=>`<option>${r}</option>`).join("")}</select></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn secondary" type="button" data-act="close">Keep visit</button><button class="btn danger" type="button" data-act="do-cancel" data-id="${a.id}">${icon("x")}Cancel and refill slot</button></div>`
+    :`<p class="muted" style="margin:0">${a.status==="done"?"This visit is complete.":"The clinician is with this patient now."}</p>`}
+  </div>`);
+}
+
+/* The refill story, step by step. Steps come from the API response, then from live server events. */
+const step = (state,title,desc,extra) => `<li class="step ${state}"><span class="ic">${icon(state==="ok"?"check":state==="wait"?"spin":state==="no"?"x":"send")}</span><div><div class="st">${title}</div>${desc?`<div class="sd">${desc}</div>`:""}${extra||""}</div></li>`;
+function candList(list){
+  return `<div class="cands">${list.slice(0,4).map((x,i)=>`<div class="cand ${x.ok&&i===0?"top":""}"><span class="pos">${i+1}</span><div style="min-width:0"><b>${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span><div class="why">${x.ok?x.why.map(w=>`<span>${esc(w)}</span>`).join(""):`<span>Not suitable: ${esc(x.reason)}</span>`}</div></div><span class="sc">${x.ok?x.score+" pts":"–"}</span></div>`).join("")}</div>`;
+}
+function paintFlow(){
+  const f = UI.flow; if(!f) return;
+  modal(`<div class="modal-h"><div><div class="label">${esc(f.clinician)} · ${hm(f.start)}</div><h2>Filling the slot</h2></div><button class="x" type="button" data-act="close" aria-label="Close">${icon("x")}</button></div><div class="modal-b"><ol class="steps">${f.steps.join("")}</ol>${f.foot||""}</div>`);
+}
+function offerStep(r){
+  UI.flow.offerPhone = r.phone;
+  UI.flow.steps.push(step("wait",`Offer texted to ${esc(r.top.name)}`,`Waiting for a reply. If none arrives within ${r.expiresInMin} min the server offers it to the next person.`,`<div class="sms-prev">${smsBubble({name:r.top.name,body:r.body,time:hm(META.now)})}</div>`));
+  UI.flow.foot = `<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px"><span class="muted" style="font-size:12.5px;align-self:center;margin-right:auto">Demo: send the patient's reply</span><button class="btn secondary sm" type="button" data-act="reply" data-v="No thanks, not today">They reply NO</button><button class="btn sm" type="button" data-act="reply" data-v="Yes please">They reply YES</button></div>
+    <div class="webhook">POST /api/sms/inbound  From=${esc(r.phone)}  (the same call Twilio makes)</div>`;
+}
+function doneFoot(cid){ return `<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn secondary" type="button" data-act="see-clin" data-c="${cid}">See ${esc(first(cln(cid).name))}'s phone</button><button class="btn" type="button" data-act="close">Done</button></div>`; }
+function startFlow(r, cancelled){
+  const c = cln(r.clinicianId), p = pat(cancelled.patientId);
+  UI.flow = { slotId:r.slotId, clinician:c.name, clinicianId:c.id, start:r.start, steps:[], foot:"" };
+  const f = UI.flow;
+  f.steps.push(step("ok",`${hm(r.start)} slot freed`,`${esc(p.name)} cancelled and was texted. ${r.window} minutes free before ${esc(c.first)}'s next visit.`));
+  if(r.outcome==="unfilled"){
+    f.steps.push(step("no","No one on the waiting list fits",`Nobody suitable can take a ${r.window} minute slot at ${hm(r.start)} near ${esc(c.first)}. The gap stays visible in the diary.`, r.candidates.length?candList(r.candidates):""));
+    f.foot = `<div style="display:flex;justify-content:flex-end"><button class="btn" type="button" data-act="close">Done</button></div>`;
+  } else {
+    f.steps.push(step("ok",`Best match: ${esc(r.top.name)}`,`Ranked by the server from everyone on the waiting list.`,candList(r.candidates)));
+    if(r.outcome==="offered") offerStep(r);
+    else { f.steps.push(finalStep(r.booking, true)); f.foot = doneFoot(c.id); }
+  }
+  paintFlow();
+}
+const finalStep = (b, instant) => step("ok",`Diary updated and ${esc(first(b.clinician))} told`,`${instant?esc(b.patient)+" booked straight in and told by text. ":""}${esc(first(b.clinician))} got a text and the visit is on the phone now.`);
+function flowEvent(type, e){
+  const f = UI.flow, last = f.steps.length-1;
+  if(type==="offer.declined"){ f.steps[last] = step("no",`${esc(e.patient)} said no`,"They keep their place on the list. Offering the next best match."); f.foot=""; }
+  else if(type==="offer.expired"){ f.steps[last] = step("no",`${esc(e.patient)} didn't reply in time`,"They keep their place. The server moved on automatically."); f.foot=""; }
+  else if(type==="offer.sent"){ f.steps.push(step("ok",`Next best: ${esc(e.top.name)}`,"",candList(e.candidates))); offerStep(e); }
+  else if(type==="slot.filled"){ if(!e.instant) f.steps[last] = step("ok",`${esc(e.patient)} accepted`,"Replied YES by text."); f.steps.push(finalStep(e, e.instant)); f.foot = doneFoot(f.clinicianId); toast(`${e.patient} moved forward to ${hm(e.start)}`); }
+  else if(type==="slot.unfilled"){ f.steps.push(step("no","No one else fits",`The ${hm(e.start)} gap stays open in the diary.`)); f.foot = `<div style="display:flex;justify-content:flex-end"><button class="btn" type="button" data-act="close">Done</button></div>`; }
+  else return;
+  paintFlow();
+}
+
+function addWlModal(){
+  const busy = new Set(S.waitlist.filter(w=>w.status!=="booked").map(w=>w.patientId).concat(S.appts.filter(active).map(a=>a.patientId)));
+  const opts = S.patients.filter(p=>!busy.has(p.id));
+  modal(`<div class="modal-h"><div><div class="label">Waiting list</div><h2>Add a patient</h2></div><button class="x" type="button" data-act="close" aria-label="Close">${icon("x")}</button></div>
+  <form class="modal-b" id="wl-form">
+    <div class="field"><label for="wl-p">Patient</label><select id="wl-p">${opts.map(p=>`<option value="${p.id}">${esc(p.name)} · ${esc(p.pc)}</option>`).join("")}<option value="new">New patient…</option></select></div>
+    <div id="wl-new" ${opts.length?"hidden":""}><div class="row2"><div class="field"><label for="wl-name">Name</label><input id="wl-name" placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="wl-pc">Postcode district</label><input id="wl-pc" placeholder="LS16"></div></div>
+      <div class="row2"><div class="field"><label for="wl-addr">Address</label><input id="wl-addr" placeholder="House and street"></div><div class="field"><label for="wl-phone">Mobile</label><input id="wl-phone" placeholder="07700 900000" inputmode="tel"></div></div></div>
+    <div class="row2"><div class="field"><label for="wl-type">Visit type</label><select id="wl-type">${Object.entries(META.types).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join("")}</select></div>
+    <div class="field"><label for="wl-prio">Priority</label><select id="wl-prio"><option value="routine">Routine</option><option value="soon">Soon</option><option value="urgent">Urgent</option></select></div></div>
+    <div class="row2"><div class="field"><label for="wl-avail">Availability</label><select id="wl-avail">${Object.entries(META.avail).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select></div>
+    <div class="field"><label for="wl-short">Short notice?</label><select id="wl-short"><option value="1">Can take a same-day visit</option><option value="0">Needs 24h notice</option></select></div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn secondary" type="button" data-act="close">Cancel</button><button class="btn" type="submit">${icon("plus")}Add to list</button></div>
+  </form>`);
+}
+
+/* ============ Events ============ */
+async function openPatient(id, apptId){
+  try{
+    UI.rec = await api("GET","/api/patients/"+id); UI.pid = id;
+    const a = S.appts.find(x=>x.id===apptId);
+    if(a && a.moved && !a.seen){ a.seen=true; api("POST","/api/appointments/"+a.id+"/seen").catch(()=>{}); }
+    render(); const sc=$("#ph-scroll"); if(sc) sc.scrollTop=0; window.scrollTo(0,0);
+  }catch(e){ fail(e); }
+}
+async function switchRole(admin){
+  if(S && isAdmin()===admin) return;
+  const id = admin ? "u-admin" : ("u-" + (UI.lastClin || "c1"));
+  try{ closeModal(); await signIn(id); }catch(e){ fail(e); }
+}
+
+document.addEventListener("click", async e=>{
+  const el = e.target.closest("[data-act]"); if(!el) return;
+  const act = el.dataset.act;
+  if(act==="scrim" && e.target!==el) return;
+  try{
+    switch(act){
+      case "signin": await signIn(el.dataset.id); break;
+      case "scrim": case "close": closeModal(); break;
+      case "mode": await api("PUT","/api/settings",{mode:el.dataset.v}); await load(); break;
+      case "open-appt": apptModal(el.dataset.id); break;
+      case "do-cancel": {
+        const a = S.appts.find(x=>x.id===el.dataset.id); el.disabled = true;
+        const r = await api("POST","/api/appointments/"+a.id+"/cancel",{reason:$("#reason").value});
+        if(!isAdmin()){ closeModal(); UI.pid=null; UI.rec=null; toast("Visit cancelled. The office system is refilling the slot."); await load(); break; }
+        startFlow(r, a); refetch(); break; }
+      case "reply": {
+        el.disabled = true;
+        await fetch("/api/sms/inbound",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({From:UI.flow.offerPhone,Body:el.dataset.v})});
+        break; }
+      case "see-clin": UI.lastClin = el.dataset.c; closeModal(); await signIn("u-"+el.dataset.c); window.scrollTo(0,0); break;
+      case "add-wl": addWlModal(); break;
+      case "tab": UI.tab=el.dataset.v; UI.pid=null; UI.rec=null; render(); break;
+      case "open-p": await openPatient(el.dataset.id, el.dataset.appt); break;
+      case "back": UI.pid=null; UI.rec=null; render(); break;
+      case "chip": { const n=$("#note"); n.value = (n.value?n.value.replace(/[\s.]*$/,"")+". ":"")+el.textContent; n.focus(); break; }
+      case "focus-note": $("#note").scrollIntoView({behavior:"smooth",block:"center"}); $("#note").focus(); break;
+      case "save-note": { const v=$("#note").value.trim(); if(!v){ toast("Write a note first", true); $("#note").focus(); break; }
+        await api("POST","/api/patients/"+el.dataset.id+"/notes",{body:v}); await load(); toast("Saved to "+UI.rec.name+"'s record"); break; }
+      case "copy": { const v=el.dataset.v; try{ await navigator.clipboard.writeText(v); toast("Number copied: "+v); }catch(err){ toast(v); } break; }
+      case "status": {
+        const v = el.dataset.v, note = $("#note") ? $("#note").value.trim() : "";
+        if(v==="done" && note) await api("POST","/api/patients/"+UI.pid+"/notes",{body:note});
+        await api("POST","/api/appointments/"+el.dataset.id+"/status",{status:v});
+        if(v==="enroute") toast("Patient texted that you're on the way");
+        if(v==="live") toast("Visit started");
+        if(v==="done"){ UI.pid=null; UI.rec=null; toast("Visit complete. Next visit is on your list."); }
+        await load(); break; }
+    }
+  }catch(err){ fail(err); el.disabled=false; }
+});
+document.addEventListener("submit", async e=>{
+  if(e.target.id!=="wl-form") return; e.preventDefault();
+  const pid = $("#wl-p").value;
+  try{
+    await api("POST","/api/waitlist",{patientId:pid,name:$("#wl-name").value,pc:$("#wl-pc").value,addr:$("#wl-addr").value,phone:$("#wl-phone").value,type:$("#wl-type").value,prio:$("#wl-prio").value,avail:$("#wl-avail").value,shortNotice:$("#wl-short").value==="1"});
+    closeModal(); await load(); toast("Added to the waiting list");
+  }catch(err){ fail(err); }
+});
+document.addEventListener("change", async e=>{
+  if(e.target.id==="wl-p"){ $("#wl-new").hidden = e.target.value!=="new"; }
+  if(e.target.id==="offer-min"){ try{ await api("PUT","/api/settings",{offerMinutes:Number(e.target.value)}); await load(); toast("Reply window set to "+e.target.value+" min"); }catch(err){ fail(err); } }
+});
+document.addEventListener("input", e=>{
+  if(e.target.id==="psearch"){ UI.q=e.target.value; const pos=e.target.selectionStart; render(); const s=$("#psearch"); s.focus(); s.setSelectionRange(pos,pos); }
+});
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });
+$("#role-admin").onclick = ()=>switchRole(true);
+$("#role-clin").onclick = ()=>switchRole(false);
+$("#reset").onclick = async ()=>{
+  try{
+    if(!S || !isAdmin()){ await signIn("u-admin"); }
+    await api("POST","/api/admin/reset"); closeModal(); UI.pid=null; UI.rec=null; await load(); toast("Demo reset");
+  }catch(err){ fail(err); }
+};
+
+(async function boot(){
+  try{ META = await api("GET","/api/meta"); }catch(e){ $("#app").innerHTML = `<div class="wrap"><div class="signin"><div class="err">Can't reach the server. Start it with <span class="mono">npm start</span> and reload.</div></div></div>`; return; }
+  if(TOKEN){ try{ await load(); connect(); return; }catch(e){ setToken(null); } }
+  S = null; render();
+})();
+})();
+</script>
+
+</body>
+</html>
