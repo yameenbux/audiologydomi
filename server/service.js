@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, hm, first } = require("./domain");
+const { TYPES, hm, first, dayPhrase, DAYS } = require("./domain");
 const { rankCandidates, parseReply, planOffer, suggestSlots } = require("./refill");
 const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
@@ -22,7 +22,9 @@ const run = (sql, ...a) => db.prepare(sql).run(...a);
 const getAppt = (id) => { const r = one("SELECT * FROM appointments WHERE id = ?", id); return r && map.appt(r); };
 const getPatient = (id) => { const r = one("SELECT * FROM patients WHERE id = ?", id); return r && map.patient(r); };
 const getClinician = (id) => { const r = one("SELECT * FROM clinicians WHERE id = ?", id); return r && map.clinician(r); };
-const dayAppts = (cid) => all("SELECT * FROM appointments WHERE clinician_id = ? AND status != 'cancelled' ORDER BY start_min", cid).map(map.appt);
+const dayAppts = (cid, day = 0) => all("SELECT * FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' ORDER BY start_min", cid, day).map(map.appt);
+/** "today at 11:00", "tomorrow at 11:00", "on Wednesday 14 Oct at 11:00" */
+const when = (day, start) => `${dayPhrase(day)} at ${hm(start)}`;
 const newId = (prefix) => prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 10);
 
 function audit(actor, action, entity, detail) {
@@ -50,7 +52,7 @@ function rank(slot, declined) {
   const clinician = getClinician(slot.clinicianId);
   const waitlist = all("SELECT * FROM waitlist WHERE status = 'waiting'").map(map.wait);
   const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => [r.id, map.patient(r)]));
-  return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId).concat(slot), waitlist, patientsById, declined }) };
+  return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0 }) };
 }
 
 const declinedFor = (slotId) => all("SELECT waitlist_id FROM offers WHERE slot_id = ? AND status IN ('declined','expired')", slotId).map((r) => r.waitlist_id);
@@ -67,9 +69,9 @@ function cancelAppointment(id, reason, actor, { byText = false } = {}) {
     run("UPDATE appointments SET status = 'cancelled', reason = ?, cancelled_min = ? WHERE id = ?", reason, sandbox.nowMin(), id);
     audit(actor, "appointment.cancel", id, `${p.name} at ${hm(a.start)}: ${reason}`);
     sendSms({ to: p.phone, name: p.name, kind: "cancellation", body: byText
-      ? `Thanks ${first(p.name)}, we've cancelled today's ${hm(a.start)} visit. We'll be in touch to rebook. ${BRAND}`
-      : `Hi ${first(p.name)}, your visit today at ${hm(a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${BRAND}` });
-    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `${p.name} (${hm(a.start)}) has cancelled${byText ? " by text" : ""}. We're refilling the slot and will update you.` });
+      ? `Thanks ${first(p.name)}, we've cancelled your visit ${when(a.day, a.start)}. We'll be in touch to rebook. ${BRAND}`
+      : `Hi ${first(p.name)}, your visit ${when(a.day, a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${BRAND}` });
+    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `${p.name} (${a.day === 0 ? "" : DAYS[a.day] + " "}${hm(a.start)}) has cancelled${byText ? " by text" : ""}. We're refilling the slot and will update you.` });
     const result = offerNext(id, actor, { first: true });
     const evt = { ...result, cancelled: { patient: p.name, reason, byText } };
     bus.emit({ type: "refill.started", ...evt });
@@ -86,8 +88,8 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
   const { clinician, window, candidates } = rank(slot, declinedFor(slotId));
   const eligible = candidates.filter((c) => c.ok);
   const now = sandbox.nowMin();
-  const plan = planOffer({ leadMin: slot.start - now, drive: slot.drive, offerMinutes: settings().offerMinutes, eligible: eligible.length });
-  const base = { slotId, clinicianId: slot.clinicianId, clinician: clinician.name, start: slot.start, window, candidates: candidates.slice(0, 5), plan, now };
+  const plan = planOffer({ leadMin: slot.day * 1440 + slot.start - now, drive: slot.drive, offerMinutes: settings().offerMinutes, eligible: eligible.length });
+  const base = { slotId, clinicianId: slot.clinicianId, clinician: clinician.name, day: slot.day, start: slot.start, window, candidates: candidates.slice(0, 5), plan, now };
 
   if (plan.mode === "none" || plan.mode === "too-late") {
     const why = plan.mode === "none" ? "Nobody suitable on the waiting list" : `Too close to the visit to confirm anyone (${Math.max(0, plan.slack)} min of slack)`;
@@ -107,10 +109,10 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
   const chosen = eligible.slice(0, plan.count);
   const offers = chosen.map((cand) => {
     const p = getPatient(cand.patientId);
-    const visit = `${hm(slot.start)} with ${clinician.first} (${TYPES[cand.type].name.toLowerCase()})`;
+    const visit = `${when(slot.day, slot.start)} with ${clinician.first} (${TYPES[cand.type].name.toLowerCase()})`;
     const body = plan.mode === "parallel"
-      ? `Hi ${first(p.name)}, it's ${BRAND}. A home visit has opened up today at ${visit}. The first person to reply YES gets it, replies close at ${deadline}. Reply NO to keep your place on the list.`
-      : `Hi ${first(p.name)}, it's ${BRAND}. A home visit has opened up today at ${visit}. Would you like it? Reply YES by ${deadline} to accept, or NO to keep your place on the list.`;
+      ? `Hi ${first(p.name)}, it's ${BRAND}. A home visit has opened up ${visit}. The first person to reply YES gets it, replies close at ${deadline}. Reply NO to keep your place on the list.`
+      : `Hi ${first(p.name)}, it's ${BRAND}. A home visit has opened up ${visit}. Would you like it? Reply YES by ${deadline} to accept, or NO to keep your place on the list.`;
     const o = one("INSERT INTO offers (slot_id, waitlist_id, status, score, round, sent_at, expires_at, deadline) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?) RETURNING id",
       slotId, cand.waitlistId, cand.score, round, Date.now(), Date.now() + plan.windowMin * 60000, deadline);
     run("UPDATE waitlist SET status = 'offered' WHERE id = ?", cand.waitlistId);
@@ -130,12 +132,12 @@ function book(slot, waitlistId, offerId, actor) {
   const old = getPatient(slot.patientId);
   const c = getClinician(slot.clinicianId);
   const t = TYPES[w.type];
-  const clash = one("SELECT id FROM appointments WHERE clinician_id = ? AND start_min = ? AND status != 'cancelled'", slot.clinicianId, slot.start);
+  const clash = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND start_min = ? AND status != 'cancelled'", slot.clinicianId, slot.day, slot.start);
   if (clash) throw new HttpError(409, "That slot has already been filled.");
   const id = newId("n");
-  const note = `${old.name} cancelled. ${p.name} (${t.name.toLowerCase()}) now booked at ${hm(slot.start)}, ${p.addr}.`;
-  run("INSERT INTO appointments (id, clinician_id, patient_id, type, start_min, drive, status, moved, note, booked_min, filled_from) VALUES (?, ?, ?, ?, ?, ?, 'booked', 1, ?, ?, ?)",
-    id, slot.clinicianId, p.id, w.type, slot.start, slot.drive, note, sandbox.nowMin(), slot.id);
+  const note = `${old.name} cancelled. ${p.name} (${t.name.toLowerCase()}) now booked ${when(slot.day, slot.start)}, ${p.addr}.`;
+  run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, moved, note, booked_min, filled_from) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', 1, ?, ?, ?)",
+    id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id);
   run("UPDATE appointments SET gap = 0 WHERE id = ?", slot.id);
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
   if (offerId) {
@@ -145,17 +147,17 @@ function book(slot, waitlistId, offerId, actor) {
       run("UPDATE offers SET status = 'superseded' WHERE id = ?", o.id);
       run("UPDATE waitlist SET status = 'waiting' WHERE id = ?", o.waitlist_id);
       const other = getPatient(map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
-      sendSms({ to: other.phone, name: other.name, kind: "offer-taken", body: `Sorry ${first(other.name)}, the ${hm(slot.start)} visit has just been taken. You keep your place on our list. ${BRAND}` });
+      sendSms({ to: other.phone, name: other.name, kind: "offer-taken", body: `Sorry ${first(other.name)}, the visit ${when(slot.day, slot.start)} has just been taken. You keep your place on our list. ${BRAND}` });
     }
   }
-  addNote(p.id, `Moved forward from waiting list to ${hm(slot.start)} with ${c.name}.`, { name: "Office" }, { silent: true });
+  addNote(p.id, `Moved forward from waiting list to ${DAYS[slot.day]} ${hm(slot.start)} with ${c.name}.`, { name: "Office" }, { silent: true });
   const patientBody = offerId
-    ? `Thank you ${first(p.name)}, you're booked for today at ${hm(slot.start)} with ${c.first}. We'll text when ${c.first} is on the way. ${BRAND}`
-    : `Good news ${first(p.name)}: thanks to a cancellation, your home visit has moved forward to TODAY at ${hm(slot.start)} with ${c.first}. Reply NO if you can't make it and we'll keep your place. ${BRAND}`;
+    ? `Thank you ${first(p.name)}, you're booked ${when(slot.day, slot.start)} with ${c.first}. We'll text when ${c.first} is on the way. ${BRAND}`
+    : `Good news ${first(p.name)}: thanks to a cancellation, your home visit has moved forward to ${when(slot.day, slot.start).replace(/^today/, "TODAY")} with ${c.first}. Reply NO if you can't make it and we'll keep your place. ${BRAND}`;
   sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: patientBody });
-  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Diary update: your ${hm(slot.start)} (${old.name}) cancelled. Now seeing ${p.name}, ${t.name.toLowerCase()}, ${p.addr} ${p.pc}. Record is in the app.` });
+  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Diary update: your ${slot.day === 0 ? "" : DAYS[slot.day] + " "}${hm(slot.start)} (${old.name}) cancelled. Now seeing ${p.name}, ${t.name.toLowerCase()}, ${p.addr} ${p.pc}. Record is in the app.` });
   audit(actor, "slot.filled", id, `${p.name} moved forward to ${hm(slot.start)} with ${c.name}`);
-  const booking = { appointmentId: id, patient: p.name, clinician: c.name, start: slot.start, instant: !offerId };
+  const booking = { appointmentId: id, patient: p.name, clinician: c.name, day: slot.day, start: slot.start, instant: !offerId };
   bus.emit({ type: "slot.filled", clinicianId: c.id, slotId: slot.id, ...booking });
   return booking;
 }
@@ -173,7 +175,7 @@ function handleInbound(phone, body) {
     if (!pr) { audit("sms", "sms.unmatched", phone, body); return { matched: false }; }
     const answer = parseReply(body);
     const offer = one("SELECT o.* FROM offers o JOIN waitlist w ON w.id = o.waitlist_id WHERE w.patient_id = ? AND o.status = 'pending' ORDER BY o.id DESC LIMIT 1", pr.id);
-    const visit = !offer && one("SELECT * FROM appointments WHERE patient_id = ? AND status = 'booked' ORDER BY start_min LIMIT 1", pr.id);
+    const visit = !offer && one("SELECT * FROM appointments WHERE patient_id = ? AND status = 'booked' ORDER BY day, start_min LIMIT 1", pr.id);
     bus.emit({ type: "sms.received", patient: pr.name, body, slotId: offer ? offer.slot_id : visit ? visit.id : null, clinicianId: null });
     const actor = `patient:${pr.id}`;
 
@@ -210,7 +212,7 @@ function sweepExpired() {
       const slot = getAppt(o.slot_id);
       run("UPDATE offers SET status = 'expired' WHERE id = ?", o.id);
       run("UPDATE waitlist SET status = 'waiting' WHERE id = ?", o.waitlist_id);
-      sendSms({ to: p.phone, name: p.name, kind: "offer-expired", body: `Hi ${first(p.name)}, replies for the ${hm(slot.start)} visit have now closed. You keep your place on our list. ${BRAND}` });
+      sendSms({ to: p.phone, name: p.name, kind: "offer-expired", body: `Hi ${first(p.name)}, replies for the visit ${when(slot.day, slot.start)} have now closed. You keep your place on our list. ${BRAND}` });
       audit("system", "offer.expired", `offer:${o.id}`, `${p.name} did not reply by ${o.deadline}`);
       bus.emit({ type: "offer.expired", slotId: slot.id, clinicianId: null, patient: p.name, offerId: o.id });
       slots.add(slot.id);
@@ -224,6 +226,7 @@ function setStatus(id, status, user) {
     const a = getAppt(id);
     if (!a) throw new HttpError(404, "That visit no longer exists.");
     if (user.role === "clinician" && a.clinicianId !== user.clinicianId) throw new HttpError(403, "This visit is on another clinician's round.");
+    if (a.day !== 0) throw new HttpError(409, `That visit is on ${DAYS[a.day]}, not today.`);
     const flow = { booked: ["enroute"], enroute: ["live"], live: ["done"] };
     if (!(flow[a.status] || []).includes(status)) throw new HttpError(409, `A visit that is ${a.status} can't move to ${status}.`);
     run("UPDATE appointments SET status = ?, seen = 1 WHERE id = ?", status, id);
@@ -307,7 +310,8 @@ function slotsFor(patient, type, avail) {
   const clinicians = all("SELECT * FROM clinicians ORDER BY id").map(map.clinician);
   const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled'`)
     .map((r) => ({ ...map.appt(r), pc: r.pc, name: r.name }));
-  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, now: sandbox.nowMin() });
+  const wait = patient.id && one("SELECT prio FROM waitlist WHERE patient_id = ? AND status = 'waiting'", patient.id);
+  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
 }
 
 /** Ranked options for the booking screen. */
@@ -323,8 +327,8 @@ function bookVisit(input, user) {
     const draft = bookingPatient(input);
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
-    const start = Number(input.start);
-    const slot = slotsFor(draft, input.type, input.avail).find((x) => x.clinicianId === c.id && x.start === start);
+    const start = Number(input.start), day = Number(input.day || 0);
+    const slot = slotsFor(draft, input.type, input.avail).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
     if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
     let p = draft;
     if (!draft.id) {
@@ -334,19 +338,19 @@ function bookVisit(input, user) {
     }
     const t = TYPES[input.type];
     const id = newId("v");
-    const note = `New visit booked by the office: ${p.name} (${t.name.toLowerCase()}) at ${hm(start)}, ${p.addr}.`;
-    run("INSERT INTO appointments (id, clinician_id, patient_id, type, start_min, drive, status, note, booked_min) VALUES (?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
-      id, c.id, p.id, input.type, start, slot.driveIn, note, sandbox.nowMin());
+    const note = `New visit booked by the office: ${p.name} (${t.name.toLowerCase()}) ${when(day, start)}, ${p.addr}.`;
+    run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
+      id, c.id, p.id, input.type, day, start, slot.driveIn, note, sandbox.nowMin());
     // The visit after this one is now reached from the new patient's house.
-    const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, start);
+    const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
     if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
     run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
-    addNote(p.id, `Booked for today at ${hm(start)} with ${c.name}.`, user, { silent: true });
-    sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${BRAND} is booked for today at ${hm(start)} (${t.name.toLowerCase()}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
-    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${t.name.toLowerCase()}, ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
-    audit(user.name, "appointment.book", id, `${p.name} at ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
-    bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, start, extraDrive: slot.extraDrive });
-    return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, start, label: slot.label, extraDrive: slot.extraDrive };
+    addNote(p.id, `Booked for ${DAYS[day]} at ${hm(start)} with ${c.name}.`, user, { silent: true });
+    sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${BRAND} is booked ${when(day, start)} (${t.name.toLowerCase()}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
+    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${t.name.toLowerCase()}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
+    audit(user.name, "appointment.book", id, `${p.name} ${DAYS[day]} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
+    bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, day, start, extraDrive: slot.extraDrive });
+    return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, label: slot.label, dayLabel: DAYS[day], extraDrive: slot.extraDrive };
   });
 }
 

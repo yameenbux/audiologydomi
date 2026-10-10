@@ -96,14 +96,14 @@ test("booking a new visit: ranked slots, booked into the round, can't be double-
   assert.ok(found.slots.length > 0, "Irene (LS17, afternoons) gets options");
   const pick = found.slots[0];
   assert.ok(pick.start >= 720);
-  const booked = await call("POST", "/api/bookings", office.token, { patientId: "p9", type: "review", avail: "pm", clinicianId: pick.clinicianId, start: pick.start });
+  const booked = await call("POST", "/api/bookings", office.token, { patientId: "p9", type: "review", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
   assert.strictEqual(booked.status, 200);
   const s = await state(office.token);
   const v = s.appts.find((a) => a.id === booked.data.appointmentId);
   assert.strictEqual(v.start, pick.start);
   assert.strictEqual(s.waitlist.find((w) => w.patientId === "p9").status, "booked", "taken off the waiting list");
-  assert.ok(s.messages.some((m) => m.name === "Irene Battye" && /is booked for today/.test(m.body)));
-  const again = await call("POST", "/api/bookings", office.token, { patientId: "p4", type: "review", avail: "pm", clinicianId: pick.clinicianId, start: pick.start });
+  assert.ok(s.messages.some((m) => m.name === "Irene Battye" && /is booked (today|tomorrow|on \w+day)/.test(m.body)));
+  const again = await call("POST", "/api/bookings", office.token, { patientId: "p4", type: "review", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
   assert.strictEqual(again.status, 409, "the same gap can't be booked twice");
 });
 
@@ -113,9 +113,35 @@ test("booking a brand-new patient needs a postcode we can route to", async () =>
   assert.strictEqual(bad.status, 400);
   const ok = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax" })).data;
   const pick = ok.slots[0];
-  const b = (await call("POST", "/api/bookings", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax", clinicianId: pick.clinicianId, start: pick.start })).data;
+  const b = (await call("POST", "/api/bookings", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax", clinicianId: pick.clinicianId, day: pick.day, start: pick.start })).data;
   assert.ok(b.patientId);
   assert.ok((await state(office.token)).patients.some((p) => p.name === "Ruth Ingham"));
   const amira = await login("u-c1", office.sandbox);
   assert.strictEqual((await call("POST", "/api/slots", amira.token, { patientId: "p9", type: "review" })).status, 403, "office only");
+});
+
+test("the week: future visits exist, can be booked into, and can't be started early", async () => {
+  const office = await login("u-admin");
+  const s = await state(office.token);
+  for (let d = 1; d <= 4; d++) assert.ok(s.appts.some((a) => a.day === d), `visits on day ${d}`);
+  const slots = (await call("POST", "/api/slots", office.token, { patientId: "p13", type: "review" })).data.slots;
+  const later = slots.find((x) => x.day >= 2);
+  assert.ok(later, "offers a slot later in the week");
+  const r = (await call("POST", "/api/bookings", office.token, { patientId: "p13", type: "review", clinicianId: later.clinicianId, day: later.day, start: later.start })).data;
+  const msg = (await state(office.token)).messages.find((m) => m.name === "Sylvia Moon" && /is booked/.test(m.body));
+  assert.match(msg.body, /on (Wednesday|Thursday|Friday) 1\d Oct/, "the text names the day");
+  const amira = await login("u-" + later.clinicianId, office.sandbox);
+  const early = await call("POST", `/api/appointments/${r.appointmentId}/status`, amira.token, { status: "enroute" });
+  assert.strictEqual(early.status, 409, "can't set off for a Wednesday visit on Monday");
+});
+
+test("cancelling a visit later in the week refills it one at a time, and 24h-notice patients qualify", async () => {
+  const office = await login("u-admin");
+  const s = await state(office.token);
+  const future = s.appts.find((a) => a.day === 3 && a.clinicianId === "c3");
+  const r = (await call("POST", `/api/appointments/${future.id}/cancel`, office.token, { reason: "Patient asked to rebook" })).data;
+  assert.strictEqual(r.plan.mode, "single", "days away, so one person at a time");
+  const edna = r.candidates.find((c) => c.patientId === "p11");
+  assert.ok(!edna || edna.reason !== "Needs 24h notice", "needing 24h notice doesn't rule anyone out for Thursday");
+  assert.match(r.offers[0].body, /on Thursday 15 Oct/);
 });

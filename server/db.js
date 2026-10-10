@@ -3,6 +3,7 @@
 // so visitors never see or change each other's data. In production this becomes one Postgres database.
 const { DatabaseSync } = require("node:sqlite");
 const sandbox = require("./sandbox");
+const { driveMinutes } = require("./travel");
 
 // `db` always points at the database of the sandbox handling the current request.
 const db = new Proxy({}, {
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY, clinician_id TEXT NOT NULL REFERENCES clinicians(id), patient_id TEXT NOT NULL REFERENCES patients(id),
-  type TEXT NOT NULL, start_min INTEGER NOT NULL, drive INTEGER NOT NULL DEFAULT 10,
+  type TEXT NOT NULL, day INTEGER NOT NULL DEFAULT 0, start_min INTEGER NOT NULL, drive INTEGER NOT NULL DEFAULT 10,
   status TEXT NOT NULL CHECK (status IN ('booked','enroute','live','done','cancelled')),
   moved INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, note TEXT, reason TEXT, gap INTEGER NOT NULL DEFAULT 0,
   cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT
@@ -53,7 +54,7 @@ CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT NOT NULL,
   action TEXT NOT NULL, entity TEXT, detail TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_appt_clin ON appointments(clinician_id, start_min);
+CREATE INDEX IF NOT EXISTS idx_appt_clin ON appointments(clinician_id, day, start_min);
 CREATE INDEX IF NOT EXISTS idx_offer_pending ON offers(status, expires_at);
 `;
 
@@ -108,6 +109,19 @@ function seed(db) {
     P("p14", "Frank Dobson", 74, "11 Beeston Road", "LS11", "07700 900529"),
     P("p15", "Nora Pickles", 87, "22 Cross Gates Road", "LS15", "07700 900630", { aids: "RIC aids, both ears" }),
     P("p16", "Gerald Wray", 80, "5 Shadwell Lane", "LS17", "07700 900731", { h: [["Referral", "GP: sudden worsening right ear. Prioritise."]] }),
+    // Patients booked later in the week
+    P("p20", "Vera Hollins", 79, "17 Shaw Lane", "LS6", "07700 900142", { aids: "RIC aids, both ears", h: [["3 Jun 2026", "Fitting. Happy with sound quality."]] }),
+    P("p21", "Douglas Firth", 85, "4 Adel Park Croft", "LS16", "07700 900253"),
+    P("p22", "Joan Bairstow", 88, "Flat 2, 210 Harrogate Road", "LS17", "07700 900364", { alerts: ["Lives alone: slow to answer the door"], aids: "BTE aid, left ear" }),
+    P("p23", "Harold Beecroft", 73, "29 Kingsway", "LS16", "07700 900475"),
+    P("p24", "Phyllis Dransfield", 91, "Ryecroft Care Home", "LS17", "07700 900586", { alerts: ["Care home: ask for room 12"], aids: "RIC aids, both ears" }),
+    P("p25", "Ronald Hepworth", 82, "12 Oakwood Lane", "LS8", "07700 900697", { aids: "BTE aids, both ears" }),
+    P("p26", "Mavis Sutcliffe", 86, "3 Austhorpe Road", "LS15", "07700 900708"),
+    P("p27", "Clifford Booth", 70, "21 Torre Road", "LS9", "07700 900819"),
+    P("p28", "Eileen Marsden", 84, "7 Manston Lane", "LS15", "07700 900920", { alerts: ["Hard of hearing: text, don't call"] }),
+    P("p29", "Norman Pickard", 81, "14 Cottingley Drive", "LS11", "07700 900131"),
+    P("p30", "Doreen Whiteley", 89, "9 Wortley Road", "LS12", "07700 900242", { alerts: ["Son Mark helps with her hearing aids"], aids: "RIC aids, both ears" }),
+    P("p31", "Kenneth Rawnsley", 77, "40 Fountain Street", "LS27", "07700 900353"),
   ];
   for (const p of patients) {
     const h = p._h; delete p._h;
@@ -120,7 +134,28 @@ function seed(db) {
     A("a3", "c1", "p2", "fit", 11, 0, "booked", 11), A("a4", "c1", "p4", "assess", 13, 30, "booked", 16), A("a5", "c1", "p8", "wax", 15, 0, "booked", 9),
     A("b1", "c2", "p6", "follow", 9, 15, "done", 0), A("b2", "c2", "p7", "assess", 10, 30, "booked", 18), A("b3", "c2", "p12", "assess", 13, 0, "booked", 10), A("b4", "c2", "p15", "review", 14, 45, "booked", 12),
     A("d1", "c3", "p10", "follow", 9, 30, "done", 0), A("d2", "c3", "p14", "assess", 11, 0, "booked", 15), A("d3", "c3", "p11", "fit", 13, 45, "booked", 20),
-  ].forEach((r) => ins("appointments", r));
+  ].forEach((r) => ins("appointments", { ...r, day: 0 }));
+
+  // Tuesday to Friday: four regular slots per clinician, with a different one left free each day
+  // so there is always room to book into. Drives are worked out from the previous stop.
+  const pools = { c1: ["p20", "p21", "p22", "p23", "p24", "p2"], c2: ["p25", "p26", "p27", "p28", "p12", "p6"], c3: ["p29", "p30", "p31", "p10", "p14"] };
+  const bases = { c1: "LS6", c2: "LS8", c3: "LS12" };
+  const SLOTS = [[540, "assess"], [645, "wax"], [780, "fit"], [900, "review"]];
+  const pcOf = Object.fromEntries(patients.map((p) => [p.id, p.pc]));
+  let n = 0;
+  for (let day = 1; day <= 4; day++) {
+    for (const [ci, cid] of ["c1", "c2", "c3"].entries()) {
+      let prev = bases[cid];
+      SLOTS.forEach(([start, type], i) => {
+        if (i === (day + ci) % 4) return; // the free slot
+        const pool = pools[cid];
+        const pid = pool[(day * 3 + i + ci) % pool.length];
+        const drive = i === 0 ? 0 : driveMinutes(prev, pcOf[pid]) || 10;
+        ins("appointments", { id: `w${day}${cid}${i}`, clinician_id: cid, patient_id: pid, type, day, start_min: start, status: "booked", drive });
+        prev = pcOf[pid]; n++;
+      });
+    }
+  }
   [
     { id: "w1", patient_id: "p16", type: "assess", prio: "urgent", days: 3, avail: "any", short_notice: 1, pref_clinician_id: null },
     { id: "w2", patient_id: "p5", type: "fit", prio: "soon", days: 12, avail: "any", short_notice: 1, pref_clinician_id: "c1" },
@@ -140,7 +175,7 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []) }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), aids: r.aids, audio: J(r.audio, null) }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
