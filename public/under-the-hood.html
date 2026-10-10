@@ -35,6 +35,7 @@ header.h h1{font-size:clamp(36px,5vw,56px);line-height:1}
 .brandrow{display:flex;align-items:center;gap:10px;margin-bottom:14px}.brandrow img{width:30px;height:30px}
 header.h p{margin:8px 0 0;color:var(--muted);max-width:62ch}
 .btn{border:0;background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:9px 14px;font:600 14px var(--f-body);cursor:pointer;text-decoration:none;display:inline-flex;gap:6px;align-items:center}
+.btn.sm{padding:6px 10px;font-size:12.5px}
 .btn.secondary{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
 .live{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
 .live i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
@@ -161,6 +162,8 @@ tr.fresh td{animation:flash 1.6s ease-out}
         <div class="scroll" id="events"><div class="empty">Events appear when the diary changes. Cancel a visit in the app.</div></div></div>
       <div class="panel"><div class="panel-h"><h3>Offers</h3><span class="muted" id="offer-cfg" style="font-size:12.5px"></span></div>
         <div class="scroll"><table><thead><tr><th>#</th><th>Patient</th><th>Round</th><th>Score</th><th>Status</th><th>Replies close</th></tr></thead><tbody id="offers"></tbody></table></div></div>
+      <div class="panel"><div class="panel-h"><h3>Signed-in devices</h3><span class="muted" style="font-size:12.5px">Lost a phone? Sign it out from here</span></div>
+        <div class="scroll"><table><thead><tr><th>Who</th><th>Device</th><th>How</th><th>Last active</th><th></th></tr></thead><tbody id="sessions"></tbody></table></div></div>
       <div class="panel"><div class="panel-h"><h3>Audit log</h3><span class="muted" style="font-size:12.5px">Every change and every record opened</span></div>
         <div class="scroll"><table><thead><tr><th>Time</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead><tbody id="audit"></tbody></table></div></div>
     </div>
@@ -177,7 +180,7 @@ tr.fresh td{animation:flash 1.6s ease-out}
       <ul class="list">
         <li><b>Data protection</b><span>Health data is special category under UK GDPR. DPIA, privacy notice, data processing agreements with every supplier, and the NHS Data Security and Protection Toolkit if working with NHS contracts.</span></li>
         <li><b>Hosting</b><span>UK-region hosting, encrypted at rest and in transit, daily backups with tested restores.</span></li>
-        <li><b>Sign-in</b><span>Real accounts with two-factor authentication, session timeout on lost phones, and remote sign-out.</span></li>
+        <li><b>Sign-in</b><span>Done in this demo: scrypt-hashed passwords, authenticator-app codes, lockout, server-side sessions that time out, and remote sign-out. Still to add: password reset by email, each person setting up their own authenticator, and recovery codes.</span></li>
         <li><b>Texts</b><span>Inbound replies are already signature-checked. Keep clinical detail out of texts: times and names only. Offer to a nominated carer where the patient can't text.</span></li>
         <li><b>Offline use</b><span>Rural visits lose signal. The clinician app should cache today's round and queue notes until it reconnects.</span></li>
         <li><b>Integrations</b><span>Audiometer exports (Noah), calendar sync, invoicing, and GP letters are the likely next steps.</span></li>
@@ -186,27 +189,24 @@ tr.fresh td{animation:flash 1.6s ease-out}
 </div>
 
 <script>
-(function(){
+(async function(){
 "use strict";
-let TOKEN = null; try{ TOKEN = localStorage.getItem("domi-token"); }catch(e){}
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const hm = m => String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
 const clock = at => String(at || "").slice(0, 8);
-const claims = () => { try { return JSON.parse(atob(TOKEN.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"))); } catch (e) { return {}; } };
 let table = "appointments", seenReq = 0, seenAudit = 0;
 
 async function api(url, opts){
-  const r = await fetch(url, Object.assign({headers: Object.assign({"Content-Type":"application/json"}, TOKEN?{Authorization:"Bearer "+TOKEN}:{})}, opts||{}));
+  // The session is an HttpOnly cookie shared with the app; X-Domi marks requests as coming from these pages.
+  const r = await fetch(url, Object.assign({credentials:"same-origin", headers: {"Content-Type":"application/json","X-Domi":"1"}}, opts||{}));
   const d = await r.json(); if(!r.ok){ const e = new Error(d.error); e.status = r.status; throw e; } return d;
 }
 
 function gate(){
-  const sid = TOKEN ? claims().sid : null;
   $("#root").innerHTML = `<div class="gate"><div class="label">Office access only</div><h1 style="font-size:34px">Sign in as the office to look under the hood</h1>
-    <p class="muted" style="margin:0">This page shows patient data, the audit log and the database, so the server only serves it to office staff${sid ? ", in your demo " + sid : ""}.</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="gate-in" type="button">${sid ? "Sign in as the office in this demo" : "Start a demo as the office"}</button><a class="btn secondary" href="/">Open the app</a></div></div>`;
-  $("#gate-in").onclick = async ()=>{ const r = await api("/api/login",{method:"POST",body:JSON.stringify({userId:"u-admin", sandbox: sid || undefined})}); TOKEN=r.token; try{ localStorage.setItem("domi-token",TOKEN); }catch(e){} location.reload(); };
+    <p class="muted" style="margin:0">This page shows patient data, the audit log and the database, so the server only serves it to office staff who have signed in with their password and two-factor code.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="/">Sign in to the app</a></div></div>`;
 }
 
 async function refresh(){
@@ -223,6 +223,12 @@ async function refresh(){
   const topReq = o.requests.length;
   $("#reqs").innerHTML = o.requests.map((r,i)=>`<tr class="${i < topReq-seenReq && seenReq ? "fresh":""}"><td class="m">${esc(r.time||"")}</td><td><span class="pill ${r.method}">${r.method}</span></td><td class="m">${esc(r.path)}</td><td class="m s${String(r.status)[0]}">${r.status}</td><td class="m">${r.ms} ms</td><td>${esc(r.who)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No requests yet.</td></tr>`;
   seenReq = topReq;
+  {
+    // Comes with the overview (not its own request), so the page doesn't log, and re-trigger, itself.
+    const list = o.sessions || [];
+    const ago = (t) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? "just now" : m + " min ago"; };
+    $("#sessions").innerHTML = list.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.device)}</td><td>${x.kind==="paired"?"One-time QR link":"Password + code"}</td><td class="m">${ago(x.lastSeen)}</td><td>${x.current?'<span class="muted">This browser</span>':`<button class="btn sm secondary" type="button" data-revoke="${esc(x.id)}">Sign out</button>`}</td></tr>`).join("");
+  }
   $("#offers").innerHTML = o.offers.map(x=>`<tr><td class="m">${x.id}</td><td>${esc(x.patient)}</td><td class="m">${x.round}</td><td class="m">${x.score}</td><td><span class="pill ${x.status==="accepted"?"GET":x.status==="pending"?"POST":"PUT"}">${x.status}</span></td><td class="m">${esc(x.deadline||"–")}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No offers yet.</td></tr>`;
   const newestAudit = o.audit[0] ? o.audit[0].id : 0;
   $("#audit").innerHTML = o.audit.map(a=>`<tr class="${seenAudit && a.id>seenAudit?"fresh":""}"><td class="m">${clock(a.ts)}</td><td>${esc(a.actor)}</td><td class="m">${esc(a.action)}</td><td>${esc(a.detail)}</td></tr>`).join("");
@@ -249,9 +255,16 @@ function addEvent(e){
 
 document.addEventListener("click", e=>{ const b = e.target.closest("[data-t]"); if(!b) return; table = b.dataset.t; document.querySelectorAll("#tabs button").forEach(x=>x.setAttribute("aria-pressed", x===b)); loadTable(); });
 
-if(!TOKEN){ gate(); return; }
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-revoke]"); if (!b) return;
+  b.disabled = true;
+  try { await api("/api/auth/sessions/" + encodeURIComponent(b.dataset.revoke) + "/revoke", { method: "POST" }); } catch (err) { alert(err.message); }
+  refresh();
+});
+const me = await api("/api/auth/session").catch(() => ({}));
+if (!me.signedIn || me.user.role !== "admin") { gate(); return; }
 refresh();
-const es = new EventSource("/api/events?token="+encodeURIComponent(TOKEN));
+const es = new EventSource("/api/events");
 es.addEventListener("hello", ()=>{ $("#live").className="live on"; $("#live").lastChild.textContent = "Live"; });
 es.onerror = ()=>{ $("#live").className="live"; $("#live").lastChild.textContent = "Reconnecting"; };
 let t = null;

@@ -4,6 +4,7 @@
 const { DatabaseSync } = require("node:sqlite");
 const sandbox = require("./sandbox");
 const { driveMinutes } = require("./travel");
+const auth = require("./auth");
 
 // `db` always points at the database of the sandbox handling the current request.
 const db = new Proxy({}, {
@@ -17,7 +18,10 @@ CREATE TABLE IF NOT EXISTS clinicians (
 );
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('admin','clinician')),
-  clinician_id TEXT REFERENCES clinicians(id)
+  clinician_id TEXT REFERENCES clinicians(id),
+  email TEXT NOT NULL UNIQUE, pass_hash TEXT NOT NULL, totp_secret TEXT NOT NULL,
+  totp_step INTEGER NOT NULL DEFAULT -1,            -- last code step used, so a code can't be replayed
+  failed INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS patients (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER, addr TEXT NOT NULL, pc TEXT NOT NULL, phone TEXT NOT NULL,
@@ -60,10 +64,10 @@ CREATE INDEX IF NOT EXISTS idx_offer_pending ON offers(status, expires_at);
 
 // Demo sign-in accounts. Static, so the sign-in screen can list them before a sandbox exists.
 const USERS = [
-  { id: "u-admin", name: "Sarah Lane", role: "admin", clinicianId: null, title: "Office manager", color: "#C9714A" },
-  { id: "u-c1", name: "Amira Shah", role: "clinician", clinicianId: "c1", title: "Audiologist", color: "#1E4D40" },
-  { id: "u-c2", name: "Tom Whitfield", role: "clinician", clinicianId: "c2", title: "Hearing aid dispenser", color: "#3F6E8C" },
-  { id: "u-c3", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
+  { id: "u-admin", email: "sarah@domi-hearing.example", name: "Sarah Lane", role: "admin", clinicianId: null, title: "Office manager", color: "#C9714A" },
+  { id: "u-c1", email: "amira@domi-hearing.example", name: "Amira Shah", role: "clinician", clinicianId: "c1", title: "Audiologist", color: "#1E4D40" },
+  { id: "u-c2", email: "tom@domi-hearing.example", name: "Tom Whitfield", role: "clinician", clinicianId: "c2", title: "Hearing aid dispenser", color: "#3F6E8C" },
+  { id: "u-c3", email: "priya@domi-hearing.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
 ];
 
 const TABLES = ["audit", "messages", "offers", "notes", "appointments", "waitlist", "users", "patients", "clinicians"];
@@ -89,7 +93,8 @@ function seed(db) {
     { id: "c2", name: "Tom Whitfield", first: "Tom", role: "Hearing aid dispenser", color: "#3F6E8C", area_name: "East Leeds", patch: ["LS8", "LS9", "LS15"], near: ["LS7", "LS14", "LS26"], base: "LS8 2RS" },
     { id: "c3", name: "Priya Nair", first: "Priya", role: "Audiologist", color: "#7A5A8C", area_name: "South & West", patch: ["LS11", "LS12", "LS27"], near: ["LS13", "LS10", "LS28"], base: "LS12 3TL" },
   ].forEach((r) => ins("clinicians", r));
-  USERS.forEach((u) => ins("users", { id: u.id, name: u.name, role: u.role, clinician_id: u.clinicianId }));
+  // Every demo gets its own two-factor secrets; the password is the shared demo one (hashed once at start-up).
+  USERS.forEach((u) => ins("users", { id: u.id, name: u.name, role: u.role, clinician_id: u.clinicianId, email: u.email, pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret() }));
 
   const P = (id, name, age, addr, pc, phone, o = {}) => ({ id, name, age, addr, pc, phone, contact: o.contact || "Text", alerts: o.alerts || [], aids: o.aids || "None yet", audio: o.audio || null, _h: o.h || [] });
   const patients = [

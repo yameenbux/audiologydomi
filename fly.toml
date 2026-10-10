@@ -1,0 +1,29 @@
+# Fly.io, London. Deploy with: fly launch --copy-config --no-deploy, then fly deploy.
+# The demo keeps its data in memory, so run exactly one machine: fly scale count 1
+app = "domi-hearing-demo"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ROUTING_PROVIDER = "osrm"
+  OFFER_MINUTES = "20"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"   # sleeps when nobody is using it, like Render's free tier
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/meta"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

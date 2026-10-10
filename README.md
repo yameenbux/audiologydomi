@@ -17,9 +17,13 @@ npm test           # unit + API integration tests
 - Technical view: `http://localhost:3000/under-the-hood` (office sign-in only)
 - Brand and design tokens: `http://localhost:3000/brand`
 
-Every visitor gets a **private demo**: their own in-memory copy of the sample diary, with a clock that starts at 10:20. To put a phone in the same demo, click **Open on phone** in the office view and scan the QR code.
+Every visitor gets a **private demo**: their own in-memory copy of the sample practice, with a clock that starts at 10:20. Sign in with a password and then a six-digit code from an authenticator app. In the demo, the sign-in screen shows the password and can fill the code in for you. To put a phone in the same demo, click **Open on phone** in the office view and scan the QR code: it's a one-time sign-in link.
 
-## Put it online (Render, free)
+## Put it online
+
+**For a UK-hosted copy**, see [docs/HOSTING.md](docs/HOSTING.md): Fly.io London, using `fly.toml` and the `Dockerfile`, plus the options for real patients and why NHS guidance expects UK hosting.
+
+### Render (free, Frankfurt)
 
 The repo includes a `render.yaml` Blueprint, so Render reads the settings from the repo.
 
@@ -44,6 +48,7 @@ How the free tier behaves:
 | **Patients cancel by text** | A patient texting CANCEL cancels today's visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone. |
 | **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system searches the whole week for every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add, weighed against how soon it is (urgent patients are pulled towards sooner days, routine ones towards less driving). Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are road routes between full postcodes (see *Drive times* below). |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, calculated from the office's own fee per visit. |
+| **Sign-in** | Email and password (scrypt-hashed), then a six-digit code from any authenticator app (TOTP, RFC 6238). Codes can't be reused. Accounts lock after 5 wrong passwords. Sessions are server-side, in an HttpOnly cookie, and end after 2 hours idle or 12 hours. The office can view the app as any clinician (audited), see every signed-in device, and sign a lost phone out remotely. |
 | **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
 | **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
 
@@ -54,7 +59,8 @@ public/index.html          Office + clinician app shell; app.js / app.css (vanil
 public/brand.html          Logo, colour tokens and type
 design/                    Figma build script for the same tokens and logo
 public/under-the-hood.html Technical view
-server/index.js            HTTP API, auth, static files, SSE, request log
+server/index.js            HTTP API, sign-in routes, static files, SSE, request log
+server/auth.js             Passwords (scrypt), two-factor codes (TOTP), sessions, phone pairing links
 server/service.js          Booking service: transactions, audit, texts, events
 server/refill.js           Ranking and offer-planning rules (pure functions, unit tested)
 server/sandbox.js          Private demo per visitor + demo clock (AsyncLocalStorage)
@@ -65,7 +71,15 @@ server/db.js               SQLite schema + seed data (node:sqlite)
 test/                      Engine, database and API integration tests
 ```
 
-Security in the demo: HMAC-signed sessions; per-visitor sandboxes; role checks on every endpoint (a clinician can only open patients on their round or in their patch); validated state transitions; a double-booking guard; texts and live events released only after the database commits; an audit log of every change and every record a person opens; Twilio signature verification on inbound texts; path-traversal-safe static serving. Fonts and libraries are self-hosted, so pages make no third-party requests.
+Security in the demo:
+
+- **Sign-in:** two-step sign-in (password plus authenticator code) with lockout and per-connection limits; server-side sessions with remote sign-out; CSRF protection (an app-only header plus an Origin check); secrets hidden even from the database browser.
+- **Isolation:** per-visitor sandboxes.
+- **Access:** role checks on every endpoint (a clinician can only open patients on their round or in their patch).
+- **Data integrity:** validated state transitions; a double-booking guard; texts and live events released only after the database commits.
+- **Audit:** a log of every change and every record a person opens.
+- **Inbound texts:** Twilio signature verification.
+- **Static files:** path-traversal-safe serving. Fonts and libraries are self-hosted, so pages make no third-party requests.
 
 ### Drive times
 
@@ -93,14 +107,14 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 |---|---|---|
 | `PORT` | 3000 | |
 | `OFFER_MINUTES` | 20 | How long a patient has to reply |
-| `SESSION_SECRET` | random per start | Set it, or sessions end when the server restarts |
+| `DEMO_MODE` | `1` | `0` removes the demo shortcuts: no password on screen, no code helper, no QR sign-in |
 | `MAX_SANDBOXES` | 100 | Private demos kept in memory at once |
 | `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
 
 ## Demo script (5 minutes)
 
-1. On the laptop, sign in as **Sarah Lane (office)**. Click **Open on phone** and scan the QR code: your phone opens as Amira in the same demo.
+1. On the laptop, click **Sarah Lane (office)**. That fills in her email and password and takes you to the code step. Click **Fill in the current code**, then **Verify**. (Or scan the QR there with Google or Microsoft Authenticator and type the real code.) Click **Open on phone** and scan the QR code: your phone signs in as Amira in the same demo.
 2. On the laptop, click **Peter Dunn, 11:00** → *Cancel and refill this slot*.
 3. Show the ranking and the plan: the visit is 40 minutes away, so the top three are asked at once. Irene is ruled out because she's only free in the afternoons.
 4. Reply **NO** as Gerald, then **YES** as Margaret. Sylvia is told it's gone and keeps her place.
@@ -112,4 +126,4 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 
 ## Deliberately out of scope for the demo
 
-Real accounts with two-factor sign-in, UK-hosted Postgres with backups, offline mode for poor signal, recurring visits and diaries beyond this week, GP letters, invoicing, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).
+Persistent UK-hosted Postgres with backups (see [docs/HOSTING.md](docs/HOSTING.md)), password reset and per-person authenticator enrolment, offline mode for poor signal, recurring visits and diaries beyond this week, GP letters, invoicing, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).
