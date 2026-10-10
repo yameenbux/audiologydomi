@@ -134,6 +134,7 @@ tr.fresh td{animation:flash 1.6s ease-out}
       <div class="tier"><div class="label">Data & services</div>
         <div class="box"><b>Database</b><span>Patients, visits, notes, waiting list, offers, texts, audit. One in-memory SQLite per demo here; one Postgres database in production. <code>server/db.js</code></span></div>
         <div class="box ext"><b>SMS gateway</b><span id="sms-mode">Twilio-compatible. Outgoing texts and incoming replies.</span></div>
+        <div class="box ext"><b>Routing</b><span id="route-mode">postcodes.io for postcodes, OSRM for road driving times.</span></div>
         <div class="flowline">POST /api/sms/inbound (signed)</div>
       </div>
     </div>
@@ -212,6 +213,7 @@ async function refresh(){
   let o;
   try{ o = await api("/api/debug/overview"); }catch(e){ if(e.status===401||e.status===403) return gate(); return; }
   $("#sms-mode").textContent = o.smsProvider==="twilio" ? "Twilio, sending real texts." : "Demo outbox: texts are stored, not sent. Add Twilio keys to send for real.";
+  if (o.routing) { const r = o.routing; $("#route-mode").textContent = (r.live ? `Live road routes from ${r.router}, postcodes from postcodes.io` : "Road times for the sample postcodes (saved from OSRM); new postcodes are estimated") + ` · ${r.roadPairs} routes cached` + (r.paused ? " · router unreachable, using estimates for a minute" : "") + (r.lastError ? ` · last problem: ${r.lastError.message}` : ""); }
   $("#dbfile").textContent = `in-memory SQLite · Node ${o.node}`;
   $("#sb-code").textContent = o.sandbox;
   $("#demos").textContent = `Demo ${o.sandbox} · ${o.activeDemos} private demo${o.activeDemos === 1 ? "" : "s"} running on this server`;

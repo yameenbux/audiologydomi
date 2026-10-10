@@ -1,4 +1,5 @@
 "use strict";
+process.env.ROUTING_PROVIDER = "estimate"; // the diary tests must not depend on a third-party router
 // End-to-end API tests against the real HTTP server on a random port.
 const test = require("node:test");
 const assert = require("node:assert");
@@ -96,6 +97,7 @@ test("booking a new visit: ranked slots, booked into the round, can't be double-
   assert.ok(found.slots.length > 0, "Irene (LS17, afternoons) gets options");
   const pick = found.slots[0];
   assert.ok(pick.start >= 720);
+  assert.strictEqual(pick.route, "road", "the sample patients' full postcodes are routed by road");
   const booked = await call("POST", "/api/bookings", office.token, { patientId: "p9", type: "review", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
   assert.strictEqual(booked.status, 200);
   const s = await state(office.token);
@@ -111,6 +113,8 @@ test("booking a brand-new patient needs a postcode we can route to", async () =>
   const office = await login("u-admin");
   const bad = await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "M1", type: "wax" });
   assert.strictEqual(bad.status, 400);
+  const full = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "ls167sn", type: "wax" })).data;
+  assert.strictEqual(full.patient.pc, "LS16 7SN", "postcodes are tidied up");
   const ok = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax" })).data;
   const pick = ok.slots[0];
   const b = (await call("POST", "/api/bookings", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax", clinicianId: pick.clinicianId, day: pick.day, start: pick.start })).data;

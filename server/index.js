@@ -8,6 +8,7 @@ const crypto = require("node:crypto");
 const sandbox = require("./sandbox");
 const { db, map, TABLES, USERS } = require("./db");
 const D = require("./domain");
+const travel = require("./travel");
 const svc = require("./service");
 const bus = require("./bus");
 const { provider, verifyTwilio } = require("./notify");
@@ -78,7 +79,7 @@ function clinicianCanSee(user, patientId) {
 }
 
 route("GET", "/api/meta", { public: true }, () => ({
-  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, days: D.DAYS, smsProvider: provider,
+  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, days: D.DAYS, smsProvider: provider, routing: travel.routingStatus().provider,
   demoUsers: USERS.map(({ id, name, role, title, color }) => ({ id, name, role, title, color })),
 }));
 
@@ -203,7 +204,7 @@ route("GET", "/api/debug/overview", {}, (req, body, user) => {
   const sb = sandbox.current();
   const counts = Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n]));
   return {
-    sandbox: sb.id, now: sandbox.stamp(), counts, requests: reqLogs.get(sb.id) || [], liveConnections: bus.connections(sb.id),
+    sandbox: sb.id, now: sandbox.stamp(), counts, routing: travel.routingStatus(), requests: reqLogs.get(sb.id) || [], liveConnections: bus.connections(sb.id),
     events: bus.recentFor(sb.id).filter((e) => e.type !== "http").slice(0, 40),
     audit: db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT 60").all().map((r) => ({ ...r })),
     offers: db.prepare("SELECT o.*, p.name AS patient FROM offers o JOIN waitlist w ON w.id = o.waitlist_id JOIN patients p ON p.id = w.patient_id ORDER BY o.id DESC").all().map((r) => ({ ...r })),
@@ -268,7 +269,7 @@ const server = http.createServer(async (req, res) => {
     auth = verify((req.headers.authorization || "").replace(/^Bearer /, ""));
     if (!r.public && !auth) throw new svc.HttpError(401, "Your demo session has ended. Sign in again.");
     const body = req.method === "GET" ? {} : await readBody(req);
-    const data = auth && !r.raw ? sandbox.run(auth.sb, () => r.handler(req, body, auth.user, params)) : await r.handler(req, body, auth && auth.user, params);
+    const data = auth && !r.raw ? await sandbox.run(auth.sb, () => r.handler(req, body, auth.user, params)) : await r.handler(req, body, auth && auth.user, params);
     send(res, 200, data);
   } catch (err) {
     status = err.status || 500;
