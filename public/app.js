@@ -125,6 +125,7 @@ async function signIn(userId, sandbox) {
 function render() {
   const signedIn = !!S;
   $("#clock").hidden = !signedIn; $("#roles").hidden = !signedIn; $("#actions").hidden = !signedIn;
+  document.body.classList.toggle("clin-mode", signedIn && !isAdmin());
   if (!signedIn) { $("#app").innerHTML = signInView(); return; }
   $("#role-admin").setAttribute("aria-pressed", isAdmin());
   $("#role-clin").setAttribute("aria-pressed", !isAdmin());
@@ -586,6 +587,9 @@ document.addEventListener("change", async (e) => {
 });
 document.addEventListener("input", (e) => { if (e.target.id === "psearch") { UI.q = e.target.value; render(); } });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.drawer) closeDrawer(); });
+// Keep the screen at a fixed size: Safari ignores user-scalable=no, so stop pinch here (double-tap zoom is off via CSS touch-action).
+["gesturestart", "gesturechange", "gestureend"].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 $("#role-admin").onclick = () => switchRole(true).catch(fail);
 $("#role-clin").onclick = () => switchRole(false).catch(fail);
 $("#open-phone").onclick = () => openDrawer({ kind: "qr" });

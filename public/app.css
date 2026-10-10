@@ -35,7 +35,10 @@
 }
 
 * { box-sizing: border-box }
-html, body { margin: 0 }
+html, body { margin: 0; overflow-x: hidden; overscroll-behavior: none }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100% }
+/* No double-tap zoom or tap delay; pinch is blocked in app.js for Safari, which ignores user-scalable=no */
+body { touch-action: pan-x pan-y; -webkit-tap-highlight-color: transparent }
 body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--f-ui); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility }
 button, input, select, textarea { font: inherit; color: inherit }
 button { cursor: pointer }
@@ -275,14 +278,20 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .ph-tabs button svg { width: 22px; height: 22px }
 .ph-tabs button[aria-current="page"] { color: var(--forest) }
 .ph-tabs .dot { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 17px; height: 17px; border-radius: 9px; background: var(--apricot); color: #fff; font-size: 10px; display: grid; place-items: center; padding: 0 4px }
+/* On a phone the clinician app is pinned to the screen like a native app: header and tabs stay put,
+   only the middle scrolls, and the page itself never moves. */
 @media (max-width: 560px) {
-  .phone { border-radius: 0; box-shadow: none; height: auto; min-height: 0; overflow: visible }
-  .shell.cl { padding-inline: 0; padding-block: 0 }
-  .ph-scroll { overflow: visible; padding-bottom: 100px }
-  .ph-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25 }
-  .actionbar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important; margin-bottom: 0 !important }
-  .toasts { bottom: calc(86px + env(safe-area-inset-bottom, 0px)) !important }
+  body.clin-mode { position: fixed; inset: 0; height: 100dvh; display: flex; flex-direction: column; overflow: hidden }
+  body.clin-mode #app { flex: 1; min-height: 0; display: flex; flex-direction: column }
+  body.clin-mode .shell.cl { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column }
+  body.clin-mode .clin-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0 }
+  body.clin-mode .clin-stage > :not(.phone) { display: none }
+  body.clin-mode .phone { flex: 1; min-height: 0; height: auto; max-width: none; border-radius: 0; box-shadow: none }
+  body.clin-mode .ph-scroll { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch }
+  /* iOS zooms into any field with text under 16px when it is tapped */
+  input, select, textarea, .input, textarea.note, .who-select { font-size: 16px !important }
 }
+.drawer-b, .feed, .board-wrap { overscroll-behavior: contain }
 .ph-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px }
 .ph-head h2 { font-size: 34px; line-height: 1.02 }
 .who-select { border: 0; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface); border-radius: 99px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; max-width: 150px }
@@ -340,7 +349,7 @@ textarea.note:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--forest)
 .hist li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 12px; font-size: 13.5px }
 .hist li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--forest); margin-top: 7px }
 .hist .d { font-size: 12px; color: var(--muted) }
-.actionbar { position: sticky; bottom: 0; margin: 18px -18px -28px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); display: flex; gap: 8px }
+.actionbar { position: sticky; bottom: -28px; margin: 18px -18px -28px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); display: flex; gap: 8px }
 .actionbar .btn { flex: 1; padding: 13px }
 .aud { width: 100%; height: auto; display: block }
 .aud text { font: 9px var(--f-mono); fill: var(--muted) }
