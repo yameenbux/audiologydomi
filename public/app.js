@@ -4,19 +4,30 @@
 "use strict";
 
 /* ============ API ============ */
-let TOKEN = null, META = null, S = null, ES = null, fetchedAt = 0;
-const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day" };
-try { TOKEN = localStorage.getItem("domi-token"); } catch (e) {}
-const setToken = (t) => { TOKEN = t; try { t ? localStorage.setItem("domi-token", t) : localStorage.removeItem("domi-token"); } catch (e) {} };
+// The session lives in an HttpOnly cookie the page can't read. The only thing remembered here is which
+// demo (practice) this browser was using, which isn't a secret.
+let META = null, S = null, ES = null, fetchedAt = 0;
+const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null };
+let DEMO_SB = null;
+try { DEMO_SB = localStorage.getItem("domi-demo"); localStorage.removeItem("domi-token"); } catch (e) {}
+const rememberDemo = (c) => { DEMO_SB = c; try { c ? localStorage.setItem("domi-demo", c) : localStorage.removeItem("domi-demo"); } catch (e) {} };
 
 async function api(method, url, body) {
-  const res = await fetch(url, { method, headers: Object.assign({ "Content-Type": "application/json" }, TOKEN ? { Authorization: "Bearer " + TOKEN } : {}), body: body ? JSON.stringify(body) : undefined });
+  // X-Domi: a header a form on another site can't add, so the server can refuse forged requests.
+  const res = await fetch(url, { method, credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({ error: "The server sent something unexpected." }));
-  if (res.status === 401 && url !== "/api/login") { setToken(null); S = null; closeDrawer(); render(); throw new Error(data.error); }
+  if (res.status === 401 && !url.startsWith("/api/auth/")) { signedOut(); throw new Error(data.error); }
   if (!res.ok) throw new Error(data.error || "That didn't work. Try again.");
   return data;
 }
 const fail = (e) => toast(e.message, true);
+function signedOut(msg) {
+  if (ES) { ES.close(); ES = null; }
+  const was = !!S;
+  S = null; UI.pid = null; UI.rec = null; UI.pair = null; UI.auth = { step: "password" };
+  closeDrawer(); render();
+  if (msg && was) toast(msg, true);
+}
 
 /* ============ Helpers ============ */
 const $ = (s) => document.querySelector(s);
@@ -45,6 +56,7 @@ function toast(msg, bad) {
   $("#toasts").appendChild(t);
   setTimeout(() => t.remove(), 4000);
 }
+const clearErrors = () => document.querySelectorAll("#toasts .toast.bad").forEach((t) => t.remove());
 
 /* Keep typing, focus and scroll across re-renders (live updates arrive while people work). */
 function snapshot(root) {
@@ -79,9 +91,10 @@ const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load
 const EVENTS = ["refill.started", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
 function connect() {
   if (ES) ES.close();
-  ES = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+  ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
   const live = (on) => $("#clock").classList.toggle("off", !on);
   ES.addEventListener("hello", () => live(true));
+  ES.addEventListener("signedout", (ev) => { const e = JSON.parse(ev.data); signedOut(/office/.test(e.why) ? "The office signed this device out." : "You've been signed out."); });
   ES.onerror = () => live(false);
   EVENTS.forEach((type) => ES.addEventListener(type, (ev) => {
     const e = JSON.parse(ev.data);
@@ -116,18 +129,50 @@ function onEvent(type, e) {
   if (UI.drawer && UI.drawer.kind === "flow") renderDrawer();
 }
 
-async function signIn(userId, sandbox) {
-  const r = await api("POST", "/api/login", { userId, sandbox });
-  setToken(r.token);
-  UI.tab = "today"; UI.pid = null; UI.rec = null;
+/* ---------- Sign-in: password, then the code from an authenticator app ---------- */
+async function enter() {
+  clearErrors();
+  UI.tab = "today"; UI.pid = null; UI.rec = null; UI.auth = { step: "password" };
   await load();
   connect();
 }
+async function submitPassword(email, password, join) {
+  const start = (body) => api("POST", "/api/demo/start", body).then((r) => r.sandbox);
+  let sb = join ? await start({ join: join.toUpperCase() }) : DEMO_SB || await start();
+  let r;
+  try { r = await api("POST", "/api/auth/password", { sandbox: sb, email, password }); }
+  catch (e) {
+    if (join || !/expired/.test(e.message)) throw e;
+    sb = await start(); // the demo this browser remembered has been cleared: start a fresh one
+    r = await api("POST", "/api/auth/password", { sandbox: sb, email, password });
+  }
+  rememberDemo(sb);
+  UI.auth = { step: "code", challenge: r.challenge, name: r.name, email, enrol: r.demo && r.demo.enrol };
+  clearErrors(); render();
+  const c = $("#code"); if (c) c.focus();
+}
+async function submitCode(code) {
+  try {
+    const r = await api("POST", "/api/auth/code", { challenge: UI.auth.challenge, code });
+    rememberDemo(r.sandbox);
+    await enter();
+  } catch (e) {
+    if (/password again/.test(e.message)) { UI.auth = { step: "password", email: UI.auth.email }; render(); }
+    throw e;
+  }
+}
+/** The office looking at the app as a clinician sees it (or back to the office). */
+async function viewAs(userId) {
+  await api("POST", "/api/auth/view-as", { userId });
+  await enter();
+}
+const isOffice = () => !!S && !!S.signedInAs && S.signedInAs.role === "admin";
 
 /* ============ Render ============ */
 function render() {
   const signedIn = !!S;
-  $("#clock").hidden = !signedIn; $("#roles").hidden = !signedIn; $("#actions").hidden = !signedIn;
+  $("#clock").hidden = !signedIn; $("#roles").hidden = !signedIn || !isOffice(); $("#actions").hidden = !signedIn;
+  $("#reset").hidden = !isOffice();
   document.body.classList.toggle("clin-mode", signedIn && !isAdmin());
   if (!signedIn) { $("#app").innerHTML = signInView(); return; }
   $("#role-admin").setAttribute("aria-pressed", isAdmin());
@@ -139,9 +184,8 @@ function render() {
 
 function signInView() {
   const users = META ? META.demoUsers : [];
-  const params = new URLSearchParams(location.search);
-  return `<div class="signin">
-    <section class="signin-brand">
+  const A = UI.auth;
+  const brand = `<section class="signin-brand">
       <div>
         <div class="caps" style="color:inherit;opacity:.7">Domiciliary audiology</div>
         <h1 style="margin-top:14px">Hearing care that <em>comes to you.</em></h1>
@@ -150,20 +194,38 @@ function signInView() {
       <ul class="features">
         <li><span class="ic">${icon("bolt")}</span><span><b>Cancellations refill themselves</b><em>Ranked by urgency, area, wait and travel time.</em></span></li>
         <li><span class="ic">${icon("phone")}</span><span><b>Built for the round</b><em>Visits, records and notes on the clinician's phone.</em></span></li>
-        <li><span class="ic">${icon("shield")}</span><span><b>Every change audited</b><em>Who did what, and who opened which record.</em></span></li>
+        <li><span class="ic">${icon("shield")}</span><span><b>Two-step sign-in, every change audited</b><em>Password and authenticator code. Who did what, and who opened which record.</em></span></li>
       </ul>
-    </section>
+    </section>`;
+  if (A.step === "code") {
+    let qr = "";
+    if (A.enrol) { try { const q = qrcode(0, "M"); q.addData(A.enrol); q.make(); qr = q.createSvgTag({ cellSize: 3, margin: 0, scalable: true }); } catch (e) { qr = ""; } }
+    return `<div class="signin">${brand}
+    <form class="signin-form" id="code-form" autocomplete="off">
+      <div><div class="caps">Step 2 of 2 · ${esc(A.name)}</div><h2 style="margin-top:8px">Enter your code</h2>
+      <p class="muted" style="margin:8px 0 0">Open the authenticator app on your phone and type the 6-digit code it shows for Domi Hearing. Codes change every 30 seconds.</p></div>
+      <div class="field"><label for="code">6-digit code</label><input class="input otp" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000" data-keep></div>
+      <button class="btn block lg" type="submit">${icon("shield")}Verify and sign in</button>
+      ${META.demo ? `<div class="demo-help"><div><b>Demo shortcut</b><span>Nobody has the app set up for this sample practice, so the demo can read the code for you.</span></div>
+        <button class="btn secondary sm" type="button" data-act="demo-code">${icon("bolt")}Fill in the current code</button>
+        ${qr ? `<details><summary>Or try it with a real authenticator app</summary><div class="enrol"><div class="qr sm">${qr}</div><p class="muted">Scan with Google Authenticator, Microsoft Authenticator or 1Password. The app then shows the same codes. In the real system this is a one-time setup after a person's first sign-in.</p></div></details>` : ""}</div>` : ""}
+      <button class="linkish" type="button" data-act="auth-back">${icon("back")}Use a different account</button>
+    </form></div>`;
+  }
+  return `<div class="signin">${brand}
     <section class="signin-form">
-      <div><div class="caps">Private demo</div><h2 style="margin-top:8px">Start your own copy</h2>
-      <p class="muted" style="margin:8px 0 0">You get a private copy of a sample diary. Nobody else sees your changes, and it resets whenever you like.</p></div>
-      <div class="users">${users.map((u, i) => `<button class="user-opt ${i === 0 ? "primary" : ""}" type="button" data-act="signin" data-id="${u.id}">
+      <div><div class="caps">Private demo</div><h2 style="margin-top:8px">Sign in</h2>
+      <p class="muted" style="margin:8px 0 0">Each demo is a private copy of a sample practice: nobody else sees your changes. Pick a sample account to fill in its details.</p></div>
+      <div class="users">${users.map((u, i) => `<button class="user-opt ${i === 0 ? "primary" : ""}" type="button" data-act="pick-user" data-email="${esc(u.email)}">
         <span class="avatar" style="background:${u.color}">${initials(u.name)}</span>
         <span><b>${esc(u.name)}</b><div class="r">${u.role === "admin" ? "Office manager · sees every diary" : esc(u.title) + " · own round only"}</div></span>${icon("next")}</button>`).join("")}</div>
-      <div class="divider">Joining from your phone?</div>
-      <form class="join" id="join-form">
-        <input class="input code-input" id="join-code" maxlength="6" placeholder="Demo code" value="${esc(params.get("join") || "")}" aria-label="Demo code" autocomplete="off">
-        <select class="input" id="join-as" aria-label="Join as">${users.filter((u) => u.role !== "admin").map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("")}<option value="u-admin">Office</option></select>
-        <button class="btn" type="submit">Join</button>
+      <form id="pw-form" class="pw-form">
+        <div class="field"><label for="email">Email</label><input class="input" id="email" type="email" autocomplete="username" required data-keep value="${esc(A.email || "")}"></div>
+        <div class="field"><label for="password">Password</label><input class="input" id="password" type="password" autocomplete="current-password" required data-keep></div>
+        ${META.demo ? `<p class="hint">${icon("shield")}<span>Demo password for every sample account: <span class="mono">${esc(META.demo.password)}</span></span></p>` : ""}
+        <details ${A.join ? "open" : ""}><summary>Joining a demo that's open on another screen?</summary>
+          <div class="field" style="margin-top:10px"><label for="join-code">Demo code</label><input class="input code-input" id="join-code" maxlength="6" placeholder="ABC123" autocomplete="off" data-keep value="${esc(A.join || "")}"></div></details>
+        <button class="btn block lg" type="submit">Continue${icon("next")}</button>
       </form>
     </section>
   </div>`;
@@ -325,7 +387,7 @@ function todayTab(c) {
   const moved = list.find((a) => (a.moved || a.bookedMin != null) && !a.seen);
   const nxt = list.find((a) => a.status !== "done");
   const rest = list.filter((a) => a !== nxt);
-  const switcher = `<select class="who-select" id="me" aria-label="Switch clinician">${META.demoUsers.filter((u) => u.role === "clinician").map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
+  const switcher = !isOffice() ? "" : `<span class="preview-tag">Office preview</span><select class="who-select" id="me" aria-label="Switch clinician">${META.demoUsers.filter((u) => u.role === "clinician").map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
   let hero = "";
   if (nxt) {
     const p = pat(nxt.patientId), t = T(nxt.type), act = nextAction(nxt);
@@ -557,15 +619,28 @@ function wlDrawer() {
 }
 function qrModal() {
   const as = UI.qrAs || "u-c1";
-  const url = `${location.origin}/?join=${S.sandbox}&as=${as}`;
+  const p = UI.pair && UI.pair.as === as && Date.now() < UI.pair.until ? UI.pair : null;
+  if (!p) newPairLink(as);
   let qr = "";
-  try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
+  if (p) { try { const q = qrcode(0, "M"); q.addData(p.url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; } }
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">This demo</div><h2 style="margin-top:6px;font-size:30px">Open on your phone</h2></div>${closeX}</div>
-    <p class="muted" style="margin:8px 0 0">Scan with your phone's camera. It joins this same demo, so changes here appear there instantly.</p>
+    <p class="muted" style="margin:8px 0 0">Scan with your phone's camera. It signs the phone in to this same demo, so changes here appear there instantly.</p>
     <div class="field" style="margin-top:16px"><label for="qr-as">Sign the phone in as</label><select class="input" id="qr-as">${META.demoUsers.filter((u) => u.role === "clinician").map((u) => `<option value="${u.id}" ${u.id === as ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></div>
-    ${qr ? `<div class="qr">${qr}</div>` : `<p class="err">The QR code couldn't load. Use the code below instead.</p>`}
+    ${p ? (qr ? `<div class="qr">${qr}</div>` : `<p class="err">The QR code couldn't load. Sign in on the phone with the code below instead.</p>`) : `<div class="qr wait">${icon("spin")}</div>`}
+    <p class="muted" style="text-align:center;font-size:12.5px;margin:4px 0 0">${icon("shield")} Demo shortcut: a one-time link that works once, for 10 minutes. <button class="linkish" type="button" data-act="new-pair">New link</button></p>
     <div class="code">${esc(S.sandbox)}</div>
-    <p class="muted" style="text-align:center;font-size:13px;margin:6px 0 0">Or open <span class="mono">${esc(location.host)}</span> and enter this code.</p>`;
+    <p class="muted" style="text-align:center;font-size:13px;margin:6px 0 0">Or open <span class="mono">${esc(location.host)}</span> on the phone, sign in, and enter this demo code.</p>`;
+}
+let pairing = false;
+async function newPairLink(as) {
+  if (pairing) return;
+  pairing = true;
+  try {
+    const r = await api("POST", "/api/auth/pair", { userId: as });
+    UI.pair = { as, url: `${location.origin}/?pair=${encodeURIComponent(r.token)}`, until: Date.now() + (r.expiresIn - 30) * 1000 };
+  } catch (e) { fail(e); UI.pair = null; }
+  finally { pairing = false; }
+  if (UI.drawer && UI.drawer.kind === "qr") renderDrawer();
 }
 
 /* ============ Ticking clock ============ */
@@ -589,7 +664,7 @@ async function openPatient(id, apptId) {
 async function switchRole(admin) {
   if (!S || isAdmin() === admin) return;
   closeDrawer();
-  await signIn(admin ? "u-admin" : UI.lastClin, S.sandbox);
+  await viewAs(admin ? S.signedInAs.id : UI.lastClin);
 }
 
 document.addEventListener("click", async (e) => {
@@ -597,7 +672,24 @@ document.addEventListener("click", async (e) => {
   const act = el.dataset.act;
   try {
     switch (act) {
-      case "signin": el.disabled = true; await signIn(el.dataset.id); break;
+      case "pick-user": {
+        const pw = META.demo ? META.demo.password : "";
+        $("#email").value = el.dataset.email;
+        if (!pw) { $("#password").focus(); break; }
+        $("#password").value = pw;
+        el.disabled = true;
+        try { await submitPassword(el.dataset.email, pw, ($("#join-code") || {}).value || ""); } finally { el.disabled = false; }
+        break;
+      }
+      case "demo-code": {
+        const r = await api("GET", "/api/auth/demo-code?challenge=" + encodeURIComponent(UI.auth.challenge));
+        if (!r.code) { toast("The next code isn't ready yet. Try again in a few seconds.", true); break; }
+        $("#code").value = r.code; $("#code").focus();
+        toast(`Filled in. This code changes in ${r.secondsLeft} seconds.`);
+        break;
+      }
+      case "auth-back": UI.auth = { step: "password" }; render(); break;
+      case "new-pair": UI.pair = null; renderDrawer(); break;
       case "close": closeDrawer(); break;
       case "mode": await api("PUT", "/api/settings", { mode: el.dataset.v }); await load(); break;
       case "open-appt": openDrawer({ kind: "appt", id: el.dataset.id }); break;
@@ -609,7 +701,7 @@ document.addEventListener("click", async (e) => {
       }
       case "patient-cancel": el.disabled = true; closeDrawer(); await api("POST", "/api/demo/sms", { patientId: el.dataset.id, body: "CANCEL" }); break;
       case "reply": el.disabled = true; await api("POST", "/api/demo/sms", { patientId: el.dataset.p, body: el.dataset.v }); break;
-      case "see-clin": UI.lastClin = "u-" + el.dataset.c; closeDrawer(); await signIn(UI.lastClin, S.sandbox); window.scrollTo(0, 0); break;
+      case "see-clin": UI.lastClin = "u-" + el.dataset.c; closeDrawer(); await viewAs(UI.lastClin); window.scrollTo(0, 0); break;
       case "add-wl": openDrawer({ kind: "wl" }); break;
       case "book": UI.book = {}; openDrawer({ kind: "book" }); break;
       case "day": UI.view = "day"; UI.day = Number(el.dataset.v); render(); break;
@@ -661,10 +753,15 @@ document.addEventListener("submit", async (e) => {
       await api("POST", "/api/waitlist", { patientId: $("#wl-p").value, name: $("#wl-name").value, pc: $("#wl-pc").value, addr: $("#wl-addr").value, phone: $("#wl-phone").value, type: $("#wl-type").value, prio: $("#wl-prio").value, avail: $("#wl-avail").value, shortNotice: $("#wl-short").value === "1" });
       closeDrawer(); await load(); toast("Added to the waiting list");
     }
-    if (e.target.id === "join-form") {
-      const code = $("#join-code").value.trim().toUpperCase();
-      if (code.length !== 6) { toast("Demo codes are 6 characters, shown on the office screen", true); return; }
-      await signIn($("#join-as").value, code);
+    if (e.target.id === "pw-form") {
+      const join = $("#join-code").value.trim();
+      if (join && join.length !== 6) { toast("Demo codes are 6 characters, shown on the office screen", true); return; }
+      const btn = e.target.querySelector("[type=submit]"); btn.disabled = true;
+      try { await submitPassword($("#email").value.trim(), $("#password").value, join); } finally { btn.disabled = false; }
+    }
+    if (e.target.id === "code-form") {
+      const btn = e.target.querySelector("[type=submit]"); btn.disabled = true;
+      try { await submitCode($("#code").value); } finally { if (btn.isConnected) btn.disabled = false; }
     }
   } catch (err) { fail(err); }
 });
@@ -675,8 +772,8 @@ document.addEventListener("change", async (e) => {
     if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; renderDrawer(); }
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
-    if (e.target.id === "me") { UI.lastClin = e.target.value; await signIn(e.target.value, S.sandbox); }
-    if (e.target.id === "qr-as") { UI.qrAs = e.target.value; renderDrawer(); }
+    if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
+    if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; renderDrawer(); }
   } catch (err) { fail(err); }
 });
 document.addEventListener("input", (e) => { if (e.target.id === "psearch") { UI.q = e.target.value; render(); } });
@@ -687,9 +784,13 @@ document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.prev
 $("#role-admin").onclick = () => switchRole(true).catch(fail);
 $("#role-clin").onclick = () => switchRole(false).catch(fail);
 $("#open-phone").onclick = () => openDrawer({ kind: "qr" });
+$("#signout").onclick = async () => {
+  try { await api("POST", "/api/auth/logout"); } catch (e) {}
+  signedOut(); toast("Signed out");
+};
 $("#reset").onclick = async () => {
   try {
-    if (!isAdmin()) await signIn("u-admin", S.sandbox);
+    if (!isAdmin()) await viewAs(S.signedInAs.id);
     await api("POST", "/api/admin/reset"); closeDrawer(); UI.pid = null; UI.rec = null; await load(); toast("Demo started again from 10:20");
   } catch (err) { fail(err); }
 };
@@ -698,11 +799,12 @@ $("#reset").onclick = async () => {
   try { META = await api("GET", "/api/meta"); }
   catch (e) { $("#app").innerHTML = `<div class="shell"><div class="err">Can't reach the server. Start it with <span class="mono">npm start</span> and reload.</div></div>`; return; }
   const params = new URLSearchParams(location.search);
-  if (params.get("join")) {
-    history.replaceState(null, "", "/");
-    try { await signIn(params.get("as") || "u-c1", params.get("join")); return; } catch (e) { fail(e); }
+  history.replaceState(null, "", "/"); // never leave a one-time link in the address bar or history
+  if (params.get("pair")) {
+    try { const r = await api("POST", "/api/auth/pair/redeem", { token: params.get("pair") }); rememberDemo(r.sandbox); await enter(); return; } catch (e) { fail(e); }
   }
-  if (TOKEN) { try { await load(); connect(); return; } catch (e) { setToken(null); } }
+  if (params.get("join")) UI.auth = { step: "password", join: params.get("join") };
+  try { if ((await api("GET", "/api/auth/session")).signedIn) { await load(); connect(); return; } } catch (e) { /* not signed in */ }
   S = null; render();
 })();
 })();

@@ -15,6 +15,8 @@ function deliver(sbId, e) {
   recent.set(sbId, list);
   for (const c of clients) {
     if (c.sbId !== sbId) continue;
+    // A stream ended by sign-out stays in the set until its "close" event: never write to it.
+    if (c.res.writableEnded || c.res.destroyed) { clients.delete(c); continue; }
     if (c.user.role === "admin" || e.type === "reset" || (e.clinicianId && e.clinicianId === c.user.clinicianId)) {
       c.res.write(`id: ${e.id}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
     }
@@ -32,6 +34,7 @@ function subscribe(res, user, sbId) {
   const c = { res, user, sbId };
   clients.add(c);
   res.on("close", () => clients.delete(c));
+  res.on("error", () => clients.delete(c)); // a dropped connection must never take the server down
 }
 
 const recentFor = (sbId) => recent.get(sbId) || [];

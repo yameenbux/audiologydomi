@@ -9,11 +9,23 @@ let base;
 test.before(async () => { const s = await start(0); base = `http://127.0.0.1:${s.address().port}`; });
 test.after(() => server.close());
 
-async function call(method, path, token, body) {
-  const res = await fetch(base + path, { method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  return { status: res.status, data: await res.json() };
+const EMAIL = { "u-admin": "sarah@domi-hearing.example", "u-c1": "amira@domi-hearing.example", "u-c2": "tom@domi-hearing.example", "u-c3": "priya@domi-hearing.example" };
+const PASSWORD = require("../server/auth").DEMO_PASSWORD;
+
+async function call(method, path, cookie, body, headers = {}) {
+  const res = await fetch(base + path, { method, headers: { "Content-Type": "application/json", "X-Domi": "1", ...(cookie ? { Cookie: cookie } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+  return { status: res.status, data: await res.json(), cookie: (res.headers.get("set-cookie") || "").split(";")[0] };
 }
-const login = async (userId, sandbox) => (await call("POST", "/api/login", null, { userId, sandbox })).data;
+/** The code an authenticator app would show, read the way the demo's "fill it in" helper does. */
+const demoCode = async (challenge) => (await call("GET", "/api/auth/demo-code?challenge=" + encodeURIComponent(challenge))).data.code;
+/** Sign in properly: password, then the two-factor code. Returns the session cookie as `token`. */
+async function login(userId, sandbox) {
+  if (!sandbox) sandbox = (await call("POST", "/api/demo/start")).data.sandbox;
+  const pw = await call("POST", "/api/auth/password", null, { sandbox, email: EMAIL[userId], password: PASSWORD });
+  if (pw.status !== 200) return { status: pw.status, ...pw.data };
+  const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: await demoCode(pw.data.challenge) });
+  return { token: r.cookie, sandbox: r.data.sandbox, user: r.data.user, status: r.status };
+}
 const state = async (t) => (await call("GET", "/api/state", t)).data;
 
 test("a cancellation 40 minutes out offers the top three at once; first YES wins", async () => {
@@ -66,7 +78,7 @@ test("each demo is private; phone and laptop share one by code", async () => {
   assert.strictEqual(phone.sandbox, a.sandbox);
   const ps = await state(phone.token);
   assert.ok(ps.messages.some((m) => /cancelled/.test(m.body)), "Amira's phone sees the office's change");
-  assert.strictEqual((await call("POST", "/api/login", null, { userId: "u-c1", sandbox: "NOPE99" })).status, 404);
+  assert.strictEqual((await call("POST", "/api/demo/start", null, { join: "NOPE99" })).status, 404);
 });
 
 test("clinicians can't play the patient or reach office endpoints", async () => {
