@@ -1,0 +1,9 @@
+{
+  "name": "Domi Hearing",
+  "short_name": "Domi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F6F3",
+  "theme_color": "#1E4D40",
+  "icons": [{ "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

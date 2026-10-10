@@ -215,11 +215,12 @@ route("GET", "/api/debug/table/:name", {}, (req, body, user, { name }) => {
 });
 
 /* ---------- Static files ---------- */
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".png": "image/png", ".webmanifest": "application/manifest+json" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".png": "image/png", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2" };
 function serveStatic(req, res) {
   let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
   if (p === "/") p = "/index.html";
   if (p === "/under-the-hood") p = "/under-the-hood.html";
+  if (p === "/brand") p = "/brand.html";
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {

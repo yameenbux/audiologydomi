@@ -4,25 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Domi Hearing Under the Hood</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="robots" content="noindex, nofollow">
+<link rel="preload" href="/fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/fonts/fonts.css">
 <style>
 /* Layout: a technical companion to the app. Architecture first, then live system panels, then the database. */
 :root{
-  --bg:#F3F4F7; --surface:#FFFFFF; --surface-2:#E9ECF2; --ink:#1A2033; --muted:#5F677D; --line:#DCE0E8;
-  --accent:#2D3F7A; --accent-ink:#FFFFFF; --accent-soft:#E3E7F4; --brass:#9A6F22; --brass-soft:#F5EBD9;
-  --ok:#2F7A4F; --ok-soft:#DDF0E4; --warn:#A06A12; --warn-soft:#F8ECD3; --crit:#B23F35; --crit-soft:#F7DFDC;
-  --f-display:"Newsreader",Georgia,serif; --f-body:"Figtree",system-ui,sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --bg:#F4F6F3; --surface:#FFFFFF; --surface-2:#EBEFEA; --ink:#15241F; --muted:#5C6B65; --line:#DCE3DE;
+  --accent:#1E4D40; --accent-ink:#FFFFFF; --accent-soft:#DCEAE3; --brass:#8A3D1C; --brass-soft:#FBE7DC;
+  --ok:#2F7A4F; --ok-soft:#DDF0E4; --warn:#A86A12; --warn-soft:#F8ECD3; --crit:#B4443A; --crit-soft:#F7DEDA;
+  --f-display:"Instrument Serif",Georgia,serif; --f-body:"Plus Jakarta Sans",system-ui,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){:root{
-  --bg:#0F1320; --surface:#171C2C; --surface-2:#1F2638; --ink:#E8EAF2; --muted:#9AA1B8; --line:#2A3146;
-  --accent:#A3B4F2; --accent-ink:#0F1320; --accent-soft:#252F52; --brass:#E0B566; --brass-soft:#3A3020;
+  --bg:#0E1513; --surface:#151E1B; --surface-2:#1C2723; --ink:#E7EEEA; --muted:#95A59F; --line:#26332E;
+  --accent:#7CC3A6; --accent-ink:#0E1513; --accent-soft:#1D3A31; --brass:#F6C1A6; --brass-soft:#3A251A;
   --ok:#6CC592; --ok-soft:#1C3527; --warn:#E6B058; --warn-soft:#3A2E17; --crit:#EE7F74; --crit-soft:#3F2220; color-scheme:dark}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);-webkit-font-smoothing:antialiased}
-h1,h2,h3{font-family:var(--f-display);font-weight:500;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1,h2,h3{font-family:var(--f-display);font-weight:400;margin:0;text-wrap:balance;letter-spacing:-.01em}
 a{color:var(--accent)}
 .mono,code{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
 code{font-size:.88em;background:var(--surface-2);padding:1px 5px;border-radius:5px}
@@ -30,7 +31,8 @@ code{font-size:.88em;background:var(--surface-2);padding:1px 5px;border-radius:5
 .muted{color:var(--muted)}
 .wrap{max-width:1240px;margin:0 auto;padding-inline:20px;padding-block:28px 80px;display:flex;flex-direction:column;gap:36px}
 header.h{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap}
-header.h h1{font-size:clamp(30px,4vw,44px);line-height:1.05}
+header.h h1{font-size:clamp(36px,5vw,56px);line-height:1}
+.brandrow{display:flex;align-items:center;gap:10px;margin-bottom:14px}.brandrow img{width:30px;height:30px}
 header.h p{margin:8px 0 0;color:var(--muted);max-width:62ch}
 .btn{border:0;background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:9px 14px;font:600 14px var(--f-body);cursor:pointer;text-decoration:none;display:inline-flex;gap:6px;align-items:center}
 .btn.secondary{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
@@ -39,7 +41,7 @@ header.h p{margin:8px 0 0;color:var(--muted);max-width:62ch}
 .live.on i{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft);animation:pulse 2s infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 6px transparent}}
 section > .sh{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-section > .sh h2{font-size:26px}
+section > .sh h2{font-size:32px}
 section > .sh p{margin:4px 0 0;color:var(--muted);max-width:68ch;font-size:14.5px}
 
 /* Architecture */
@@ -47,7 +49,7 @@ section > .sh p{margin:4px 0 0;color:var(--muted);max-width:68ch;font-size:14.5p
 @media (max-width:900px){.arch{grid-template-columns:1fr}}
 .tier{display:flex;flex-direction:column;gap:10px;min-width:0}
 .tier > .label{padding-left:2px}
-.box{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 15px;min-width:0}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:13px 15px;min-width:0}
 .box b{display:block;font-size:15px}
 .box span{font-size:13px;color:var(--muted)}
 .box.core{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:linear-gradient(var(--accent-soft),var(--surface) 80%)}
@@ -66,9 +68,9 @@ section > .sh p{margin:4px 0 0;color:var(--muted);max-width:68ch;font-size:14.5p
 /* Live panels */
 .panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 @media (max-width:900px){.panels{grid-template-columns:minmax(0,1fr)}}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;min-width:0;display:flex;flex-direction:column}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:20px;min-width:0;display:flex;flex-direction:column}
 .panel-h{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px}
-.panel-h h3{font-size:18px}
+.panel-h h3{font-size:22px}
 .scroll{overflow:auto;max-height:340px}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th{position:sticky;top:0;background:var(--surface);text-align:left;font-weight:600;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -109,8 +111,8 @@ tr.fresh td{animation:flash 1.6s ease-out}
 <body>
 <div class="wrap" id="root">
   <header class="h">
-    <div><div class="label">Domi Hearing · technical view</div><h1>Under the hood</h1>
-      <p>The same system as the diary app, seen from the server side. Everything on this page is live: use the app in another tab and watch requests, events, texts and database rows appear here.</p></div>
+    <div><div class="brandrow"><img src="/logo.svg" alt=""><span class="label">Domi Hearing · technical view</span></div><h1>Under the hood</h1>
+      <p>The same system as the diary app, seen from the server side. Everything here is live and belongs to your private demo <b class="mono" id="sb-code">…</b>: use the app in another tab and watch requests, events, texts and database rows appear.</p></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="live" id="live"><i></i>Connecting</span><a class="btn secondary" href="/">Open the app</a></div>
   </header>
 
@@ -124,15 +126,15 @@ tr.fresh td{animation:flash 1.6s ease-out}
         <div class="flowline">Live events (SSE)</div>
       </div>
       <div class="tier"><div class="label">Server</div>
-        <div class="box core"><b>API</b><span>Signed sessions, role checks, input validation, request log. <code>server/index.js</code></span></div>
-        <div class="box core"><b>Booking service</b><span>Every diary change in one transaction, with an audit entry and a live event. <code>server/service.js</code></span></div>
-        <div class="box core"><b>Refill engine</b><span>Ranks the waiting list for a freed slot. Pure rules, unit tested. <code>server/refill.js</code></span></div>
+        <div class="box core"><b>API</b><span>Signed sessions, role checks, input validation, request log. Each request runs inside the visitor's own sandbox. <code>server/index.js</code></span></div>
+        <div class="box core"><b>Booking service</b><span>Every diary change in one transaction. Texts and live events are released only after it commits. <code>server/service.js</code></span></div>
+        <div class="box core"><b>Refill engine</b><span>Ranks the waiting list and plans the offer: one at a time, or the top three at once when the visit is close. Pure rules, unit tested. <code>server/refill.js</code></span></div>
         <div class="box core"><b>Offer timer</b><span>Every 5 seconds, unanswered offers that have run out pass to the next person.</span></div>
       </div>
       <div class="tier"><div class="label">Data & services</div>
-        <div class="box"><b>Database</b><span>Patients, visits, notes, waiting list, offers, texts, audit. SQLite here, Postgres in production. <code>server/db.js</code></span></div>
+        <div class="box"><b>Database</b><span>Patients, visits, notes, waiting list, offers, texts, audit. One in-memory SQLite per demo here; one Postgres database in production. <code>server/db.js</code></span></div>
         <div class="box ext"><b>SMS gateway</b><span id="sms-mode">Twilio-compatible. Outgoing texts and incoming replies.</span></div>
-        <div class="flowline">POST /api/sms/inbound</div>
+        <div class="flowline">POST /api/sms/inbound (signed)</div>
       </div>
     </div>
   </section>
@@ -140,24 +142,24 @@ tr.fresh td{animation:flash 1.6s ease-out}
   <section>
     <div class="sh"><div><h2>A cancellation, end to end</h2><p>What happens on the server between someone pressing Cancel and the clinician's phone updating.</p></div></div>
     <ol class="journey">
-      <li><b>Visit cancelled</b><span>Office or clinician cancels. The server checks they're allowed and that the visit hasn't started.</span><code>POST /api/appointments/:id/cancel</code></li>
+      <li><b>Visit cancelled</b><span>The patient texts CANCEL, or the office or clinician cancels. The server checks the visit hasn't started.</span><code>POST /api/sms/inbound</code></li>
       <li><b>Patient told</b><span>The cancelled patient gets a text, recorded in the outbox before it is sent.</span><code>messages</code></li>
       <li><b>Waiting list ranked</b><span>Hard rules first: short notice, time free, mornings or afternoons, travel area. Then priority, wait and preferred clinician.</span><code>rankCandidates()</code></li>
-      <li><b>Offer texted</b><span>The top patient gets the offer with a reply window. They're marked "offered" so nobody else is offered the same person.</span><code>offers</code></li>
-      <li><b>Reply arrives</b><span>The SMS gateway posts the reply. YES books, NO or silence moves to the next person.</span><code>POST /api/sms/inbound</code></li>
+      <li><b>Offer planned and texted</b><span>Hours away: one person at a time. Under an hour: the top three at once, first YES wins. Reply windows shrink as the visit gets closer.</span><code>planOffer()</code></li>
+      <li><b>Reply arrives</b><span>The gateway posts the reply, signature checked. YES books; the others are told it's gone. NO or silence moves on.</span><code>X-Twilio-Signature</code></li>
       <li><b>Diary updated</b><span>New visit written, double-booking check, note on the record, clinician texted, every open screen updated.</span><code>slot.filled</code></li>
     </ol>
   </section>
 
   <section>
-    <div class="sh"><div><h2>Live system</h2><p>Refreshed as things happen. Office access only: clinicians can't open this page.</p></div></div>
+    <div class="sh"><div><h2>Live system</h2><p>Refreshed as things happen. Office access only: clinicians can't open this page. Times are the demo clock.</p></div><span class="muted" id="demos" style="font-size:12.5px"></span></div>
     <div class="panels">
       <div class="panel"><div class="panel-h"><h3>API requests</h3><span class="muted" id="req-n" style="font-size:12.5px"></span></div>
-        <div class="scroll"><table><thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Time</th><th>Who</th></tr></thead><tbody id="reqs"></tbody></table></div></div>
+        <div class="scroll"><table><thead><tr><th>At</th><th>Method</th><th>Path</th><th>Status</th><th>Took</th><th>Who</th></tr></thead><tbody id="reqs"></tbody></table></div></div>
       <div class="panel"><div class="panel-h"><h3>Live events</h3><span class="muted" id="conn-n" style="font-size:12.5px"></span></div>
         <div class="scroll" id="events"><div class="empty">Events appear when the diary changes. Cancel a visit in the app.</div></div></div>
       <div class="panel"><div class="panel-h"><h3>Offers</h3><span class="muted" id="offer-cfg" style="font-size:12.5px"></span></div>
-        <div class="scroll"><table><thead><tr><th>#</th><th>Patient</th><th>Slot</th><th>Score</th><th>Status</th><th>Expires</th></tr></thead><tbody id="offers"></tbody></table></div></div>
+        <div class="scroll"><table><thead><tr><th>#</th><th>Patient</th><th>Round</th><th>Score</th><th>Status</th><th>Replies close</th></tr></thead><tbody id="offers"></tbody></table></div></div>
       <div class="panel"><div class="panel-h"><h3>Audit log</h3><span class="muted" style="font-size:12.5px">Every change and every record opened</span></div>
         <div class="scroll"><table><thead><tr><th>Time</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead><tbody id="audit"></tbody></table></div></div>
     </div>
@@ -175,7 +177,7 @@ tr.fresh td{animation:flash 1.6s ease-out}
         <li><b>Data protection</b><span>Health data is special category under UK GDPR. DPIA, privacy notice, data processing agreements with every supplier, and the NHS Data Security and Protection Toolkit if working with NHS contracts.</span></li>
         <li><b>Hosting</b><span>UK-region hosting, encrypted at rest and in transit, daily backups with tested restores.</span></li>
         <li><b>Sign-in</b><span>Real accounts with two-factor authentication, session timeout on lost phones, and remote sign-out.</span></li>
-        <li><b>Texts</b><span>Verify the gateway's signature on every inbound reply. Keep clinical detail out of texts: times and names only.</span></li>
+        <li><b>Texts</b><span>Inbound replies are already signature-checked. Keep clinical detail out of texts: times and names only. Offer to a nominated carer where the patient can't text.</span></li>
         <li><b>Offline use</b><span>Rural visits lose signal. The clinician app should cache today's round and queue notes until it reconnects.</span></li>
         <li><b>Integrations</b><span>Audiometer exports (Noah), calendar sync, invoicing, and GP letters are the likely next steps.</span></li>
       </ul></div>
@@ -189,7 +191,8 @@ let TOKEN = null; try{ TOKEN = localStorage.getItem("domi-token"); }catch(e){}
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const hm = m => String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
-const clock = at => { const d = new Date(String(at).includes("T") ? at : String(at).replace(" ","T")+"Z"); return isNaN(d) ? "" : d.toTimeString().slice(0,8); };
+const clock = at => String(at || "").slice(0, 8);
+const claims = () => { try { return JSON.parse(atob(TOKEN.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"))); } catch (e) { return {}; } };
 let table = "appointments", seenReq = 0, seenAudit = 0;
 
 async function api(url, opts){
@@ -198,24 +201,27 @@ async function api(url, opts){
 }
 
 function gate(){
-  $("#root").innerHTML = `<div class="gate"><div class="label">Office access only</div><h1 style="font-size:30px">Sign in as the office to look under the hood</h1>
-    <p class="muted" style="margin:0">This page shows patient data, the audit log and the database, so the server only serves it to office staff.</p>
-    <div><button class="btn" id="gate-in" type="button">Sign in as Sarah Lane (office)</button></div></div>`;
-  $("#gate-in").onclick = async ()=>{ const r = await api("/api/login",{method:"POST",body:JSON.stringify({userId:"u-admin"})}); TOKEN=r.token; try{ localStorage.setItem("domi-token",TOKEN); }catch(e){} location.reload(); };
+  const sid = TOKEN ? claims().sid : null;
+  $("#root").innerHTML = `<div class="gate"><div class="label">Office access only</div><h1 style="font-size:34px">Sign in as the office to look under the hood</h1>
+    <p class="muted" style="margin:0">This page shows patient data, the audit log and the database, so the server only serves it to office staff${sid ? ", in your demo " + sid : ""}.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="gate-in" type="button">${sid ? "Sign in as the office in this demo" : "Start a demo as the office"}</button><a class="btn secondary" href="/">Open the app</a></div></div>`;
+  $("#gate-in").onclick = async ()=>{ const r = await api("/api/login",{method:"POST",body:JSON.stringify({userId:"u-admin", sandbox: sid || undefined})}); TOKEN=r.token; try{ localStorage.setItem("domi-token",TOKEN); }catch(e){} location.reload(); };
 }
 
 async function refresh(){
   let o;
   try{ o = await api("/api/debug/overview"); }catch(e){ if(e.status===401||e.status===403) return gate(); return; }
   $("#sms-mode").textContent = o.smsProvider==="twilio" ? "Twilio, sending real texts." : "Demo outbox: texts are stored, not sent. Add Twilio keys to send for real.";
-  $("#dbfile").textContent = `${o.dbFile} · Node ${o.node}`;
+  $("#dbfile").textContent = `in-memory SQLite · Node ${o.node}`;
+  $("#sb-code").textContent = o.sandbox;
+  $("#demos").textContent = `Demo ${o.sandbox} · ${o.activeDemos} private demo${o.activeDemos === 1 ? "" : "s"} running on this server`;
   $("#conn-n").textContent = `${o.liveConnections} screen${o.liveConnections===1?"":"s"} connected`;
   $("#req-n").textContent = `last ${o.requests.length}`;
   $("#offer-cfg").textContent = `${o.settings.mode==="offer"?"Text first":"Book instantly"} · ${o.settings.offerMinutes} min to reply`;
   const topReq = o.requests.length;
-  $("#reqs").innerHTML = o.requests.map((r,i)=>`<tr class="${i < topReq-seenReq && seenReq ? "fresh":""}"><td><span class="pill ${r.method}">${r.method}</span></td><td class="m">${esc(r.path)}</td><td class="m s${String(r.status)[0]}">${r.status}</td><td class="m">${r.ms} ms</td><td>${esc(r.who)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No requests yet.</td></tr>`;
+  $("#reqs").innerHTML = o.requests.map((r,i)=>`<tr class="${i < topReq-seenReq && seenReq ? "fresh":""}"><td class="m">${esc(r.time||"")}</td><td><span class="pill ${r.method}">${r.method}</span></td><td class="m">${esc(r.path)}</td><td class="m s${String(r.status)[0]}">${r.status}</td><td class="m">${r.ms} ms</td><td>${esc(r.who)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No requests yet.</td></tr>`;
   seenReq = topReq;
-  $("#offers").innerHTML = o.offers.map(x=>`<tr><td class="m">${x.id}</td><td>${esc(x.patient)}</td><td class="m">${esc(x.slot_id)}</td><td class="m">${x.score}</td><td><span class="pill ${x.status==="accepted"?"GET":x.status==="pending"?"POST":"PUT"}">${x.status}</span></td><td class="m">${x.status==="pending"?Math.max(0,Math.round((x.expires_at-Date.now())/1000))+"s":"–"}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No offers yet.</td></tr>`;
+  $("#offers").innerHTML = o.offers.map(x=>`<tr><td class="m">${x.id}</td><td>${esc(x.patient)}</td><td class="m">${x.round}</td><td class="m">${x.score}</td><td><span class="pill ${x.status==="accepted"?"GET":x.status==="pending"?"POST":"PUT"}">${x.status}</span></td><td class="m">${esc(x.deadline||"–")}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No offers yet.</td></tr>`;
   const newestAudit = o.audit[0] ? o.audit[0].id : 0;
   $("#audit").innerHTML = o.audit.map(a=>`<tr class="${seenAudit && a.id>seenAudit?"fresh":""}"><td class="m">${clock(a.ts)}</td><td>${esc(a.actor)}</td><td class="m">${esc(a.action)}</td><td>${esc(a.detail)}</td></tr>`).join("");
   seenAudit = newestAudit;
@@ -248,7 +254,7 @@ es.addEventListener("hello", ()=>{ $("#live").className="live on"; $("#live").la
 es.onerror = ()=>{ $("#live").className="live"; $("#live").lastChild.textContent = "Reconnecting"; };
 let t = null;
 const soon = () => { clearTimeout(t); t = setTimeout(refresh, 150); };
-["appointment.cancelled","appointment.updated","offer.sent","offer.declined","offer.expired","slot.filled","slot.unfilled","sms.received","note.added","waitlist.added","settings.updated","reset"].forEach(type=>es.addEventListener(type, ev=>{ addEvent(JSON.parse(ev.data)); soon(); }));
+["refill.started","appointment.updated","offer.sent","offer.declined","offer.expired","slot.filled","slot.unfilled","sms.received","note.added","waitlist.added","settings.updated","reset"].forEach(type=>es.addEventListener(type, ev=>{ addEvent(JSON.parse(ev.data)); soon(); }));
 es.addEventListener("http", soon);
 setInterval(refresh, 5000);
 })();
