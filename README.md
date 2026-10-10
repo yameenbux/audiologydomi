@@ -42,6 +42,7 @@ How the free tier behaves:
 | **Refill engine** | Hard rules: same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons. |
 | **Offers that respect the clock** | Hours away: one person at a time, with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready. |
 | **Patients cancel by text** | A patient texting CANCEL cancels today's visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone. |
+| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system finds every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add. Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are estimated from postcode districts (`server/travel.js`). |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, calculated from the office's own fee per visit. |
 | **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
 | **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
@@ -90,7 +91,8 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 4. Reply **NO** as Gerald, then **YES** as Margaret. Sylvia is told it's gone and keeps her place.
 5. Hold up the phone. The banner, the new visit and the office's text are already there. The income panel now shows the visit recovered.
 6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. The slot refills with nobody in the office touching it, one patient at a time because there's more time.
-7. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
+7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 with Amira, between Peter and Ken, because that adds the least driving. Book it and show the phone.
+8. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
 
 ## Deliberately out of scope for the demo
 

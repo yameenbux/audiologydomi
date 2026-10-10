@@ -1,6 +1,7 @@
 "use strict";
 // The refill engine. Pure functions with no database access, so the rules are easy to test and to tune.
-const { DAY_END, TYPES, PRIO, district } = require("./domain");
+const { DAY_START, DAY_END, TYPES, PRIO, district, hm } = require("./domain");
+const { driveMinutes } = require("./travel");
 
 /**
  * Minutes free from the start of a cancelled slot until the clinician must leave for the next visit.
@@ -84,4 +85,53 @@ function parseReply(body) {
   return "unknown";
 }
 
-module.exports = { freeWindow, rankCandidates, parseReply, planOffer };
+
+/**
+ * Best places to fit a new home visit into today's rounds.
+ * For every gap in every clinician's day, the visit must fit with the drive in from the previous visit
+ * and the drive on to the next one. Options are ranked by the extra driving they add to the round.
+ * @param {object} p
+ * @param {string} p.pc            the patient's postcode
+ * @param {string} p.type          visit type key
+ * @param {"any"|"am"|"pm"} p.avail when the patient is home
+ * @param {object[]} p.clinicians   [{id, first, patch, near}]
+ * @param {object[]} p.appts        active appointments today: {id, clinicianId, start, type, pc, name}
+ * @param {number} p.now           demo time in minutes
+ * @param {number} [p.noticeMin]   how much warning the patient needs
+ */
+const ROUND5 = (m) => Math.ceil(m / 5) * 5;
+function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30 }) {
+  const dur = TYPES[type].dur;
+  const d = district(pc);
+  const earliestAllowed = ROUND5(Math.max(DAY_START, now + noticeMin));
+  const out = [];
+  for (const c of clinicians) {
+    const area = c.patch.includes(d) ? "patch" : c.near.includes(d) ? "near" : "outside";
+    if (area === "outside") continue; // too far to be worth fitting in
+    const day = appts.filter((a) => a.clinicianId === c.id).sort((x, y) => x.start - y.start);
+    const base = { pc: c.patch[0], name: "start of round", end: DAY_START };
+    const stops = [base, ...day.map((a) => ({ pc: a.pc, name: a.name, start: a.start, end: a.start + TYPES[a.type].dur }))];
+    for (let i = 0; i < stops.length; i++) {
+      const prev = stops[i], next = stops[i + 1] || null;
+      const driveIn = driveMinutes(prev.pc, pc);
+      const driveOut = next ? driveMinutes(pc, next.pc) : 0;
+      if (driveIn == null || driveOut == null) continue;
+      let start = ROUND5(Math.max(prev.end + driveIn, earliestAllowed));
+      if (avail === "pm") start = Math.max(start, 12 * 60);
+      const latestEnd = next ? next.start - driveOut : DAY_END;
+      if (start + dur > latestEnd) continue;
+      if (avail === "am" && start >= 12 * 60) continue;
+      const direct = next ? driveMinutes(prev.pc, next.pc) || 0 : 0;
+      const extraDrive = Math.max(0, driveIn + driveOut - direct);
+      const why = [`${extraDrive} min extra driving`];
+      why.push(area === "patch" ? `In ${c.first}'s patch (${d})` : `Next to ${c.first}'s patch (${d})`);
+      why.push(next ? `Between ${prev.name} and ${next.name}` : `After ${prev.name}`);
+      // Fewer extra miles first; then the clinician's own patch; then sooner in the day.
+      const score = 100 - extraDrive * 2 + (area === "patch" ? 10 : 0) - Math.round((start - now) / 60);
+      out.push({ clinicianId: c.id, start, end: start + dur, driveIn, driveOut, extraDrive, area, prev: prev.name, next: next ? next.name : null, score, why, label: `${hm(start)}–${hm(start + dur)}` });
+    }
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+
+module.exports = { freeWindow, rankCandidates, parseReply, planOffer, suggestSlots };

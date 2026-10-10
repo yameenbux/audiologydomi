@@ -89,3 +89,33 @@ test("opening a record is audited; background refreshes are not", async () => {
   const views = (await call("GET", "/api/debug/overview", office.token)).data.audit.filter((a) => a.action === "patient.view");
   assert.strictEqual(views.length, 1);
 });
+
+test("booking a new visit: ranked slots, booked into the round, can't be double-booked", async () => {
+  const office = await login("u-admin");
+  const found = (await call("POST", "/api/slots", office.token, { patientId: "p9", type: "review", avail: "pm" })).data;
+  assert.ok(found.slots.length > 0, "Irene (LS17, afternoons) gets options");
+  const pick = found.slots[0];
+  assert.ok(pick.start >= 720);
+  const booked = await call("POST", "/api/bookings", office.token, { patientId: "p9", type: "review", avail: "pm", clinicianId: pick.clinicianId, start: pick.start });
+  assert.strictEqual(booked.status, 200);
+  const s = await state(office.token);
+  const v = s.appts.find((a) => a.id === booked.data.appointmentId);
+  assert.strictEqual(v.start, pick.start);
+  assert.strictEqual(s.waitlist.find((w) => w.patientId === "p9").status, "booked", "taken off the waiting list");
+  assert.ok(s.messages.some((m) => m.name === "Irene Battye" && /is booked for today/.test(m.body)));
+  const again = await call("POST", "/api/bookings", office.token, { patientId: "p4", type: "review", avail: "pm", clinicianId: pick.clinicianId, start: pick.start });
+  assert.strictEqual(again.status, 409, "the same gap can't be booked twice");
+});
+
+test("booking a brand-new patient needs a postcode we can route to", async () => {
+  const office = await login("u-admin");
+  const bad = await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "M1", type: "wax" });
+  assert.strictEqual(bad.status, 400);
+  const ok = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax" })).data;
+  const pick = ok.slots[0];
+  const b = (await call("POST", "/api/bookings", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax", clinicianId: pick.clinicianId, start: pick.start })).data;
+  assert.ok(b.patientId);
+  assert.ok((await state(office.token)).patients.some((p) => p.name === "Ruth Ingham"));
+  const amira = await login("u-c1", office.sandbox);
+  assert.strictEqual((await call("POST", "/api/slots", amira.token, { patientId: "p9", type: "review" })).status, 403, "office only");
+});
