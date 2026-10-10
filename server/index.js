@@ -223,9 +223,14 @@ function serveStatic(req, res) {
   if (p === "/brand") p = "/brand.html";
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
+  // HTML, CSS and JS revalidate on every load (cheap 304s via ETag) so a redeploy shows up immediately;
+  // fonts and images rarely change and can be cached for a day.
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found"); }
-    res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": path.extname(file) === ".html" ? "no-cache" : "public, max-age=3600" });
+    const etag = '"' + crypto.createHash("sha1").update(data).digest("base64url").slice(0, 16) + '"';
+    if (req.headers["if-none-match"] === etag) { res.writeHead(304, { ETag: etag }); return res.end(); }
+    res.setHeader("ETag", etag);
+    res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": [".woff2", ".svg", ".png"].includes(path.extname(file)) ? "public, max-age=86400" : "no-cache" });
     res.end(data);
   });
 }
