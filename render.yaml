@@ -16,3 +16,5 @@ services:
         generateValue: true
       - key: OFFER_MINUTES
         value: "20"
+      - key: ROUTING_PROVIDER
+        value: osrm            # live road routes for new postcodes; falls back to estimates if unreachable

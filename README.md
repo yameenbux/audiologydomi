@@ -2,7 +2,7 @@
 
 A working demo of a diary system for a home-visit audiology practice. When a visit is cancelled, the system picks the best patient from the waiting list, texts them an offer, and puts them into the slot when they reply YES. The clinician's phone updates on its own.
 
-"Domi Hearing" is a placeholder name. The patients, phone numbers (Ofcom's reserved drama range) and addresses are invented.
+"Domi Hearing" is a placeholder name. The patients, phone numbers (Ofcom's reserved drama range) and street names are invented. The postcodes are real Leeds postcodes, so the drive times are real.
 
 ## Run it
 
@@ -42,7 +42,7 @@ How the free tier behaves:
 | **Refill engine** | Hard rules: same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons. |
 | **Offers that respect the clock** | Days or hours away: one person at a time (patients who need 24 hours' notice qualify for later days), with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready. |
 | **Patients cancel by text** | A patient texting CANCEL cancels today's visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone. |
-| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system searches the whole week for every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add, weighed against how soon it is (urgent patients are pulled towards sooner days, routine ones towards less driving). Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are estimated from postcode districts (`server/travel.js`). |
+| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system searches the whole week for every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add, weighed against how soon it is (urgent patients are pulled towards sooner days, routine ones towards less driving). Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are road routes between full postcodes (see *Drive times* below). |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, calculated from the office's own fee per visit. |
 | **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
 | **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
@@ -59,12 +59,25 @@ server/service.js          Booking service: transactions, audit, texts, events
 server/refill.js           Ranking and offer-planning rules (pure functions, unit tested)
 server/sandbox.js          Private demo per visitor + demo clock (AsyncLocalStorage)
 server/notify.js           SMS gateway: demo outbox, or real Twilio if keys are set
+server/travel.js           Postcode lookup + road drive times (postcodes.io, OSRM), cached, with fallback
 server/bus.js              Live event fan-out, scoped by role
 server/db.js               SQLite schema + seed data (node:sqlite)
 test/                      Engine, database and API integration tests
 ```
 
 Security in the demo: HMAC-signed sessions; per-visitor sandboxes; role checks on every endpoint (a clinician can only open patients on their round or in their patch); validated state transitions; a double-booking guard; texts and live events released only after the database commits; an audit log of every change and every record a person opens; Twilio signature verification on inbound texts; path-traversal-safe static serving. Fonts and libraries are self-hosted, so pages make no third-party requests.
+
+### Drive times
+
+Each booking option is labelled **Road route** or **Estimated**.
+
+- **Postcodes** are placed with [postcodes.io](https://postcodes.io), which is free and uses Ordnance Survey and ONS data.
+- **Road driving times** come from an [OSRM](https://project-osrm.org) table request covering every stop in the diary. Each time has 30% added for daytime traffic and 4 minutes for parking.
+- **Caching and fallback:** results are cached. Requests time out after 3 seconds, and after a failure the router is left alone for a minute. Until it's back, estimates from straight-line distance are used, so booking never waits on a third party.
+- **The sample diary** uses road times saved from OSRM (`server/routes-seed.json`), so it shows real routes even offline.
+- **When it's on:** live lookups need `ROUTING_PROVIDER=osrm`, which `render.yaml` sets. Locally and in the tests, new postcodes are estimated.
+
+For production, swap the public OSRM demo server (fair use only, no traffic data) for a self-hosted OSRM with the UK map, or a paid service with live traffic (Google Routes, TomTom, Mapbox). Only `server/travel.js` changes.
 
 ### Sending real texts
 
@@ -82,6 +95,8 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 | `OFFER_MINUTES` | 20 | How long a patient has to reply |
 | `SESSION_SECRET` | random per start | Set it, or sessions end when the server restarts |
 | `MAX_SANDBOXES` | 100 | Private demos kept in memory at once |
+| `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
+| `OSRM_URL` | public demo server | Your own OSRM server |
 
 ## Demo script (5 minutes)
 

@@ -260,7 +260,7 @@ function addToWaitlist(input, user) {
       const name = String(input.name || "").trim();
       if (!name) throw new HttpError(400, "Enter the patient's name.");
       pid = newId("p");
-      run("INSERT INTO patients (id, name, age, addr, pc, phone) VALUES (?, ?, NULL, ?, ?, ?)", pid, name, String(input.addr || "Address to confirm"), String(input.pc || "LS6").toUpperCase(), String(input.phone || "07700 900000"));
+      run("INSERT INTO patients (id, name, age, addr, pc, phone) VALUES (?, ?, NULL, ?, ?, ?)", pid, name, String(input.addr || "Address to confirm"), travel.normalise(input.pc || "LS6"), String(input.phone || "07700 900000"));
       addNote(pid, "Added to waiting list.", user, { silent: true });
     } else if (!getPatient(pid)) throw new HttpError(404, "Patient not found.");
     const id = newId("w");
@@ -299,9 +299,13 @@ function bookingPatient(input) {
     return p;
   }
   const name = String(input.name || "").trim();
-  const pc = String(input.pc || "").trim().toUpperCase();
+  const pc = travel.normalise(input.pc);
   if (!name) throw new HttpError(400, "Enter the patient's name.");
-  if (!travel.known(pc)) throw new HttpError(400, "Enter a Leeds postcode district, like LS6 or LS16, so we can work out travel.");
+  if (!travel.known(pc)) {
+    throw new HttpError(400, travel.isFull(pc)
+      ? `We couldn't find the postcode ${pc}. Check it, or enter just the district, like LS6.`
+      : "Enter a Leeds postcode, like LS6 4DH (or just the district, like LS6), so we can work out travel.");
+  }
   return { id: null, name, pc, addr: String(input.addr || "").trim() || "Address to confirm", phone: String(input.phone || "").trim() || "07700 900000", alerts: [] };
 }
 
@@ -314,15 +318,28 @@ function slotsFor(patient, type, avail) {
   return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
 }
 
+/**
+ * Fetch road times for this patient and every stop in the diary before ranking. Fast when they're cached,
+ * and if the routing service is slow or down this gives up after a few seconds and estimates are used.
+ */
+async function warmRoutes(input) {
+  const p = input.patientId && input.patientId !== "new" ? getPatient(String(input.patientId)) : null;
+  const stops = all("SELECT DISTINCT p.pc FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled'").map((r) => r.pc);
+  const bases = all("SELECT base FROM clinicians").map((r) => r.base);
+  await travel.prepare([p ? p.pc : travel.normalise(input.pc), ...stops, ...bases]);
+}
+
 /** Ranked options for the booking screen. */
-function findSlots(input) {
+async function findSlots(input) {
+  await warmRoutes(input);
   const patient = bookingPatient(input);
   const slots = slotsFor(patient, input.type, input.avail).slice(0, 6);
   return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, slots };
 }
 
 /** Book a visit into a slot. The slot is re-checked here, so two people can't book the same gap. */
-function bookVisit(input, user) {
+async function bookVisit(input, user) {
+  await warmRoutes(input);
   return tx(() => {
     const draft = bookingPatient(input);
     const c = getClinician(String(input.clinicianId || ""));

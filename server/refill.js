@@ -1,7 +1,7 @@
 "use strict";
 // The refill engine. Pure functions with no database access, so the rules are easy to test and to tune.
 const { DAY_START, DAY_END, TYPES, PRIO, district, hm } = require("./domain");
-const { driveMinutes } = require("./travel");
+const { driveMinutes, driveInfo } = require("./travel");
 
 /**
  * Minutes free from the start of a cancelled slot until the clinician must leave for the next visit.
@@ -115,7 +115,7 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
     const area = c.patch.includes(d) ? "patch" : c.near.includes(d) ? "near" : "outside";
     if (area === "outside") continue; // too far to be worth fitting in
     const round = appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === day).sort((x, y) => x.start - y.start);
-    const base = { pc: c.patch[0], name: "start of round", end: DAY_START };
+    const base = { pc: c.base || c.patch[0], name: "start of round", end: DAY_START };
     const stops = [base, ...round.map((a) => ({ pc: a.pc, name: a.name, start: a.start, end: a.start + TYPES[a.type].dur }))];
     for (let i = 0; i < stops.length; i++) {
       const prev = stops[i], next = stops[i + 1] || null;
@@ -128,17 +128,31 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
       if (start + dur > latestEnd) continue;
       if (avail === "am" && start >= 12 * 60) continue;
       const direct = next ? driveMinutes(prev.pc, next.pc) || 0 : 0;
-      const extraDrive = Math.max(0, driveIn + driveOut - direct);
+      // Last visit of the day: the drive home changes too, so count the difference.
+      const home = (from) => (from === base.pc ? 0 : driveMinutes(from, base.pc) || 0);
+      const homeDelta = next ? 0 : home(pc) - home(prev.pc);
+      const extraDrive = Math.max(0, driveIn + driveOut - direct + homeDelta);
+      // "road" only when every leg of the detour is a real road route
+      const legs = [driveInfo(prev.pc, pc), next && driveInfo(pc, next.pc)].filter(Boolean);
+      const route = legs.every((l) => l.source === "road") ? "road" : "estimate";
       const why = [`${extraDrive} min extra driving`];
       why.push(area === "patch" ? `In ${c.first}'s patch (${d})` : `Next to ${c.first}'s patch (${d})`);
-      why.push(next ? `Between ${prev.name} and ${next.name}` : `After ${prev.name}`);
+      why.push(next ? `Between ${prev.name} and ${next.name}` : prev === base ? "Only visit that day" : `Last visit, after ${prev.name}`);
       // Fewer extra miles first; then the clinician's own patch; then sooner.
       const score = 100 - extraDrive * 2 + (area === "patch" ? 10 : 0) - day * perDay - Math.round((start - DAY_START) / 120);
-      out.push({ clinicianId: c.id, day, start, end: start + dur, driveIn, driveOut, extraDrive, area, prev: prev.name, next: next ? next.name : null, score, why, label: `${hm(start)}–${hm(start + dur)}` });
+      out.push({ clinicianId: c.id, day, start, end: start + dur, driveIn, driveOut, extraDrive, area, prev: prev.name, next: next ? next.name : null, score, why, route, label: `${hm(start)}–${hm(start + dur)}` });
     }
   }
   }
-  return out.sort((a, b) => b.score - a.score);
+  out.sort((a, b) => b.score - a.score);
+  // If the best option isn't the shortest drive, say why: it's sooner.
+  const [top] = out;
+  const cheapest = out.reduce((m, x) => (x.extraDrive < m.extraDrive ? x : m), top || {});
+  if (top && cheapest.extraDrive < top.extraDrive && cheapest.day > top.day) {
+    const n = cheapest.day - top.day;
+    top.why.push(`${n === 1 ? "A day" : n + " days"} sooner than the shortest drive (${PRIO[prio] ? PRIO[prio].label : "Routine"} priority)`);
+  }
+  return out;
 }
 
 module.exports = { freeWindow, rankCandidates, parseReply, planOffer, suggestSlots };
