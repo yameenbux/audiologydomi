@@ -14,7 +14,9 @@ const rememberDemo = (c) => { DEMO_SB = c; try { c ? localStorage.setItem("domi-
 
 async function api(method, url, body) {
   // X-Domi: a header a form on another site can't add, so the server can refuse forged requests.
-  const res = await fetch(url, { method, credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined });
+  let res;
+  try { res = await fetch(url, { method, credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined }); }
+  catch (e) { const err = new Error("No connection. This will work again when you have signal."); err.offline = true; throw err; }
   const data = await res.json().catch(() => ({ error: "The server sent something unexpected." }));
   if (res.status === 401 && !url.startsWith("/api/auth/")) { signedOut(); throw new Error(data.error); }
   if (!res.ok) throw new Error(data.error || "That didn't work. Try again.");
@@ -23,6 +25,7 @@ async function api(method, url, body) {
 const fail = (e) => toast(e.message, true);
 function signedOut(msg) {
   if (ES) { ES.close(); ES = null; }
+  wipeOffline();
   const was = !!S;
   S = null; UI.pid = null; UI.rec = null; UI.pair = null; UI.auth = { step: "password" };
   closeDrawer(); render();
@@ -76,10 +79,74 @@ function restore(root, s) {
 }
 function paint(root, html) { const s = snapshot(root); root.innerHTML = html; restore(root, s); }
 
+/* ============ Offline (clinician phone) ============ */
+// Today's round and its patients' records are kept on the phone, so a visit can go ahead without signal.
+// Changes made offline are queued and sent, in order, when the connection is back. Signing out wipes it all.
+// Not kept for the office or the office's preview: only on a clinician's own signed-in phone.
+const OFFLINE_KEY = "domi-offline", OUTBOX_KEY = "domi-outbox";
+const store = {
+  get: (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del: (k) => { try { localStorage.removeItem(k); } catch (e) {} },
+};
+let outbox = store.get(OUTBOX_KEY, []), flushing = false;
+const keepsOffline = () => !!S && !isAdmin() && !isOffice();
+function wipeOffline() { store.del(OFFLINE_KEY); store.del(OUTBOX_KEY); outbox = []; UI.offline = false; }
+function saveOffline() {
+  if (!keepsOffline()) return;
+  const prev = store.get(OFFLINE_KEY, {});
+  store.set(OFFLINE_KEY, { meta: META, state: S, fetchedAt, savedAt: Date.now(), records: prev.user === S.user.id ? prev.records || {} : {}, user: S.user.id });
+}
+/** Keep the records of everyone on today's round, so they open without signal. */
+async function prefetchRecords() {
+  if (!keepsOffline() || UI.offline) return;
+  const ids = [...new Set(dayAppts(S.clinicians[0].id).map((a) => a.patientId))];
+  const records = {};
+  for (const id of ids) { try { records[id] = await api("GET", "/api/patients/" + id + "?background=1"); } catch (e) { if (e.offline) return; } }
+  let route = null; try { route = await api("GET", "/api/route?day=0"); } catch (e) { /* the map just won't be offline */ }
+  const c = store.get(OFFLINE_KEY, null); if (c) { c.records = records; c.route = route; store.set(OFFLINE_KEY, c); }
+}
+function goOffline() {
+  const c = store.get(OFFLINE_KEY, null);
+  if (!c || (S && c.user !== S.user.id)) return false;
+  if (!S) { S = c.state; META = META || c.meta; fetchedAt = c.fetchedAt; }
+  if (!UI.offline) { UI.offline = true; toast("No signal. Your round is saved on this phone, and changes will sync later."); }
+  render();
+  return true;
+}
+/** A change made without signal: shown straight away, sent when the connection is back. */
+function queueChange(url, body, apply) {
+  outbox.push({ url, body, at: Date.now() }); store.set(OUTBOX_KEY, outbox);
+  apply();
+  const c = store.get(OFFLINE_KEY, null);
+  if (c) { c.state = S; if (UI.rec) c.records[UI.rec.id] = UI.rec; store.set(OFFLINE_KEY, c); }
+  render();
+}
+async function flush() {
+  if (flushing) return; flushing = true;
+  let sent = 0;
+  try {
+    while (outbox.length) {
+      const job = outbox[0];
+      try { await api("POST", job.url, job.body); sent++; }
+      catch (e) { if (e.offline) return; toast(`One change couldn't sync: ${e.message}`, true); }
+      outbox.shift(); store.set(OUTBOX_KEY, outbox);
+    }
+  } finally { flushing = false; }
+  UI.offline = false;
+  if (sent) toast(`Back online. ${sent} change${sent === 1 ? "" : "s"} synced.`);
+  await load(); connect();
+}
+window.addEventListener("offline", () => { if (keepsOffline()) goOffline(); });
+window.addEventListener("online", () => { if (S && (UI.offline || outbox.length)) flush().catch(() => {}); });
+
 /* ============ Data + live updates ============ */
 async function load() {
-  S = await api("GET", "/api/state");
-  fetchedAt = Date.now();
+  if (outbox.length && !flushing) { if (S && navigator.onLine !== false) return flush(); }
+  try { S = await api("GET", "/api/state"); }
+  catch (e) { if (e.offline && goOffline()) return; throw e; }
+  fetchedAt = Date.now(); UI.offline = false;
+  saveOffline(); prefetchRecords();
   if (S.user.clinicianId) UI.lastClin = "u-" + S.user.clinicianId;
   if (UI.drawer && UI.drawer.kind === "invoices") UI.drawer.data = await api("GET", "/api/invoices").catch(() => UI.drawer.data);
   if (UI.myRoute && !isAdmin()) UI.myRoute = await api("GET", "/api/route?day=0").catch(() => null);
@@ -402,7 +469,7 @@ function clinView() {
         <li>${icon("bolt")}<span>Diary changes from the office arrive live</span></li>
       </ul></div>
     <div class="phone">
-      <div class="ph-scroll" id="ph-scroll" data-scroll="phone">${body}</div>
+      <div class="ph-scroll" id="ph-scroll" data-scroll="phone">${UI.offline ? `<div class="offline-bar" role="status">${icon("bolt")}<span><b>No signal.</b> Your round and records are saved on this phone.${outbox.length ? ` ${outbox.length} change${outbox.length === 1 ? "" : "s"} waiting to sync.` : ""}</span></div>` : ""}${body}</div>
       <nav class="ph-tabs" aria-label="Clinician sections">
         <button type="button" data-act="tab" data-v="today" aria-current="${!UI.pid && UI.tab === "today" ? "page" : "false"}">${icon("cal")}Today</button>
         <button type="button" data-act="tab" data-v="patients" aria-current="${UI.tab === "patients" || UI.pid ? "page" : "false"}">${icon("users")}Patients</button>
@@ -838,7 +905,13 @@ setInterval(() => { tick(); if (UI.drawer && UI.drawer.kind === "flow" && UI.flo
 
 /* ============ Actions ============ */
 async function openPatient(id, apptId) {
-  UI.rec = await api("GET", "/api/patients/" + id); UI.pid = id;
+  try { UI.rec = await api("GET", "/api/patients/" + id); }
+  catch (e) {
+    const saved = e.offline && (store.get(OFFLINE_KEY, {}).records || {})[id];
+    if (!saved) throw e.offline ? new Error("This record isn't saved on the phone. It will open when you have signal.") : e;
+    UI.rec = saved; goOffline();
+  }
+  UI.pid = id;
   const a = S.appts.find((x) => x.id === apptId);
   if (a && a.moved && !a.seen) { a.seen = true; api("POST", "/api/appointments/" + a.id + "/seen").catch(() => {}); }
   render();
@@ -885,7 +958,12 @@ document.addEventListener("click", async (e) => {
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, UI.view === "week" ? 0 : UI.day); break;
-      case "my-route": UI.myRoute = UI.myRoute ? null : await api("GET", "/api/route?day=0"); render(); break;
+      case "my-route": {
+        if (UI.myRoute) { UI.myRoute = null; render(); break; }
+        try { UI.myRoute = await api("GET", "/api/route?day=0"); }
+        catch (e) { const saved = e.offline && store.get(OFFLINE_KEY, {}).route; if (!saved) throw e; UI.myRoute = saved; }
+        render(); break;
+      }
       case "slot-map": {
         const B = UI.book, i = Number(el.dataset.i);
         if (B.map && B.map.i === i) { B.map = null; renderDrawer(); break; }
@@ -933,14 +1011,27 @@ document.addEventListener("click", async (e) => {
       case "save-note": {
         const n = $(`#note-${el.dataset.id}`), v = n.value.trim();
         if (!v) { toast("Write a note first", true); n.focus(); break; }
-        await api("POST", "/api/patients/" + el.dataset.id + "/notes", { body: v });
+        const url = "/api/patients/" + el.dataset.id + "/notes";
+        if (UI.offline) { n.value = ""; queueChange(url, { body: v }, () => UI.rec.history.unshift({ label: "Saved offline " + hm(demoNow()), body: v, by: S.user.name })); toast("Saved on the phone. It goes to the record when you have signal."); break; }
+        try { await api("POST", url, { body: v }); }
+        catch (e) { if (!e.offline || !keepsOffline()) throw e; goOffline(); n.value = ""; queueChange(url, { body: v }, () => UI.rec.history.unshift({ label: "Saved offline " + hm(demoNow()), body: v, by: S.user.name })); toast("Saved on the phone. It goes to the record when you have signal."); break; }
         n.value = ""; await load(); toast("Saved to " + UI.rec.name + "'s record"); break;
       }
       case "copy": { const v = el.dataset.v; try { await navigator.clipboard.writeText(v); toast("Number copied: " + v); } catch (err) { toast(v); } break; }
       case "status": {
-        const v = el.dataset.v, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";
-        if (v === "done" && note) { await api("POST", "/api/patients/" + UI.pid + "/notes", { body: note }); n.value = ""; }
-        const res = await api("POST", "/api/appointments/" + el.dataset.id + "/status", { status: v });
+        const v = el.dataset.v, id = el.dataset.id, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";
+        const offline = () => {
+          if (v === "done" && note) { queueChange("/api/patients/" + UI.pid + "/notes", { body: note }, () => UI.rec.history.unshift({ label: "Saved offline " + hm(demoNow()), body: note, by: S.user.name })); n.value = ""; }
+          queueChange("/api/appointments/" + id + "/status", { status: v }, () => { const a = S.appts.find((x) => x.id === id); if (a) a.status = v; });
+          toast(v === "enroute" ? "Saved. The patient will be texted when you have signal." : v === "live" ? "Visit started (saved on the phone)" : "Visit complete (saved on the phone). It syncs when you have signal.");
+          if (v === "done") { UI.pid = null; UI.rec = null; render(); }
+        };
+        if (UI.offline) { offline(); break; }
+        let res;
+        try {
+          if (v === "done" && note) { await api("POST", "/api/patients/" + UI.pid + "/notes", { body: note }); n.value = ""; }
+          res = await api("POST", "/api/appointments/" + id + "/status", { status: v });
+        } catch (e) { if (!e.offline || !keepsOffline()) throw e; goOffline(); offline(); break; }
         toast(v === "enroute" ? "Patient texted that you're on the way" : v === "live" ? "Visit started"
           : res.invoice ? `Visit complete. Invoice ${res.invoice.number} raised (${pounds(res.invoice.totalPence)}).` : "Visit complete. On to the next one.");
         if (v === "done") { UI.pid = null; UI.rec = null; }
@@ -995,6 +1086,7 @@ $("#role-admin").onclick = () => switchRole(true).catch(fail);
 $("#role-clin").onclick = () => switchRole(false).catch(fail);
 $("#open-phone").onclick = () => openDrawer({ kind: "qr" });
 $("#signout").onclick = async () => {
+  if (outbox.length && !confirm(`${outbox.length} change${outbox.length === 1 ? " hasn't" : "s haven't"} synced yet. Sign out and lose ${outbox.length === 1 ? "it" : "them"}?`)) return;
   try { await api("POST", "/api/auth/logout"); } catch (e) {}
   signedOut(); toast("Signed out");
 };
@@ -1006,8 +1098,9 @@ $("#reset").onclick = async () => {
 };
 
 (async function boot() {
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   try { META = await api("GET", "/api/meta"); }
-  catch (e) { $("#app").innerHTML = `<div class="shell"><div class="err">Can't reach the server. Start it with <span class="mono">npm start</span> and reload.</div></div>`; return; }
+  catch (e) { if (e.offline && goOffline()) return; $("#app").innerHTML = `<div class="shell"><div class="err">Can't reach the server. Start it with <span class="mono">npm start</span> and reload.</div></div>`; return; }
   const params = new URLSearchParams(location.search);
   history.replaceState(null, "", "/"); // never leave a one-time link in the address bar or history
   if (params.get("pair")) {

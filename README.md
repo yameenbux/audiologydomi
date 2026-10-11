@@ -48,6 +48,13 @@ How the free tier behaves:
 | **Patients cancel by text** | A patient texting CANCEL cancels today's visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone. |
 | **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system searches the whole week for every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add, weighed against how soon it is (urgent patients are pulled towards sooner days, routine ones towards less driving). Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are road routes between full postcodes (see *Drive times* below). |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, calculated from the office's own fee per visit. |
+| **Day-before reminders** | Every visit tomorrow gets a reminder text at the practice's reminder time (17:00 by default, or *Send now* in the Reminders panel). A CANCEL reply cancels that visit and starts the refill a day ahead. |
+| **Route map** | Each clinician's day on a map: numbered stops, drive minutes per leg, the drive home, and totals. It's drawn from coordinates, so it needs no map service and works offline. In booking, *Map* shows where a proposed visit would fit. |
+| **Patient booking page** | `/book/<practice code>`: patients choose a time themselves, with large text and one question at a time. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Fittings stay with the office. |
+| **Recalls** | Patients due a review (annual review, 6-month check, wax recheck) join the refill pool, so a cancellation near them is offered to someone due anyway. The office can text them the booking page. |
+| **Mileage & utilisation** | For each clinician and day: time booked against the working day, driving time, estimated miles and their value at HMRC's 45p rate. Downloads as CSV for mileage claims. |
+| **Invoicing** | Completing a visit raises an invoice at the practice's price for that visit type (£0 = none). The office marks invoices paid by card, cash or bank transfer, voids them, or prints them. No VAT is added: check your VAT treatment with an accountant. |
+| **Offline clinician app** | A service worker keeps the app on the phone. Today's round and its records are saved on the device, and notes and visit updates made without signal are queued and synced in order when it returns. Signing out wipes the copy. Office screens don't keep one. |
 | **Sign-in** | Email and password (scrypt-hashed), then a six-digit code from any authenticator app (TOTP, RFC 6238). Codes can't be reused. Accounts lock after 5 wrong passwords. Sessions are server-side, in an HttpOnly cookie, and end after 2 hours idle or 12 hours. The office can view the app as any clinician (audited), see every signed-in device, and sign a lost phone out remotely. |
 | **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
 | **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
@@ -112,7 +119,7 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 | `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
 
-## Demo script (5 minutes)
+## Demo script (about 8 minutes)
 
 1. On the laptop, click **Sarah Lane (office)**. That fills in her email and password and takes you to the code step. Click **Fill in the current code**, then **Verify**. (Or scan the QR there with Google or Microsoft Authenticator and type the real code.) Click **Open on phone** and scan the QR code: your phone signs in as Amira in the same demo.
 2. On the laptop, click **Peter Dunn, 11:00** → *Cancel and refill this slot*.
@@ -122,8 +129,11 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. The slot refills with nobody in the office touching it, one patient at a time because there's more time.
 7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 today with Amira, between Peter and Ken, and later options across the week. Book it and show the phone.
 8. Click **Week** to show how full each round is this week. Open Thursday and cancel a visit: with days to spare, it asks one person at a time.
-9. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
+9. Click the pin on Amira's column to show her route map. In **Reminders**, click *Send now*, then reply CANCEL as one of tomorrow's patients: the slot refills a day ahead.
+10. Click **Patient booking page**, open it on the phone and book a visit as a patient. The office sees it arrive.
+11. On the phone, turn on airplane mode, complete a visit and add a note, then turn signal back on: both sync. Open **Invoices** to show the invoice that completing the visit raised.
+12. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
 
 ## Deliberately out of scope for the demo
 
-Persistent UK-hosted Postgres with backups (see [docs/HOSTING.md](docs/HOSTING.md)), password reset and per-person authenticator enrolment, offline mode for poor signal, recurring visits and diaries beyond this week, GP letters, invoicing, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).
+Persistent UK-hosted Postgres with backups (see [docs/HOSTING.md](docs/HOSTING.md)), password reset and per-person authenticator enrolment, encrypted storage for the offline copy on the phone, recurring visits and diaries beyond this week, GP letters, stock and repairs, an AI note-writer, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).
