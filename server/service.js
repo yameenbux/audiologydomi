@@ -175,7 +175,8 @@ function handleInbound(phone, body) {
     if (!pr) { audit("sms", "sms.unmatched", phone, body); return { matched: false }; }
     const answer = parseReply(body);
     const offer = one("SELECT o.* FROM offers o JOIN waitlist w ON w.id = o.waitlist_id WHERE w.patient_id = ? AND o.status = 'pending' ORDER BY o.id DESC LIMIT 1", pr.id);
-    const visit = !offer && one("SELECT * FROM appointments WHERE patient_id = ? AND status = 'booked' ORDER BY day, start_min LIMIT 1", pr.id);
+    // A CANCEL after a reminder means the visit we reminded them about; otherwise their next visit.
+    const visit = !offer && one("SELECT * FROM appointments WHERE patient_id = ? AND status = 'booked' ORDER BY reminded DESC, day, start_min LIMIT 1", pr.id);
     bus.emit({ type: "sms.received", patient: pr.name, body, slotId: offer ? offer.slot_id : visit ? visit.id : null, clinicianId: null });
     const actor = `patient:${pr.id}`;
 
@@ -199,6 +200,34 @@ function handleInbound(phone, body) {
     audit(actor, "sms.received", pr.id, body);
     return { matched: true, action: "logged" };
   });
+}
+
+/**
+ * Day-before reminders. Each one invites a CANCEL reply, which cancels that visit and starts refilling it,
+ * so a patient who can't make it frees the slot a day ahead rather than at the door.
+ */
+function sendReminders(day, actor = "system") {
+  return tx(() => {
+    const due = all("SELECT a.*, p.name AS pname, p.phone, c.first AS cfirst FROM appointments a JOIN patients p ON p.id = a.patient_id JOIN clinicians c ON c.id = a.clinician_id WHERE a.day = ? AND a.status = 'booked' AND a.reminded = 0 ORDER BY a.start_min", day);
+    for (const a of due) {
+      sendSms({ to: a.phone, name: a.pname, kind: "reminder",
+        body: `Hi ${first(a.pname)}, a reminder from ${BRAND}: ${a.cfirst} visits you ${when(day, a.start_min)} for your ${TYPES[a.type].name.toLowerCase()}. Can't make it? Reply CANCEL and we'll offer the time to someone waiting.` });
+      run("UPDATE appointments SET reminded = 1 WHERE id = ?", a.id);
+    }
+    if (due.length) {
+      audit(actor, "reminders.sent", `day:${day}`, `${due.length} reminder${due.length === 1 ? "" : "s"} for ${DAYS[day]}`);
+      bus.emit({ type: "reminders.sent", day, count: due.length });
+    }
+    return { day, sent: due.length };
+  });
+}
+
+/** Sends tomorrow's reminders once the demo clock passes the practice's reminder time. */
+function sweepReminders() {
+  const st = settings(), sb = sandbox.current();
+  if (!st.reminders || sandbox.nowMin() < st.reminderAt || sb.remindedDay === 1) return;
+  sb.remindedDay = 1;
+  sendReminders(1);
 }
 
 /** Offers nobody answered in time pass to the next people. Runs on a timer in every sandbox. */
@@ -371,4 +400,4 @@ async function bookVisit(input, user) {
   });
 }
 
-module.exports = { findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
