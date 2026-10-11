@@ -75,7 +75,7 @@ function currentCode(secret, lastStep = -1, ms = Date.now()) {
   if (s > now + WINDOW) return null;
   return { code: hotp(unbase32(secret), s), secondsLeft: (s + 1) * STEP - Math.floor(ms / 1000) };
 }
-const otpauthUri = (secret, email) => `otpauth://totp/${encodeURIComponent("Domi Hearing:" + email)}?secret=${secret}&issuer=${encodeURIComponent("Domi Hearing")}&algorithm=SHA1&digits=${DIGITS}&period=${STEP}`;
+const otpauthUri = (secret, email) => `otpauth://totp/${encodeURIComponent("Domi:" + email)}?secret=${secret}&issuer=${encodeURIComponent("Domi")}&algorithm=SHA1&digits=${DIGITS}&period=${STEP}`;
 
 /* ---------- Short-lived stores (in memory, like the demos themselves) ---------- */
 const token = () => crypto.randomBytes(32).toString("base64url");

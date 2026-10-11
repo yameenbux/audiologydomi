@@ -1,4 +1,4 @@
-/* Domi Hearing service worker: keeps the app itself on the phone so it opens without signal.
+/* Domi service worker: keeps the app itself on the phone so it opens without signal.
    Patient data is not cached here. The app keeps today's round itself, and wipes it on sign-out. */
 "use strict";
 const CACHE = "domi-shell-v1";

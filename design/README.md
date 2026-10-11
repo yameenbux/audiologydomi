@@ -1,6 +1,6 @@
 # Design source
 
-`figma-brand-board.js` builds the Domi Hearing foundations in Figma: colour variables (Light and Dark as
+`figma-brand-board.js` builds the Domi foundations in Figma: colour variables (Light and Dark as
 two matching collections, because Starter plans allow one mode per collection), the type scale as text
 styles, the logo as components, and a brand board.
 

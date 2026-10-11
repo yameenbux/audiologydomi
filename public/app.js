@@ -1,4 +1,4 @@
-/* Domi Hearing — browser app. Talks to the API in server/, renders office and clinician views,
+/* Domi — browser app. Talks to the API in server/, renders office and clinician views,
    and listens for live events. Re-renders keep what the person is typing, their focus and scroll. */
 (function () {
 "use strict";
@@ -273,7 +273,7 @@ function signInView() {
     return `<div class="signin">${brand}
     <form class="signin-form" id="code-form" autocomplete="off">
       <div><div class="caps">Step 2 of 2 · ${esc(A.name)}</div><h2 style="margin-top:8px">Enter your code</h2>
-      <p class="muted" style="margin:8px 0 0">Open the authenticator app on your phone and type the 6-digit code it shows for Domi Hearing. Codes change every 30 seconds.</p></div>
+      <p class="muted" style="margin:8px 0 0">Open the authenticator app on your phone and type the 6-digit code it shows for Domi. Codes change every 30 seconds.</p></div>
       <div class="field"><label for="code">6-digit code</label><input class="input otp" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000" data-keep></div>
       <button class="btn block lg" type="submit">${icon("shield")}Verify and sign in</button>
       ${META.demo ? `<div class="demo-help"><div><b>Demo shortcut</b><span>Nobody has the app set up for this sample practice, so the demo can read the code for you.</span></div>
@@ -347,6 +347,7 @@ function officeView() {
             <p>${st.mode === "offer"
               ? `Patients reply YES to take it. Normal reply window <select id="offer-min" aria-label="Reply window">${[5, 10, 20, 30, 60].map((n) => `<option value="${n}" ${n === st.offerMinutes ? "selected" : ""}>${n} min</option>`).join("")}</select>, shorter when the visit is close. Under an hour away, the top three are asked at once.`
               : "The slot is booked straight away and the patient is told by text. They can reply NO to keep their place."}</p>
+            <label class="practice-name">Texts are signed <input id="practice-name" data-keep maxlength="60" value="${esc(st.practice)}" aria-label="Practice name, as patients see it"></label>
           </div>
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
@@ -1118,6 +1119,7 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; renderDrawer(); }
     if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; renderDrawer(); }
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }
+    if (e.target.id === "practice-name") { const v = e.target.value.trim(); if (v.length < 2) { e.target.value = S.settings.practice; return; } await api("PUT", "/api/settings", { practice: v }); await load(); toast("Texts now signed " + v); }
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
     if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
     if (e.target.dataset && e.target.dataset.price) { await api("PUT", "/api/settings", { prices: { [e.target.dataset.price]: Number(e.target.value) } }); await load(); toast("Price saved"); }
