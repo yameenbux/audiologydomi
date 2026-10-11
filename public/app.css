@@ -507,3 +507,14 @@ a.btn { text-decoration: none }
 /* Offline */
 .offline-bar { display: flex; gap: 10px; align-items: flex-start; background: var(--warn-soft); color: var(--ink); border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px }
 .offline-bar svg { width: 16px; height: 16px; flex: none; color: var(--warn); margin-top: 1px }
+
+/* Coming soon */
+.soon-pill { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: var(--apricot-soft); color: var(--apricot-ink); vertical-align: 1px }
+.btn.soon { color: var(--muted) }
+.btn.soon svg { opacity: .7 }
+.soon-row { display: flex; gap: 6px; flex-wrap: wrap }
+.drawer-b > .soon-row { margin-bottom: 14px }
+.road-h { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; font-family: var(--f-ui); font-weight: 700 }
+.road { list-style: none; margin: 0; padding: 0 }
+.road li { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13.5px }
+.road .rm-area { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--forest) }

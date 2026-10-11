@@ -57,6 +57,7 @@ How the free tier behaves:
 | **Offline clinician app** | A service worker keeps the app on the phone. Today's round and its records are saved on the device, and notes and visit updates made without signal are queued and synced in order when it returns. Signing out wipes the copy. Office screens don't keep one. |
 | **Sign-in** | Email and password (scrypt-hashed), then a six-digit code from any authenticator app (TOTP, RFC 6238). Codes can't be reused. Accounts lock after 5 wrong passwords. Sessions are server-side, in an HttpOnly cookie, and end after 2 hours idle or 12 hours. The office can view the app as any clinician (audited), see every signed-in device, and sign a lost phone out remotely. |
 | **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
+| **What's coming** | Features not built yet sit where they'll live, with a *Soon* badge: Noah import and AI notes in the patient record, card payments, Xero and care-home billing in Invoices, automatic recall texts, stock and repairs, data import, password reset and native apps. Clicking one says what it will do and that it's not in the demo. *What's coming* lists them all, split into next and later, with no dates. The list is `ROADMAP` in `public/app.js`. |
 | **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
 
 ## Architecture
@@ -132,7 +133,8 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 9. Click the pin on Amira's column to show her route map. In **Reminders**, click *Send now*, then reply CANCEL as one of tomorrow's patients: the slot refills a day ahead.
 10. Click **Patient booking page**, open it on the phone and book a visit as a patient. The office sees it arrive.
 11. On the phone, turn on airplane mode, complete a visit and add a note, then turn signal back on: both sync. Open **Invoices** to show the invoice that completing the visit raised.
-12. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
+12. Click **What's coming** to show what's planned, and that nothing on the list pretends to work yet.
+13. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
 
 ## Deliberately out of scope for the demo
 

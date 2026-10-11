@@ -296,6 +296,7 @@ function signInView() {
         <details ${A.join ? "open" : ""}><summary>Joining a demo that's open on another screen?</summary>
           <div class="field" style="margin-top:10px"><label for="join-code">Demo code</label><input class="input code-input" id="join-code" maxlength="6" placeholder="ABC123" autocomplete="off" data-keep value="${esc(A.join || "")}"></div></details>
         <button class="btn block lg" type="submit">Continue${icon("next")}</button>
+        <button class="linkish" type="button" data-act="soon" data-id="reset" style="align-self:center">Forgot your password?<span class="soon-pill">Soon</span></button>
       </form>
     </section>
   </div>`;
@@ -310,7 +311,7 @@ function officeView() {
     <div class="page-head">
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
         <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
-        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button></div></div>
+        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}${soon("import", "Import your data", "copy")}<button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
       <div class="quick-stats">
         <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
@@ -368,6 +369,7 @@ function recallsPanel() {
   return `<section class="panel" aria-label="Recalls">
     <div class="panel-h"><h2>Recalls</h2><span class="sub">In the refill pool</span></div>
     <p class="panel-note">Patients due a review are offered cancelled visits near them automatically. You can also text them your booking page.</p>
+    <div class="soon-row" style="padding:0 18px 8px">${soon("recall-auto", "Send recall texts automatically", "send")}</div>
     <ul class="recalls">${due.map((r) => { const p = pat(r.patientId); return `<li>
       <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${district(p.pc)}</span>` : ""}</div></div>
       <div class="ra">${r.status === "booked" ? `<span class="badge b-ok">Booked</span>`
@@ -467,7 +469,9 @@ function clinView() {
         <li>${icon("note")}<span>Patient record, audiogram and one-tap notes</span></li>
         <li>${icon("car")}<span>"On my way" texts the patient automatically</span></li>
         <li>${icon("bolt")}<span>Diary changes from the office arrive live</span></li>
-      </ul></div>
+        <li>${icon("shield")}<span>Keeps working without signal</span></li>
+      </ul>
+      <div class="soon-row" style="margin-top:14px">${soon("apps", "iPhone &amp; Android apps", "phone")}</div></div>
     <div class="phone">
       <div class="ph-scroll" id="ph-scroll" data-scroll="phone">${UI.offline ? `<div class="offline-bar" role="status">${icon("bolt")}<span><b>No signal.</b> Your round and records are saved on this phone.${outbox.length ? ` ${outbox.length} change${outbox.length === 1 ? "" : "s"} waiting to sync.` : ""}</span></div>` : ""}${body}</div>
       <nav class="ph-tabs" aria-label="Clinician sections">
@@ -567,9 +571,11 @@ function record(p) {
     <div class="sec"><h3>Visit notes ${a && a.status === "live" ? `<span class="badge b-ok">In progress</span>` : ""}</h3>
       <div class="chips">${["Otoscopy clear", "Wax removed R", "Wax removed L", "Aids cleaned & retubed", "Domes replaced", "Fine-tuned gain", "Advised on batteries", "Follow-up in 6 weeks"].map((c) => `<button type="button" data-act="chip">${c}</button>`).join("")}</div>
       <textarea class="note" id="note-${p.id}" data-keep placeholder="What did you do on this visit?"></textarea>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px">${soon("ai-notes", "Draft with AI", "bolt")}<button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
     </div>
-    <div class="sec"><h3>Hearing</h3>${p.audio ? audiogram(p.audio) : `<p class="muted" style="margin:0;font-size:13.5px">No audiogram yet. Results are added after the assessment.</p>`}</div>
+    <div class="sec"><h3>Hearing</h3>${p.audio ? audiogram(p.audio) : `<p class="muted" style="margin:0;font-size:13.5px">No audiogram yet. Results are added after the assessment.</p>`}
+      <div class="soon-row" style="margin-top:10px">${soon("noah", "Import from Noah", "copy")}</div></div>
+    <div class="sec"><h3>Letters &amp; forms</h3><div class="soon-row">${soon("letters", "GP letter", "note")}${soon("letters", "Pre-visit form", "msg")}</div></div>
     <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Hearing aids</dt><dd>${esc(p.aids)}</dd><dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
@@ -579,7 +585,7 @@ function record(p) {
 function openDrawer(d) { UI.drawer = d; renderDrawer(); }
 function closeDrawer() { UI.drawer = null; UI.flow = null; UI.book = null; $("#drawer-root").innerHTML = ""; }
 function renderDrawer() {
-  const d = UI.drawer; if (!d || !S) return;
+  const d = UI.drawer; if (!d || (!S && d.kind !== "soon")) return;
   let inner = "";
   if (d.kind === "appt") inner = apptDrawer(d.id);
   else if (d.kind === "flow") inner = flowDrawer();
@@ -590,9 +596,11 @@ function renderDrawer() {
   else if (d.kind === "booklink") inner = bookLinkModal();
   else if (d.kind === "report") inner = reportDrawer(d.data);
   else if (d.kind === "invoices") inner = invoicesDrawer(d.data);
+  else if (d.kind === "soon") inner = soonModal(d.id);
+  else if (d.kind === "roadmap") inner = roadmapDrawer();
   if (!inner) { closeDrawer(); return; }
   const root = $("#drawer-root");
-  const html = d.kind === "qr" || d.kind === "booklink" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
+  const html = d.kind === "qr" || d.kind === "booklink" || d.kind === "soon" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
     : `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true">${inner}</aside>`;
   const fresh = !root.firstChild;
   paint(root, html);
@@ -669,6 +677,42 @@ function routeDrawer(r) {
   return `<div class="drawer-h"><div><div class="caps">${esc(r.day === 0 ? "Today" : dayName(r.day))}</div><h2 style="margin-top:6px">${esc(r.clinician.first)}'s route</h2></div>${closeX}</div>
     <div class="drawer-b">${r.stops.length ? routeMap(r) + routeSummary(r) : `<div class="empty"><b>No visits</b>Nothing booked on this day.</div>`}
       <p class="muted" style="font-size:12.5px;margin-top:14px">Drive times are road routes between the patients' postcodes. Miles are estimated from distance.</p></div>`;
+}
+/* ---------- What's coming: placeholders for features not built yet, clearly labelled ---------- */
+// Nothing here pretends to work: each button opens a short note on what's coming. No dates are promised.
+// "next" = smaller pieces to come first; "later" = bigger pieces that depend on partners or more work.
+const ROADMAP = [
+  { id: "persist", when: "next", area: "Platform", title: "Your data kept for good, hosted in the UK", body: "A permanent database (PostgreSQL) in a London data centre, encrypted, with daily backups and tested restores. This demo resets on purpose." },
+  { id: "reset", when: "next", area: "Sign-in", title: "Password reset and your own authenticator", body: "Each person sets their own password and links their own authenticator app, with recovery codes and reset by email." },
+  { id: "import", when: "next", area: "Getting started", title: "Bring your data across", body: "Import patients, the waiting list and upcoming visits from your current system or a spreadsheet, checked before anything goes live." },
+  { id: "recall-auto", when: "next", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a review falls due, with the booking link, instead of the office pressing Text link." },
+  { id: "card", when: "next", area: "Payments", title: "Take card payments on the doorstep", body: "Take a card payment on the clinician's phone or a card reader at the end of the visit, marked paid on the invoice straight away." },
+  { id: "xero", when: "next", area: "Payments", title: "Sync invoices to Xero or QuickBooks", body: "Invoices and payments flow into your accounts package, so nothing is typed in twice." },
+  { id: "carehome", when: "next", area: "Payments", title: "Care-home billing", body: "Bill a care home for several residents seen on one visit, on one invoice." },
+  { id: "ai-notes", when: "next", area: "Records", title: "Draft notes with AI", body: "Dictate or record the visit and get a draft note to check and save. Nothing is saved without the clinician approving it." },
+  { id: "letters", when: "next", area: "Records", title: "Letters and pre-visit forms", body: "GP and referrer letters from templates, and forms patients or carers fill in before the visit (consent, history), saved to the record." },
+  { id: "noah", when: "later", area: "Records", title: "Noah 4 integration", body: "Audiograms and fitting sessions from Noah 4 saved into the patient's record automatically. Needs a partnership with HIMSA, who make Noah." },
+  { id: "stock", when: "later", area: "Practice", title: "Stock, orders and repairs", body: "Track hearing aids and parts, raise manufacturer orders and follow repairs from sent to returned." },
+  { id: "apps", when: "later", area: "Clinicians", title: "iPhone and Android apps", body: "The clinician app in the App Store and Google Play. Today it runs in the phone's browser and works offline." },
+];
+const RM = Object.fromEntries(ROADMAP.map((r) => [r.id, r]));
+/** A placeholder button for something not built yet: says so, and explains when clicked. */
+const soon = (id, label, ic = "bolt", cls = "btn secondary sm") => `<button class="${cls} soon" type="button" data-act="soon" data-id="${id}">${icon(ic)}${label}<span class="soon-pill">Soon</span></button>`;
+function soonModal(id) {
+  const r = RM[id];
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">${esc(r.area)} · ${r.when === "next" ? "Coming next" : "Coming later"}</div><h2 style="margin-top:6px;font-size:28px">${esc(r.title)}</h2></div>${closeX}</div>
+    <p style="margin:10px 0 0">${esc(r.body)}</p>
+    <p class="muted" style="font-size:13px;margin:14px 0 0">${icon("clock")} Not in this demo yet.</p>
+    <div style="display:flex;gap:8px;margin-top:16px">${S ? `<button class="btn secondary sm" type="button" data-act="roadmap">See everything that's coming</button>` : ""}</div>`;
+}
+function roadmapDrawer() {
+  const group = (w) => ROADMAP.filter((r) => r.when === w).map((r) => `<li><span class="rm-area">${esc(r.area)}</span><b>${esc(r.title)}</b><span class="muted">${esc(r.body)}</span></li>`).join("");
+  return `<div class="drawer-h"><div><div class="caps">Roadmap</div><h2 style="margin-top:6px">What's coming</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <p class="muted" style="margin:0 0 14px">Everything here is planned but not in the demo yet. Features marked <span class="soon-pill">Soon</span> around the app open these notes.</p>
+      <h3 class="road-h">Coming next</h3><ul class="road">${group("next")}</ul>
+      <h3 class="road-h">Coming later</h3><ul class="road">${group("later")}</ul>
+    </div>`;
 }
 const closeX = `<button class="icon-btn" type="button" data-act="close" aria-label="Close">${icon("x")}</button>`;
 
@@ -804,6 +848,7 @@ function invoicesDrawer(d) {
   return `<div class="drawer-h"><div><div class="caps">Raised when a visit is completed</div><h2 style="margin-top:6px">Invoices</h2></div>${closeX}</div>
     <div class="drawer-b">
       <div class="rp-tiles">${`<div class="rp-tile"><b>${pounds(d.totals.unpaidPence)}</b><span>unpaid</span></div><div class="rp-tile"><b>${pounds(d.totals.paidPence)}</b><span>paid</span></div>`}</div>
+      <div class="soon-row">${soon("card", "Take card payment", "check")}${soon("xero", "Sync to Xero", "reset")}${soon("carehome", "Bill a care home", "users")}</div>
       <details class="prices"><summary>Prices per visit type</summary>
         <div class="price-grid">${Object.entries(META.types).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
         <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised (for example fittings, when the aids are invoiced separately). No VAT is added: check your VAT treatment with your accountant.</p></details>
@@ -949,6 +994,8 @@ document.addEventListener("click", async (e) => {
       case "close": closeDrawer(); break;
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
       case "recall-dismiss": await api("POST", `/api/recalls/${el.dataset.id}/dismiss`); await load(); toast("Removed from recalls and the refill pool"); break;
+      case "soon": openDrawer({ kind: "soon", id: el.dataset.id }); break;
+      case "roadmap": openDrawer({ kind: "roadmap" }); break;
       case "invoices": openDrawer({ kind: "invoices", data: await api("GET", "/api/invoices") }); break;
       case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Marked as paid"); break; }
       case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Invoice voided"); break;
