@@ -45,7 +45,7 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
     if (ok) {
       why.unshift(`${PRIO[w.prio].label} priority`);
       score += Math.round(w.days * 0.6);
-      why.push(`Waiting ${w.days} days`);
+      why.push(w.source === "recall" ? (w.days ? `Recall ${w.days} days overdue` : `Recall due: ${(w.note || "review").toLowerCase()}`) : `Waiting ${w.days} days`);
       if (w.prefClinicianId === clinician.id) { score += 10; why.push(`Prefers ${clinician.first}`); }
       why.push(`Fits ${t.dur} of ${win} min`);
     }

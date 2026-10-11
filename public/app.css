@@ -463,3 +463,12 @@ textarea.note:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--forest)
 .head-btns { display: flex; flex-direction: column; gap: 8px; align-items: stretch; align-self: center }
 .copyline { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: var(--subtle); border-radius: 12px; padding: 8px 8px 8px 12px; font-size: 12.5px; word-break: break-all }
 a.btn { text-decoration: none }
+
+/* Recalls */
+.panel-note { margin: -6px 18px 10px; font-size: 13px; color: var(--muted) }
+.recalls { list-style: none; margin: 0; padding: 0 10px 12px }
+.recalls li { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px 8px; border-top: 1px solid var(--line) }
+.recalls .nm { font-weight: 600 }
+.recalls .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted) }
+.recalls .meta .late { color: var(--warn) }
+.recalls .ra { display: flex; gap: 6px; align-items: center; flex: none }

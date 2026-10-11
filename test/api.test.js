@@ -222,3 +222,29 @@ test("patients book online: only efficient slots from tomorrow, nothing about ot
   assert.ok(s.messages.some((m) => m.name === "Margery Hollis" && /is booked/.test(m.body)), "confirmation text");
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, name: "Someone Else", phone: "07700 900778" })).status, 409, "that time has gone");
 });
+
+test("recalls join the refill pool: a cancellation can go to someone due a review; texting and removing recalls", async () => {
+  const office = await login("u-admin");
+  const s = await state(office.token);
+  assert.strictEqual(s.recalls.length, 4);
+  const brenda = s.recalls.find((r) => r.patientId === "p40");
+  // Cancel a later-week visit in Amira's patch: recall patients are candidates, with the reason shown.
+  const visit = s.appts.find((a) => a.day === 2 && a.clinicianId === "c1" && a.type !== "assess");
+  const r = (await call("POST", `/api/appointments/${visit.id}/cancel`, office.token, { reason: "Patient asked to rebook" })).data;
+  const cand = r.candidates.find((c) => c.patientId === "p40");
+  assert.ok(cand && cand.ok && cand.why.some((w) => /Recall 12 days overdue/.test(w)), "Brenda is in the pool");
+  // Text a recall: link to the practice's booking page.
+  const t = (await call("POST", `/api/recalls/${s.recalls.find((x) => x.patientId === "p43").id}/text`, office.token)).data;
+  assert.strictEqual(t.status, "texted");
+  const msg = (await state(office.token)).messages.find((m) => m.name === "Dennis Marlow");
+  assert.match(msg.body, new RegExp(`/book/${office.sandbox}`));
+  // Remove a recall: out of the pool too.
+  await call("POST", `/api/recalls/${s.recalls.find((x) => x.patientId === "p42").id}/dismiss`, office.token);
+  const after = await state(office.token);
+  assert.ok(!after.waitlist.some((w) => w.patientId === "p42"));
+  assert.strictEqual(after.recalls.find((x) => x.patientId === "p42").status, "dismissed");
+  // Booking a recall patient closes the recall.
+  const slot = (await call("POST", "/api/slots", office.token, { patientId: "p40", type: "review" })).data.slots[0];
+  await call("POST", "/api/bookings", office.token, { patientId: "p40", type: "review", clinicianId: slot.clinicianId, day: slot.day, start: slot.start });
+  assert.strictEqual((await state(office.token)).recalls.find((x) => x.id === brenda.id).status, "booked");
+});

@@ -39,11 +39,18 @@ CREATE TABLE IF NOT EXISTS appointments (
   cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT,
   reminded INTEGER NOT NULL DEFAULT 0              -- day-before reminder sent
 );
+CREATE TABLE IF NOT EXISTS recalls (
+  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), type TEXT NOT NULL, reason TEXT NOT NULL,
+  due_day INTEGER NOT NULL,                       -- days from today; negative = overdue
+  status TEXT NOT NULL DEFAULT 'due' CHECK (status IN ('due','texted','booked','dismissed')),
+  waitlist_id TEXT, texted_at TEXT
+);
 CREATE TABLE IF NOT EXISTS waitlist (
   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), type TEXT NOT NULL, prio TEXT NOT NULL,
   days INTEGER NOT NULL DEFAULT 0, avail TEXT NOT NULL DEFAULT 'any', short_notice INTEGER NOT NULL DEFAULT 1,
   pref_clinician_id TEXT, status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','offered','booked')),
-  added_seq INTEGER NOT NULL DEFAULT 0
+  added_seq INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'list' CHECK (source IN ('list','recall')), note TEXT
 );
 CREATE TABLE IF NOT EXISTS offers (
   id INTEGER PRIMARY KEY AUTOINCREMENT, slot_id TEXT NOT NULL REFERENCES appointments(id), waitlist_id TEXT NOT NULL REFERENCES waitlist(id),
@@ -71,7 +78,7 @@ const USERS = [
   { id: "u-c3", email: "priya@domi-hearing.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "messages", "offers", "notes", "appointments", "waitlist", "users", "patients", "clinicians"];
+const TABLES = ["audit", "messages", "offers", "notes", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox. */
 function openDb() {
@@ -128,6 +135,11 @@ function seed(db) {
     P("p29", "Norman Pickard", 81, "14 Cottingley Drive", "LS11 7BQ", "07700 900131"),
     P("p30", "Doreen Whiteley", 89, "9 Wortley Road", "LS12 2AX", "07700 900242", { alerts: ["Son Mark helps with her hearing aids"], aids: "RIC aids, both ears" }),
     P("p31", "Kenneth Rawnsley", 77, "40 Fountain Street", "LS27 0EW", "07700 900353"),
+    // Due a recall (no visit booked yet)
+    P("p40", "Brenda Kitson", 83, "15 Holt Park Way", "LS16 8DU", "07700 900464", { aids: "RIC aids, both ears (fitted Oct 2025)" }),
+    P("p41", "Geoffrey Lumb", 78, "3 Alwoodley Lane", "LS17 7QN", "07700 900575", { aids: "BTE aid, right ear (fitted Apr 2026)" }),
+    P("p42", "Pauline Rigg", 80, "62 Halton Moor Road", "LS15 7UD", "07700 900686", { aids: "RIC aids, both ears" }),
+    P("p43", "Dennis Marlow", 75, "9 Armley Ridge Road", "LS12 2AX", "07700 900797"),
   ];
   for (const p of patients) {
     const h = p._h; delete p._h;
@@ -175,6 +187,18 @@ function seed(db) {
     { id: "w5", patient_id: "p11", type: "wax", prio: "routine", days: 6, avail: "am", short_notice: 0, pref_clinician_id: null },
     { id: "w6", patient_id: "p15", type: "wax", prio: "routine", days: 15, avail: "any", short_notice: 1, pref_clinician_id: "c2" },
   ].forEach((r, i) => ins("waitlist", { ...r, added_seq: i }));
+  // Recalls due within two weeks join the refill pool, so a cancellation can be filled by someone due a review anyway.
+  // due_day: days from today (negative = overdue).
+  [
+    { id: "r1", patient_id: "p40", type: "review", reason: "Annual hearing aid review", due_day: -12 },
+    { id: "r2", patient_id: "p41", type: "review", reason: "6-month check after fitting", due_day: -3 },
+    { id: "r3", patient_id: "p42", type: "review", reason: "Annual hearing aid review", due_day: 5 },
+    { id: "r4", patient_id: "p43", type: "wax", reason: "3-month wax recheck", due_day: 9 },
+  ].forEach((r, i) => {
+    const wid = "wr" + r.id.slice(1);
+    ins("waitlist", { id: wid, patient_id: r.patient_id, type: r.type, prio: "routine", days: Math.max(0, -r.due_day), avail: "any", short_notice: 1, pref_clinician_id: null, added_seq: 100 + i, source: "recall", note: r.reason });
+    ins("recalls", { ...r, waitlist_id: wid });
+  });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
@@ -187,7 +211,8 @@ const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), aids: r.aids, audio: J(r.audio, null) }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
-  wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status }),
+  wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
+  recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };

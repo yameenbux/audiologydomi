@@ -89,7 +89,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "reminders.sent", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
+const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -282,6 +282,7 @@ function officeView() {
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
         </section>
+        ${recallsPanel()}
         ${remindersPanel()}
         <section class="panel" aria-label="Texts">
           <div class="panel-h"><h2>Texts</h2><span class="sub">${S.messages.length} today · ${META.smsProvider === "twilio" ? "sending live" : "demo outbox"}</span></div>
@@ -290,6 +291,21 @@ function officeView() {
         </section>
       </aside>
     </div></div>`;
+}
+/** Recalls due: they're already in the refill pool; the office can also text them the booking page. */
+function recallsPanel() {
+  const due = (S.recalls || []).filter((r) => r.status !== "dismissed");
+  if (!due.length) return "";
+  const when = (d) => d < 0 ? `${-d} day${d === -1 ? "" : "s"} overdue` : d === 0 ? "due today" : `due in ${d} day${d === 1 ? "" : "s"}`;
+  return `<section class="panel" aria-label="Recalls">
+    <div class="panel-h"><h2>Recalls</h2><span class="sub">In the refill pool</span></div>
+    <p class="panel-note">Patients due a review are offered cancelled visits near them automatically. You can also text them your booking page.</p>
+    <ul class="recalls">${due.map((r) => { const p = pat(r.patientId); return `<li>
+      <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${district(p.pc)}</span>` : ""}</div></div>
+      <div class="ra">${r.status === "booked" ? `<span class="badge b-ok">Booked</span>`
+        : `${r.status === "texted" ? `<span class="badge b-plain">Texted ${esc(String(r.textedAt || "").slice(0, 5))}</span>` : `<button class="btn secondary sm" type="button" data-act="recall-text" data-id="${r.id}">${icon("send")}Text link</button>`}
+           <button class="icon-btn sm" type="button" data-act="recall-dismiss" data-id="${r.id}" title="Remove from recalls" aria-label="Remove ${esc(p ? p.name : "")} from recalls">${icon("x")}</button>`}</div></li>`; }).join("")}</ul>
+  </section>`;
 }
 /** Day-before reminders: each one invites a CANCEL reply, which refills the slot a day ahead. */
 function remindersPanel() {
@@ -307,10 +323,11 @@ function wlItem(w, i) {
   const p = pat(w.patientId), t = T(w.type);
   const badge = w.status === "booked" ? `<span class="badge b-ok">Booked</span>`
     : w.status === "offered" ? `<span class="badge b-apricot">Offered</span>`
+    : w.source === "recall" ? `<span class="badge b-forest">Recall</span>`
     : `<span class="badge ${w.prio === "urgent" ? "b-crit" : w.prio === "soon" ? "b-warn" : "b-plain"}">${META.prio[w.prio].label}</span>`;
   return `<li class="${w.status === "booked" ? "booked" : ""}"><span class="pos">${w.status === "booked" ? icon("check") : i + 1}</span>
     <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-      <div class="meta"><span>${t.name}</span><span>${district(p.pc)}</span><span>${META.avail[w.avail]}</span>${w.shortNotice ? "" : "<span>Needs 24h notice</span>"}<span>${w.days} days waiting</span></div></div>
+      <div class="meta"><span>${t.name}</span><span>${district(p.pc)}</span><span>${META.avail[w.avail]}</span>${w.shortNotice ? "" : "<span>Needs 24h notice</span>"}<span>${w.source === "recall" ? esc(w.note || "Recall due") : w.days + " days waiting"}</span></div></div>
     ${badge}</li>`;
 }
 function smsBubble(m) {
@@ -795,6 +812,8 @@ document.addEventListener("click", async (e) => {
       case "auth-back": UI.auth = { step: "password" }; render(); break;
       case "new-pair": UI.pair = null; renderDrawer(); break;
       case "close": closeDrawer(); break;
+      case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
+      case "recall-dismiss": await api("POST", `/api/recalls/${el.dataset.id}/dismiss`); await load(); toast("Removed from recalls and the refill pool"); break;
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, UI.view === "week" ? 0 : UI.day); break;
