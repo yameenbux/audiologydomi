@@ -314,6 +314,9 @@ route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) 
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
 route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
 
+// Mileage and utilisation for the week, per clinician and day.
+route("GET", "/api/reports/week", {}, (req, body, user) => { needAdmin(user); return svc.weekReport(); });
+
 // Recalls: text the patient a booking link, or take them off the list.
 const publicBase = (req) => process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${req.headers.host}`;
 route("POST", "/api/recalls/:id/text", {}, (req, body, user, { id }) => { needAdmin(user); return svc.textRecall(id, `${publicBase(req)}/book/${sandbox.current().id}`, user); });

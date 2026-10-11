@@ -244,7 +244,8 @@ function officeView() {
         <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p></div>
       <div class="quick-stats">
         <div class="head-btns"><button class="btn lg" type="button" data-act="book">${icon("plus")}Book a visit</button>
-          <button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button></div>
+          <button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button>
+          <button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button></div>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
         <div class="qs"><b>${left}</b><span>still to go</span></div>
         <div class="qs"><b>${waiting.length}</b><span>waiting list</span></div>
@@ -520,6 +521,7 @@ function renderDrawer() {
   else if (d.kind === "qr") inner = qrModal();
   else if (d.kind === "route") inner = routeDrawer(d.data);
   else if (d.kind === "booklink") inner = bookLinkModal();
+  else if (d.kind === "report") inner = reportDrawer(d.data);
   if (!inner) { closeDrawer(); return; }
   const root = $("#drawer-root");
   const html = d.kind === "qr" || d.kind === "booklink" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
@@ -727,6 +729,31 @@ function wlDrawer() {
     <button class="btn block lg" type="submit">${icon("plus")}Add to waiting list</button>
   </form>`;
 }
+/* ---------- Mileage and utilisation ---------- */
+const pounds = (p) => "£" + (p / 100).toFixed(2);
+function reportDrawer(r) {
+  const P = r.practice;
+  const tile = (v, l) => `<div class="rp-tile"><b>${v}</b><span>${l}</span></div>`;
+  return `<div class="drawer-h"><div><div class="caps">This week</div><h2 style="margin-top:6px">Mileage &amp; utilisation</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <div class="rp-tiles">${tile(P.miles + " mi", "driven (est.)")}${tile(pounds(P.mileagePence), `mileage at ${r.ratePence}p/mile`)}${tile(P.utilisation + "%", "of working time booked")}${tile(P.roadShare + "%", "of working time on the road")}</div>
+      ${r.clinicians.map((c) => `<section class="rp-c">
+        <div class="rp-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><b>${esc(c.name)}</b><span class="muted">${c.total.visits} visits · ${c.total.miles} mi · ${pounds(c.total.mileagePence)}</span></div>
+        <table class="rp-t"><thead><tr><th>Day</th><th>Visits</th><th>Booked</th><th>Driving</th><th>Miles</th></tr></thead><tbody>
+        ${c.days.map((d) => `<tr><td>${esc(d.day === 0 ? "Today" : d.dayLabel.slice(0, 3))}</td><td>${d.visits}</td><td><div class="rp-bar"><i style="width:${Math.min(100, d.utilisation)}%"></i></div><span class="mono">${d.utilisation}%</span></td><td class="mono">${d.driveMin ? mins(d.driveMin) : "–"}</td><td class="mono">${d.miles || "–"}</td></tr>`).join("")}
+        </tbody></table></section>`).join("")}
+      <button class="btn secondary block" type="button" data-act="report-csv">${icon("copy")}Download CSV for mileage claims</button>
+      <p class="muted" style="font-size:12.5px;margin-top:12px">Booked time is against a 9:00–17:00 day. Miles are estimated from distance between postcodes, including the drive from and back to each clinician's base. ${r.ratePence}p a mile is HMRC's approved rate for cars, for the first 10,000 business miles a year.</p>
+    </div>`;
+}
+function reportCsv(r) {
+  const rows = [["Clinician", "Day", "Visits", "Booked minutes", "Working minutes", "Utilisation %", "Driving minutes", "Miles (estimated)", `Mileage at ${r.ratePence}p (GBP)`]];
+  r.clinicians.forEach((c) => c.days.forEach((d) => rows.push([c.name, d.dayLabel, d.visits, d.bookedMin, d.workingMin, d.utilisation, d.driveMin, d.miles, (d.mileagePence / 100).toFixed(2)])));
+  const csv = rows.map((row) => row.map((v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "mileage-and-utilisation.csv";
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 /** The practice's own booking page, for its website, recall texts and leaflets. */
 function bookLinkModal() {
   const url = `${location.origin}/book/${S.sandbox}`;
@@ -814,6 +841,8 @@ document.addEventListener("click", async (e) => {
       case "close": closeDrawer(); break;
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
       case "recall-dismiss": await api("POST", `/api/recalls/${el.dataset.id}/dismiss`); await load(); toast("Removed from recalls and the refill pool"); break;
+      case "report": openDrawer({ kind: "report", data: await api("GET", "/api/reports/week") }); break;
+      case "report-csv": reportCsv(UI.drawer.data); toast("CSV downloaded"); break;
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, UI.view === "week" ? 0 : UI.day); break;
