@@ -140,6 +140,7 @@ function book(slot, waitlistId, offerId, actor) {
     id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id);
   run("UPDATE appointments SET gap = 0 WHERE id = ?", slot.id);
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
+  run("UPDATE recalls SET status = 'booked' WHERE waitlist_id = ?", waitlistId);
   if (offerId) {
     run("UPDATE offers SET status = 'accepted', booked_appointment_id = ? WHERE id = ?", id, offerId);
     // Everyone else asked for this slot hears straight away that it has gone, and keeps their place.
@@ -335,6 +336,39 @@ async function routeFor(cid, day, insert) {
   return { clinician: { id: c.id, name: c.name, first: c.first, color: c.color }, day, base: { pc: c.base, ...travel.locate(c.base) }, stops, home, totals, districts };
 }
 
+/* ---------- Recalls ---------- */
+const getRecall = (id) => { const r = one("SELECT * FROM recalls WHERE id = ?", String(id)); if (!r) throw new HttpError(404, "Recall not found."); return map.recall(r); };
+
+/** Text a recall patient a link to book their own visit. They stay in the refill pool meanwhile. */
+function textRecall(id, bookingUrl, user) {
+  return tx(() => {
+    const r = getRecall(id);
+    if (!["due", "texted"].includes(r.status)) throw new HttpError(409, "That recall is already booked or removed.");
+    const p = getPatient(r.patientId);
+    sendSms({ to: p.phone, name: p.name, kind: "recall", body: `Hi ${first(p.name)}, it's ${BRAND}. Your ${r.reason.toLowerCase()} is due. Book a home visit at a time that suits you: ${bookingUrl} We'll also text you if a visit near you comes up sooner.` });
+    run("UPDATE recalls SET status = 'texted', texted_at = ? WHERE id = ?", sandbox.stamp(), r.id);
+    audit(user.name, "recall.texted", r.id, `${p.name}: ${r.reason}`);
+    bus.emit({ type: "recall.updated", recallId: r.id });
+    return getRecall(r.id);
+  });
+}
+
+/** Take a recall off the list (and out of the refill pool), e.g. the patient has moved or declined. */
+function dismissRecall(id, user) {
+  return tx(() => {
+    const r = getRecall(id);
+    if (r.status === "booked") throw new HttpError(409, "That recall is already booked.");
+    if (r.waitlistId) {
+      if (one("SELECT 1 FROM waitlist WHERE id = ? AND status = 'offered'", r.waitlistId)) throw new HttpError(409, "They've just been offered a visit. Wait for their reply.");
+      run("DELETE FROM waitlist WHERE id = ? AND status = 'waiting'", r.waitlistId);
+    }
+    run("UPDATE recalls SET status = 'dismissed' WHERE id = ?", r.id);
+    audit(user.name, "recall.dismissed", r.id, getPatient(r.patientId).name);
+    bus.emit({ type: "recall.updated", recallId: r.id });
+    return { ok: true };
+  });
+}
+
 /** What the office's income panel shows. Fee is the office's own figure, set in settings. */
 function metrics() {
   const fee = settings().fee;
@@ -430,6 +464,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
   if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
+  run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
   addNote(p.id, `Booked by ${by} for ${DAYS[day]} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
   sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${BRAND} is booked ${when(day, start)} (${t.name.toLowerCase()}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
   sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit${by === "the office" ? "" : " (booked online)"}: ${p.name}, ${t.name.toLowerCase()}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
@@ -482,4 +517,4 @@ async function publicBook(input) {
 }
 const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur }));
 
-module.exports = { publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
