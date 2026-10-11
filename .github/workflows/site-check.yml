@@ -1,0 +1,31 @@
+name: Website check
+
+# Checks every few hours that the website and the demo it links to are up. A failed run is the alert: GitHub emails it
+# (Settings > Notifications > Actions, "only failed workflows"). Does nothing until the SITE_URL variable is set.
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: vars.SITE_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pages respond and show the right content
+        env:
+          SITE: ${{ vars.SITE_URL }}
+          DEMO: ${{ vars.DEMO_URL || 'https://domi-hearing-demo.onrender.com' }}
+        run: |
+          fail=0
+          check() {   # url, text the page must contain
+            body=$(curl -fsSL --retry 3 --retry-delay 20 --max-time 90 "$1") || { echo "::error::$1 is down"; fail=1; return; }
+            grep -q "$2" <<<"$body" || { echo "::error::$1 is up but doesn't contain \"$2\""; fail=1; return; }
+            echo "ok  $1"
+          }
+          check "$SITE/" "Questions people ask"
+          check "$DEMO/api/meta" "{"   # the free Render tier sleeps; the 90-second timeout lets it wake
+          exit $fail
