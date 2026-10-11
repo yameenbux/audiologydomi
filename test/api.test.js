@@ -181,3 +181,18 @@ test("day-before reminders: each visit tomorrow gets one, and a CANCEL reply ref
   const amira = await login("u-c1", office.sandbox);
   assert.strictEqual((await call("POST", "/api/reminders/send", amira.token)).status, 403, "office only");
 });
+
+test("route map data: stops with coordinates, legs, the drive home, and a proposed visit slotted in", async () => {
+  const office = await login("u-admin");
+  const r = (await call("GET", "/api/route?clinician=c1&day=0", office.token)).data;
+  assert.strictEqual(r.stops.length, 5);
+  assert.ok(r.stops.every((s) => s.lat && s.lon && s.leg.min > 0), "every stop placed, every leg timed");
+  assert.ok(r.totals.miles > 0 && r.totals.driveMin >= r.stops.reduce((t, s) => t + s.leg.min, 0));
+  assert.ok(r.districts.some((d) => d.name === "LS6"));
+  const p = (await call("GET", "/api/route?clinician=c1&day=0&pc=LS17%207LQ&start=755&type=review&name=Irene", office.token)).data;
+  const i = p.stops.findIndex((s) => s.proposed);
+  assert.ok(i > 0 && p.stops[i - 1].start < 755 && p.stops[i + 1].start > 755, "in time order");
+  const amira = await login("u-c1", office.sandbox);
+  assert.strictEqual((await call("GET", "/api/route?clinician=c2", amira.token)).status, 403);
+  assert.strictEqual((await call("GET", "/api/route", amira.token)).data.clinician.id, "c1", "defaults to your own round");
+});

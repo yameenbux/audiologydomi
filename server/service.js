@@ -302,6 +302,39 @@ function addToWaitlist(input, user) {
   });
 }
 
+/**
+ * A clinician's round for one day, ready to draw: stops with coordinates, each leg's minutes and miles,
+ * and the drive home. `insert` adds a proposed visit, to show where a new booking would fit.
+ */
+async function routeFor(cid, day, insert) {
+  const c = getClinician(String(cid || ""));
+  if (!c) throw new HttpError(404, "No such clinician.");
+  if (!(day >= 0 && day < DAYS.length)) throw new HttpError(400, "Choose a day this week.");
+  let stops = all("SELECT a.*, p.name, p.pc, p.addr FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", c.id, day)
+    .map((r) => ({ id: r.id, name: r.name, pc: r.pc, addr: r.addr, type: r.type, start: r.start_min, end: r.start_min + TYPES[r.type].dur, status: r.status, moved: !!r.moved }));
+  if (insert) {
+    const pc = travel.normalise(insert.pc), type = TYPES[insert.type] ? insert.type : "review", start = Number(insert.start);
+    await travel.prepare([pc, c.base, ...stops.map((s) => s.pc)]);
+    if (!travel.known(pc)) throw new HttpError(400, "We can't place that postcode.");
+    stops.push({ id: "proposed", name: String(insert.name || "New visit").slice(0, 80), pc, addr: "", type, start, end: start + TYPES[type].dur, status: "proposed", proposed: true });
+    stops.sort((a, b) => a.start - b.start);
+  }
+  let prev = c.base;
+  stops = stops.map((s) => {
+    const d = travel.driveInfo(prev, s.pc);
+    const leg = { min: d ? d.min : null, miles: travel.miles(prev, s.pc), source: d ? d.source : null };
+    prev = s.pc;
+    return { ...s, ...travel.locate(s.pc), leg };
+  });
+  const home = stops.length ? { min: travel.driveMinutes(prev, c.base) || 0, miles: travel.miles(prev, c.base) } : { min: 0, miles: 0 };
+  const legs = stops.map((s) => s.leg).concat(home);
+  const totals = { driveMin: legs.reduce((t, l) => t + (l.min || 0), 0), miles: Math.round(legs.reduce((t, l) => t + l.miles, 0) * 10) / 10, visits: stops.filter((s) => !s.proposed).length };
+  const pts = [travel.locate(c.base), ...stops].filter(Boolean);
+  const box = { n: Math.max(...pts.map((p) => p.lat)) + 0.01, s: Math.min(...pts.map((p) => p.lat)) - 0.01, e: Math.max(...pts.map((p) => p.lon)) + 0.015, w: Math.min(...pts.map((p) => p.lon)) - 0.015 };
+  const districts = Object.entries(travel.CENTRES).filter(([, [lat, lon]]) => lat < box.n && lat > box.s && lon < box.e && lon > box.w).map(([name, [lat, lon]]) => ({ name, lat, lon }));
+  return { clinician: { id: c.id, name: c.name, first: c.first, color: c.color }, day, base: { pc: c.base, ...travel.locate(c.base) }, stops, home, totals, districts };
+}
+
 /** What the office's income panel shows. Fee is the office's own figure, set in settings. */
 function metrics() {
   const fee = settings().fee;
@@ -400,4 +433,4 @@ async function bookVisit(input, user) {
   });
 }
 
-module.exports = { sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

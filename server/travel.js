@@ -179,4 +179,14 @@ function _reset() {
   Object.assign(status, { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0 });
 }
 
-module.exports = { driveMinutes, driveInfo, known, normalise, isFull, prepare, geocode, configure, routingStatus, CENTRES, KNOWN, _reset };
+/** Where a postcode is, for drawing: { lat, lon, exact } (exact = its own coordinates, not its district's centre). */
+function locate(pc) { const p = point(pc); return p ? { lat: p[0], lon: p[1], exact: exact(pc) } : null; }
+
+/** Estimated road miles between two postcodes: straight-line distance scaled for roads. */
+function miles(from, to) {
+  const a = point(from), b = point(to);
+  if (!a || !b || normalise(from) === normalise(to)) return 0;
+  return Math.round((km(a, b) * ROAD_FACTOR / 1.609) * 10) / 10;
+}
+
+module.exports = { driveMinutes, driveInfo, known, normalise, isFull, prepare, geocode, configure, routingStatus, locate, miles, CENTRES, KNOWN, _reset };
