@@ -46,18 +46,20 @@
   section { padding: 88px 0; }
   section + section { border-top: 1px solid var(--line); }
 
-  /* The film: 22 seconds, no sound. It plays while it's on screen and stops when it isn't; with reduced motion
-     it waits for a tap. The button is there because anything that moves for longer than five seconds needs a pause. */
+  /* The film: a two-minute tour with sound. It waits for a press of play (nothing plays with sound by itself), has
+     the browser's own controls for skipping and volume, and pauses when it's scrolled out of view. */
   .film { position: relative; max-width: 960px; margin: 36px auto 0; border-radius: 22px; overflow: hidden; background: #0C1412;
     box-shadow: 0 30px 70px -30px rgba(0,0,0,.7), 0 0 0 1px var(--line); aspect-ratio: 16 / 9; }
   .film video { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .film-btn { position: absolute; right: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
-    display: grid; place-items: center; background: rgba(30,77,64,.82); color: #F7FBF9; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-  .film-btn:hover { background: rgba(30,77,64,.96); }
-  .film-btn:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
-  .film-btn svg { width: 18px; height: 18px; }
+  .film-play { position: absolute; inset: 0; margin: auto; width: 84px; height: 84px; border-radius: 50%; border: 0; cursor: pointer;
+    display: grid; place-items: center; background: rgba(247,251,249,.94); color: var(--forest);
+    box-shadow: 0 18px 40px -12px rgba(0,0,0,.6), 0 0 0 10px rgba(247,251,249,.18); transition: transform .2s; }
+  .film-play:hover { transform: scale(1.06); }
+  .film-play:focus-visible { outline: 3px solid var(--amber); outline-offset: 6px; }
+  .film-play svg { width: 30px; height: 30px; margin-left: 4px; }
+  .film.started .film-play { display: none; }
   .film-note { text-align: center; margin: 14px 0 0; font-size: 14px; color: var(--soft); }
-  @media (max-width: 760px) { .film { border-radius: 14px; margin-top: 28px; } .film-btn { right: 10px; bottom: 10px; } }
+  @media (max-width: 760px) { .film { border-radius: 14px; margin-top: 28px; } .film-play { width: 64px; height: 64px; } .film-play svg { width: 24px; height: 24px; } }
 
   .top { color: var(--on-forest); }
 
@@ -339,16 +341,16 @@
 <main id="main">
   <section id="film">
     <div class="wrap">
-      <p class="kicker">Domi in 22 seconds</p>
-      <h2>Watch a cancellation refill itself.</h2>
+      <p class="kicker">Domi in two minutes</p>
+      <h2>Every feature, one at a time.</h2>
       <div class="film">
-        <video id="film-video" muted playsinline loop preload="none" controls poster="film/poster.webp" width="1920" height="1080"
-          aria-label="A 22-second film with no sound. The office screen on a laptop and a clinician's phone side by side. At 10:20, Peter Dunn cancels his 11:00 visit. Domi ranks five suitable patients on the waiting list and texts the top three at once. Gerald says no, Margaret says yes and is booked, and the clinician's phone shows the change on its own. It ends on the Domi logo: cancellations that fill themselves.">
-          <source src="film/domi.webm" type="video/webm">
-          <source src="film/domi.mp4" type="video/mp4">
+        <video id="film-video" playsinline controls preload="metadata" poster="film/poster.webp" width="1920" height="1080"
+          aria-label="A two-minute tour of Domi, with sound. Peter's 11:00 home visit is cancelled and the top three on the waiting list are texted at once, the first yes getting the visit. The clinician's phone updates itself. Booking a visit ranks every gap by extra driving. Patients book themselves on a simple page. Recalls fill the gaps, mileage and invoices are done, and more is on the way: data import, card payments, Xero sync and AI notes. Patients see the practice's name on every screen and text. It answers questions practices ask, such as whether patients need an app and whether existing patients can be brought across, and ends on: fill every cancelled visit, try the live demo.">
+          <source src="film/domi-tour.mp4" type="video/mp4">
         </video>
+        <button class="film-play" type="button" aria-label="Play the two-minute tour" hidden><svg viewBox="0 0 18 18" aria-hidden="true"><path fill="currentColor" d="M5 3.2v11.6a.8.8 0 0 0 1.2.7l9.3-5.8a.8.8 0 0 0 0-1.4L6.2 2.5A.8.8 0 0 0 5 3.2Z"/></svg></button>
       </div>
-      <p class="film-note" id="film-note">No sound. Plays while it’s on screen.</p>
+      <p class="film-note" id="film-note">2 minutes, with sound.</p>
     </div>
   </section>
 
@@ -796,29 +798,20 @@
   })();
 </script>
 <script>
-// The film plays only while at least half of it is on screen, never with reduced motion, and always has a pause button.
+// The tour: a big play button over the poster starts it with sound; after that the browser's controls take over.
+// It pauses when it's scrolled out of view, and never starts by itself. Without this script the native controls work.
 (function () {
   var v = document.getElementById('film-video');
   if (!v) return;
-  var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var paused = still;          // the viewer's choice wins over scrolling
-  if (still) document.getElementById('film-note').textContent = 'No sound. Press play to watch.';
-  v.removeAttribute('controls');
-  var b = document.createElement('button');
-  b.type = 'button'; b.className = 'film-btn';
-  var play = '<svg viewBox="0 0 18 18" aria-hidden="true"><path fill="currentColor" d="M5 3.2v11.6a.8.8 0 0 0 1.2.7l9.3-5.8a.8.8 0 0 0 0-1.4L6.2 2.5A.8.8 0 0 0 5 3.2Z"/></svg>';
-  var pause = '<svg viewBox="0 0 18 18" aria-hidden="true"><rect x="4" y="3" width="3.6" height="12" rx="1" fill="currentColor"/><rect x="10.4" y="3" width="3.6" height="12" rx="1" fill="currentColor"/></svg>';
-  function show() { var on = !v.paused; b.innerHTML = on ? pause : play; b.setAttribute('aria-label', on ? 'Pause the film' : 'Play the film'); }
-  v.parentNode.appendChild(b);
-  v.addEventListener('play', show); v.addEventListener('pause', show); show();
-  b.addEventListener('click', function () { if (v.paused) { paused = false; v.play(); } else { paused = true; v.pause(); } });
+  var box = v.parentNode, b = box.querySelector('.film-play');
+  b.hidden = false; v.controls = false;
+  function start() { box.classList.add('started'); v.controls = true; var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+  b.addEventListener('click', start);
+  v.addEventListener('play', function () { box.classList.add('started'); v.controls = true; });
   if (!('IntersectionObserver' in window)) return;
   new IntersectionObserver(function (es) {
-    es.forEach(function (e) {
-      if (e.isIntersecting && !paused) { v.preload = 'auto'; var p = v.play(); if (p && p.catch) p.catch(function () {}); }
-      else if (!e.isIntersecting && !v.paused) v.pause();
-    });
-  }, { threshold: 0.5 }).observe(v);
+    es.forEach(function (e) { if (!e.isIntersecting && !v.paused) v.pause(); });
+  }, { threshold: 0.25 }).observe(v);
 })();
 </script>
 </body>
