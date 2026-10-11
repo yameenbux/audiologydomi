@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, hm, first, dayPhrase, DAYS } = require("./domain");
+const { TYPES, hm, first, dayPhrase, DAYS, DAY_START, DAY_END } = require("./domain");
 const { rankCandidates, parseReply, planOffer, suggestSlots } = require("./refill");
 const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
@@ -336,6 +336,33 @@ async function routeFor(cid, day, insert) {
   return { clinician: { id: c.id, name: c.name, first: c.first, color: c.color }, day, base: { pc: c.base, ...travel.locate(c.base) }, stops, home, totals, districts };
 }
 
+/* ---------- Mileage and utilisation ---------- */
+const HMRC_PENCE_PER_MILE = 45; // HMRC approved mileage rate for cars (first 10,000 business miles a year)
+
+/** The week per clinician and day: visits, time booked against the working day, driving, miles and their mileage value. */
+async function weekReport() {
+  const working = DAY_END - DAY_START;
+  const clinicians = all("SELECT * FROM clinicians ORDER BY id").map(map.clinician);
+  const rows = [];
+  for (const c of clinicians) {
+    const days = [];
+    for (let d = 0; d < DAYS.length; d++) {
+      const r = await routeFor(c.id, d);
+      const booked = r.stops.reduce((t, s) => t + (s.end - s.start), 0);
+      days.push({ day: d, dayLabel: DAYS[d], visits: r.totals.visits, bookedMin: booked, workingMin: working, utilisation: Math.round((booked / working) * 100),
+        driveMin: r.totals.driveMin, miles: r.totals.miles, mileagePence: Math.round(r.totals.miles * HMRC_PENCE_PER_MILE) });
+    }
+    const sum = (k) => days.reduce((t, x) => t + x[k], 0);
+    rows.push({ clinicianId: c.id, name: c.name, first: c.first, color: c.color, days,
+      total: { visits: sum("visits"), bookedMin: sum("bookedMin"), workingMin: working * DAYS.length, utilisation: Math.round((sum("bookedMin") / (working * DAYS.length)) * 100),
+        driveMin: sum("driveMin"), miles: Math.round(sum("miles") * 10) / 10, mileagePence: sum("mileagePence") } });
+  }
+  const t = (k) => rows.reduce((a, r) => a + r.total[k], 0);
+  return { ratePence: HMRC_PENCE_PER_MILE, clinicians: rows,
+    practice: { visits: t("visits"), driveMin: t("driveMin"), miles: Math.round(t("miles") * 10) / 10, mileagePence: t("mileagePence"),
+      utilisation: Math.round((t("bookedMin") / t("workingMin")) * 100), roadShare: Math.round((t("driveMin") / t("workingMin")) * 100) }, metrics: metrics() };
+}
+
 /* ---------- Recalls ---------- */
 const getRecall = (id) => { const r = one("SELECT * FROM recalls WHERE id = ?", String(id)); if (!r) throw new HttpError(404, "Recall not found."); return map.recall(r); };
 
@@ -517,4 +544,4 @@ async function publicBook(input) {
 }
 const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur }));
 
-module.exports = { textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

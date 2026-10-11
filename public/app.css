@@ -472,3 +472,18 @@ a.btn { text-decoration: none }
 .recalls .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted) }
 .recalls .meta .late { color: var(--warn) }
 .recalls .ra { display: flex; gap: 6px; align-items: center; flex: none }
+
+/* Mileage & utilisation report */
+.rp-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px }
+.rp-tile { background: var(--subtle); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px }
+.rp-tile b { font: 400 26px/1.1 var(--f-display) }
+.rp-tile span { font-size: 12.5px; color: var(--muted) }
+.rp-c { border-top: 1px solid var(--line); padding: 14px 0 }
+.rp-h { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px }
+.rp-h .muted { font-size: 12.5px; margin-left: auto }
+.rp-t { width: 100%; border-collapse: collapse; font-size: 13px }
+.rp-t th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11.5px; padding: 4px 6px }
+.rp-t td { padding: 6px; border-top: 1px solid var(--line) }
+.rp-t td:nth-child(3) { display: flex; gap: 8px; align-items: center }
+.rp-bar { flex: 1; height: 6px; background: var(--subtle); border-radius: 99px; overflow: hidden; min-width: 40px }
+.rp-bar i { display: block; height: 100%; background: var(--forest) }

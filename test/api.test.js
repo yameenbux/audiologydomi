@@ -248,3 +248,19 @@ test("recalls join the refill pool: a cancellation can go to someone due a revie
   await call("POST", "/api/bookings", office.token, { patientId: "p40", type: "review", clinicianId: slot.clinicianId, day: slot.day, start: slot.start });
   assert.strictEqual((await state(office.token)).recalls.find((x) => x.id === brenda.id).status, "booked");
 });
+
+test("week report: utilisation, driving, miles and mileage value per clinician and day", async () => {
+  const office = await login("u-admin");
+  const r = (await call("GET", "/api/reports/week", office.token)).data;
+  assert.strictEqual(r.clinicians.length, 3);
+  const amira = r.clinicians.find((c) => c.clinicianId === "c1");
+  assert.strictEqual(amira.days.length, 5);
+  const mon = amira.days[0];
+  assert.strictEqual(mon.visits, 5);
+  assert.ok(mon.utilisation > 0 && mon.utilisation <= 100);
+  assert.strictEqual(mon.mileagePence, Math.round(mon.miles * 45));
+  assert.strictEqual(amira.total.visits, amira.days.reduce((t, d) => t + d.visits, 0));
+  assert.ok(r.practice.miles > 0 && r.practice.roadShare > 0);
+  const tom = await login("u-c2", office.sandbox);
+  assert.strictEqual((await call("GET", "/api/reports/week", tom.token)).status, 403);
+});
