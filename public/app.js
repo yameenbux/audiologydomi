@@ -88,7 +88,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
+const EVENTS = ["refill.started", "reminders.sent", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -279,6 +279,7 @@ function officeView() {
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
         </section>
+        ${remindersPanel()}
         <section class="panel" aria-label="Texts">
           <div class="panel-h"><h2>Texts</h2><span class="sub">${S.messages.length} today · ${META.smsProvider === "twilio" ? "sending live" : "demo outbox"}</span></div>
           ${S.messages.length ? `<div class="feed" data-scroll="feed">${S.messages.map(smsBubble).join("")}</div>`
@@ -286,6 +287,18 @@ function officeView() {
         </section>
       </aside>
     </div></div>`;
+}
+/** Day-before reminders: each one invites a CANCEL reply, which refills the slot a day ahead. */
+function remindersPanel() {
+  const st = S.settings, tomorrow = S.appts.filter((a) => (a.day || 0) === 1 && a.status === "booked");
+  const sent = tomorrow.filter((a) => a.reminded).length, left = tomorrow.length - sent;
+  return `<section class="panel" aria-label="Reminders">
+    <div class="panel-h"><h2>Reminders</h2><span class="sub">${st.reminders ? "Day before, at " + hm(st.reminderAt) : "Off"}</span></div>
+    <div class="remind">
+      <p><b>${tomorrow.length} visits tomorrow</b> (${esc(dayName(1))}) · ${sent ? `${sent} reminded` : "none reminded yet"}. Each text invites a CANCEL reply, which frees the slot and offers it to the waiting list automatically.</p>
+      <button class="btn sm ${left ? "" : "secondary"}" type="button" data-act="send-reminders" ${left ? "" : "disabled"}>${icon("send")}${left ? `Send ${left} reminder${left === 1 ? "" : "s"} now` : "All reminded"}</button>
+    </div>
+  </section>`;
 }
 function wlItem(w, i) {
   const p = pat(w.patientId), t = T(w.type);
@@ -691,6 +704,12 @@ document.addEventListener("click", async (e) => {
       case "auth-back": UI.auth = { step: "password" }; render(); break;
       case "new-pair": UI.pair = null; renderDrawer(); break;
       case "close": closeDrawer(); break;
+      case "send-reminders": {
+        el.disabled = true;
+        const r = await api("POST", "/api/reminders/send");
+        await load(); toast(`${r.sent} reminder${r.sent === 1 ? "" : "s"} sent for tomorrow. Try replying CANCEL as one of them.`);
+        break;
+      }
       case "mode": await api("PUT", "/api/settings", { mode: el.dataset.v }); await load(); break;
       case "open-appt": openDrawer({ kind: "appt", id: el.dataset.id }); break;
       case "do-cancel": {

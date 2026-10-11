@@ -161,3 +161,23 @@ test("cancelling a visit later in the week refills it one at a time, and 24h-not
   assert.ok(!edna || edna.reason !== "Needs 24h notice", "needing 24h notice doesn't rule anyone out for Thursday");
   assert.match(r.offers[0].body, /on Thursday 15 Oct/);
 });
+
+test("day-before reminders: each visit tomorrow gets one, and a CANCEL reply refills that slot", async () => {
+  const office = await login("u-admin");
+  const before = await state(office.token);
+  const tomorrow = before.appts.filter((a) => a.day === 1 && a.status === "booked");
+  const r = (await call("POST", "/api/reminders/send", office.token)).data;
+  assert.strictEqual(r.sent, tomorrow.length);
+  assert.strictEqual((await call("POST", "/api/reminders/send", office.token)).data.sent, 0, "never twice");
+  const s = await state(office.token);
+  const target = s.appts.find((a) => a.day === 1 && a.reminded);
+  const p = s.patients.find((x) => x.id === target.patientId);
+  const text = s.messages.find((m) => m.name === p.name && /reminder/.test(m.body));
+  assert.match(text.body, /tomorrow at \d\d:\d\d/); assert.match(text.body, /Reply CANCEL/);
+  const reply = (await call("POST", "/api/demo/sms", office.token, { patientId: p.id, body: "cancel" })).data;
+  assert.strictEqual(reply.action, "cancelled");
+  assert.strictEqual(reply.refill.slotId, target.id, "it cancels the visit they were reminded about");
+  assert.strictEqual(reply.refill.plan.mode, "single", "a day ahead, so one person at a time");
+  const amira = await login("u-c1", office.sandbox);
+  assert.strictEqual((await call("POST", "/api/reminders/send", amira.token)).status, 403, "office only");
+});

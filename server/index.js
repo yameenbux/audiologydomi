@@ -290,10 +290,15 @@ route("PUT", "/api/settings", {}, (req, body, user) => {
   if (body.mode === "offer" || body.mode === "instant") st.mode = body.mode;
   if (Number(body.offerMinutes) >= 1 && Number(body.offerMinutes) <= 240) st.offerMinutes = Number(body.offerMinutes);
   if (body.fee !== undefined && Number(body.fee) >= 0 && Number(body.fee) <= 2000) st.fee = Math.round(Number(body.fee));
+  if (typeof body.reminders === "boolean") st.reminders = body.reminders;
+  if (Number(body.reminderAt) >= 8 * 60 && Number(body.reminderAt) <= 21 * 60) st.reminderAt = Math.round(Number(body.reminderAt));
   svc.audit(user.name, "settings.update", "settings", JSON.stringify(st));
   bus.emit({ type: "settings.updated", settings: st });
   return st;
 });
+
+// Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
+route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(1, user.name); });
 
 route("POST", "/api/messages/read", {}, (req, body, user) => {
   if (user.clinicianId) db.prepare("UPDATE messages SET read = 1 WHERE to_clinician_id = ?").run(user.clinicianId);
@@ -438,7 +443,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 const sweeper = setInterval(() => {
-  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); } catch (e) { console.error("sweep failed", sb.id, e); } });
+  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); } catch (e) { console.error("sweep failed", sb.id, e); } });
 }, 5000);
 sweeper.unref();
 

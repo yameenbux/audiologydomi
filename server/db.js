@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   type TEXT NOT NULL, day INTEGER NOT NULL DEFAULT 0, start_min INTEGER NOT NULL, drive INTEGER NOT NULL DEFAULT 10,
   status TEXT NOT NULL CHECK (status IN ('booked','enroute','live','done','cancelled')),
   moved INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, note TEXT, reason TEXT, gap INTEGER NOT NULL DEFAULT 0,
-  cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT
+  cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT,
+  reminded INTEGER NOT NULL DEFAULT 0              -- day-before reminder sent
 );
 CREATE TABLE IF NOT EXISTS waitlist (
   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), type TEXT NOT NULL, prio TEXT NOT NULL,
@@ -185,7 +186,7 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), aids: r.aids, audio: J(r.audio, null) }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),

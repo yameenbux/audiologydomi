@@ -13,7 +13,8 @@ const DEMO_START = 10 * 60 + 20; // each demo opens at 10:20 on the sample Monda
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I/L, so codes are easy to read aloud
 
 let openDb = null; // injected by db.js to avoid a require cycle
-const defaults = () => ({ mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85 });
+// reminderAt: when the day-before reminders go out (minutes after midnight on the demo clock).
+const defaults = () => ({ mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60 });
 
 function newCode() {
   let c;
@@ -48,6 +49,7 @@ function reset(sb) {
   sb.db = openDb();
   sb.settings = defaults();
   sb.t0 = Date.now();
+  sb.remindedDay = 0;
 }
 
 const run = (sb, fn) => als.run(sb, fn);
