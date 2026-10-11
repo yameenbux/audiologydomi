@@ -292,6 +292,9 @@ route("PUT", "/api/settings", {}, (req, body, user) => {
   if (Number(body.offerMinutes) >= 1 && Number(body.offerMinutes) <= 240) st.offerMinutes = Number(body.offerMinutes);
   if (body.fee !== undefined && Number(body.fee) >= 0 && Number(body.fee) <= 2000) st.fee = Math.round(Number(body.fee));
   if (typeof body.reminders === "boolean") st.reminders = body.reminders;
+  if (body.prices && typeof body.prices === "object") {
+    for (const [k, v] of Object.entries(body.prices)) if (k in st.prices && Number(v) >= 0 && Number(v) <= 5000) st.prices[k] = Math.round(Number(v));
+  }
   if (Number(body.reminderAt) >= 8 * 60 && Number(body.reminderAt) <= 21 * 60) st.reminderAt = Math.round(Number(body.reminderAt));
   svc.audit(user.name, "settings.update", "settings", JSON.stringify(st));
   bus.emit({ type: "settings.updated", settings: st });
@@ -313,6 +316,16 @@ route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) 
 });
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
 route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
+
+// Invoices: raised automatically when a visit is completed.
+route("GET", "/api/invoices", {}, (req, body, user) => { needAdmin(user); return svc.invoiceList(); });
+route("POST", "/api/invoices/:id/pay", {}, (req, body, user, { id }) => { needAdmin(user); return svc.payInvoice(id, String(body.method || ""), user); });
+route("POST", "/api/invoices/:id/void", {}, (req, body, user, { id }) => { needAdmin(user); return svc.voidInvoice(id, user); });
+route("GET", "/api/invoices/:id", {}, (req, body, user, { id }) => {
+  needAdmin(user);
+  const inv = svc.getInvoice(id), p = svc.getPatient(inv.patientId);
+  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: "Domi Hearing", addr: "Sample practice, Leeds", email: "hello@domi-hearing.example" } };
+});
 
 // Mileage and utilisation for the week, per clinician and day.
 route("GET", "/api/reports/week", {}, (req, body, user) => { needAdmin(user); return svc.weekReport(); });

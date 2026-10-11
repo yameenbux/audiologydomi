@@ -81,6 +81,7 @@ async function load() {
   S = await api("GET", "/api/state");
   fetchedAt = Date.now();
   if (S.user.clinicianId) UI.lastClin = "u-" + S.user.clinicianId;
+  if (UI.drawer && UI.drawer.kind === "invoices") UI.drawer.data = await api("GET", "/api/invoices").catch(() => UI.drawer.data);
   if (UI.myRoute && !isAdmin()) UI.myRoute = await api("GET", "/api/route?day=0").catch(() => null);
   if (UI.pid) { try { UI.rec = await api("GET", "/api/patients/" + UI.pid + "?background=1"); } catch (e) { UI.pid = null; UI.rec = null; } }
   render();
@@ -89,7 +90,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
+const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -241,11 +242,10 @@ function officeView() {
   return `<div class="shell">
     <div class="page-head">
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
-        <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p></div>
+        <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
+        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button></div></div>
       <div class="quick-stats">
-        <div class="head-btns"><button class="btn lg" type="button" data-act="book">${icon("plus")}Book a visit</button>
-          <button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button>
-          <button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button></div>
+        <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
         <div class="qs"><b>${left}</b><span>still to go</span></div>
         <div class="qs"><b>${waiting.length}</b><span>waiting list</span></div>
@@ -522,6 +522,7 @@ function renderDrawer() {
   else if (d.kind === "route") inner = routeDrawer(d.data);
   else if (d.kind === "booklink") inner = bookLinkModal();
   else if (d.kind === "report") inner = reportDrawer(d.data);
+  else if (d.kind === "invoices") inner = invoicesDrawer(d.data);
   if (!inner) { closeDrawer(); return; }
   const root = $("#drawer-root");
   const html = d.kind === "qr" || d.kind === "booklink" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
@@ -729,6 +730,40 @@ function wlDrawer() {
     <button class="btn block lg" type="submit">${icon("plus")}Add to waiting list</button>
   </form>`;
 }
+/* ---------- Invoices ---------- */
+function invoicesDrawer(d) {
+  const st = S.settings, P = st.prices || {};
+  const badge = (i) => i.status === "paid" ? `<span class="badge b-ok">Paid · ${esc(i.method)}</span>` : i.status === "void" ? `<span class="badge b-plain">Void</span>` : `<span class="badge b-warn">Unpaid</span>`;
+  return `<div class="drawer-h"><div><div class="caps">Raised when a visit is completed</div><h2 style="margin-top:6px">Invoices</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <div class="rp-tiles">${`<div class="rp-tile"><b>${pounds(d.totals.unpaidPence)}</b><span>unpaid</span></div><div class="rp-tile"><b>${pounds(d.totals.paidPence)}</b><span>paid</span></div>`}</div>
+      <details class="prices"><summary>Prices per visit type</summary>
+        <div class="price-grid">${Object.entries(META.types).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
+        <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised (for example fittings, when the aids are invoiced separately). No VAT is added: check your VAT treatment with your accountant.</p></details>
+      ${d.invoices.length ? `<ul class="invs">${d.invoices.map((i) => { const p = pat(i.patientId); return `<li>
+        <div style="min-width:0"><div class="nm"><span class="mono">${esc(i.number)}</span> · ${esc(p ? p.name : "")}</div><div class="meta">${esc(i.items.map((x) => x.desc).join(", "))}</div></div>
+        <div class="ia"><b>${pounds(i.totalPence)}</b>${badge(i)}</div>
+        <div class="ib">${i.status === "unpaid" ? `<select data-paymethod="${i.id}" aria-label="Payment method"><option value="card">Card</option><option value="cash">Cash</option><option value="bank">Bank transfer</option></select>
+          <button class="btn sm" type="button" data-act="inv-pay" data-id="${i.id}">${icon("check")}Mark paid</button><button class="btn secondary sm" type="button" data-act="inv-void" data-id="${i.id}">Void</button>` : ""}
+          <button class="btn secondary sm" type="button" data-act="inv-print" data-id="${i.id}">Print</button></div></li>`; }).join("")}</ul>`
+        : `<div class="empty"><b>No invoices yet</b>Complete a visit on a clinician's phone and its invoice appears here.</div>`}
+    </div>`;
+}
+async function printInvoice(id) {
+  const i = await api("GET", "/api/invoices/" + id);
+  const html = `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><title>${esc(i.number)}</title>
+    <style>body{font:15px/1.5 system-ui,sans-serif;color:#1b2a25;max-width:640px;margin:40px auto;padding:0 24px}h1{font-size:28px;margin:0}table{width:100%;border-collapse:collapse;margin:24px 0}td,th{text-align:left;padding:8px 0;border-bottom:1px solid #ddd}td:last-child,th:last-child{text-align:right}.muted{color:#667}.paid{color:#1E4D40;font-weight:700}@media print{button{display:none}}</style></head>
+    <body><div style="display:flex;justify-content:space-between;gap:24px"><div><h1>Invoice</h1><div class="muted">${esc(i.number)} · issued ${esc(i.issuedAt.slice(0, 5))}, ${esc(dayName(i.issuedDay))}</div></div>
+    <div style="text-align:right"><b>${esc(i.practice.name)}</b><br><span class="muted">${esc(i.practice.addr)}<br>${esc(i.practice.email)}</span></div></div>
+    <p style="margin-top:28px"><b>To</b><br>${esc(i.patient.name)}<br>${esc(i.patient.addr)}, ${esc(i.patient.pc)}</p>
+    <table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>${i.items.map((x) => `<tr><td>${esc(x.desc)}</td><td>${pounds(x.pence)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><th>Total</th><th>${pounds(i.totalPence)}</th></tr></tfoot></table>
+    <p class="${i.status === "paid" ? "paid" : ""}">${i.status === "paid" ? `Paid by ${esc(i.method)} at ${esc(String(i.paidAt).slice(0, 5))}. Thank you.` : i.status === "void" ? "This invoice has been voided." : "Payment due on receipt."}</p>
+    <p class="muted" style="font-size:12px">Sample invoice from a demo practice.</p><button onclick="print()">Print or save as PDF</button></body></html>`;
+  const w = window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
+  if (!w) toast("Allow pop-ups to print invoices", true);
+}
+
 /* ---------- Mileage and utilisation ---------- */
 const pounds = (p) => "£" + (p / 100).toFixed(2);
 function reportDrawer(r) {
@@ -841,6 +876,10 @@ document.addEventListener("click", async (e) => {
       case "close": closeDrawer(); break;
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
       case "recall-dismiss": await api("POST", `/api/recalls/${el.dataset.id}/dismiss`); await load(); toast("Removed from recalls and the refill pool"); break;
+      case "invoices": openDrawer({ kind: "invoices", data: await api("GET", "/api/invoices") }); break;
+      case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Marked as paid"); break; }
+      case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Invoice voided"); break;
+      case "inv-print": await printInvoice(el.dataset.id); break;
       case "report": openDrawer({ kind: "report", data: await api("GET", "/api/reports/week") }); break;
       case "report-csv": reportCsv(UI.drawer.data); toast("CSV downloaded"); break;
       case "booklink": openDrawer({ kind: "booklink" }); break;
@@ -901,8 +940,9 @@ document.addEventListener("click", async (e) => {
       case "status": {
         const v = el.dataset.v, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";
         if (v === "done" && note) { await api("POST", "/api/patients/" + UI.pid + "/notes", { body: note }); n.value = ""; }
-        await api("POST", "/api/appointments/" + el.dataset.id + "/status", { status: v });
-        toast(v === "enroute" ? "Patient texted that you're on the way" : v === "live" ? "Visit started" : "Visit complete. On to the next one.");
+        const res = await api("POST", "/api/appointments/" + el.dataset.id + "/status", { status: v });
+        toast(v === "enroute" ? "Patient texted that you're on the way" : v === "live" ? "Visit started"
+          : res.invoice ? `Visit complete. Invoice ${res.invoice.number} raised (${pounds(res.invoice.totalPence)}).` : "Visit complete. On to the next one.");
         if (v === "done") { UI.pid = null; UI.rec = null; }
         await load(); break;
       }
@@ -942,6 +982,7 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
     if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
+    if (e.target.dataset && e.target.dataset.price) { await api("PUT", "/api/settings", { prices: { [e.target.dataset.price]: Number(e.target.value) } }); await load(); toast("Price saved"); }
     if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; renderDrawer(); }
   } catch (err) { fail(err); }
 });
