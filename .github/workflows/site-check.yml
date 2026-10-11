@@ -1,7 +1,7 @@
 name: Website check
 
 # Checks every few hours that the website and the demo it links to are up. A failed run is the alert: GitHub emails it
-# (Settings > Notifications > Actions, "only failed workflows"). Does nothing until the SITE_URL variable is set.
+# (Settings > Notifications > Actions, "only failed workflows").
 on:
   schedule:
     - cron: '23 */6 * * *'
@@ -12,12 +12,11 @@ permissions:
 
 jobs:
   check:
-    if: vars.SITE_URL != ''
     runs-on: ubuntu-latest
     steps:
       - name: Pages respond and show the right content
         env:
-          SITE: ${{ vars.SITE_URL }}
+          SITE: ${{ vars.SITE_URL || 'https://domi.ysbdesigns.uk' }}
           DEMO: ${{ vars.DEMO_URL || 'https://domi-hearing-demo.onrender.com' }}
         run: |
           fail=0

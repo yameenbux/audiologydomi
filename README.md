@@ -43,8 +43,8 @@ How the free tier behaves:
 
 - **Preview:** `npm run site`, then open `_site/index.html`.
 - **Publish:** `.github/workflows/pages.yml` builds it on every push to `main` that touches the site. Turn it on once under **Settings → Pages → Source: GitHub Actions**.
-- **Settings:** optional repository variables (**Settings → Secrets and variables → Actions → Variables**): `DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default `yameen@ysbdesigns.uk`) and `SITE_URL` (your custom domain, used for link previews and the uptime check).
-- **Uptime check:** `.github/workflows/site-check.yml` checks the website and the demo every 6 hours once `SITE_URL` is set. A failed run is the alert.
+- **Settings:** optional repository variables (**Settings → Secrets and variables → Actions → Variables**): `DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default `yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`, used for link previews and the uptime check).
+- **Uptime check:** `.github/workflows/site-check.yml` checks the website and the demo every 6 hours. A failed run is the alert.
 - **Screenshots** in `site/shots/` are taken from the running demo. Retake them after changing the app's screens.
 
 ## What's in it

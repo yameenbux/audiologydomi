@@ -13,7 +13,7 @@ const out = path.resolve(root, process.argv[2] || "_site");
 const cfg = {
   DEMO_URL: process.env.DEMO_URL || "https://domi-hearing-demo.onrender.com",
   EMAIL: process.env.EMAIL || "yameen@ysbdesigns.uk",
-  SITE_URL: (process.env.SITE_URL || "").replace(/\/$/, ""),
+  SITE_URL: (process.env.SITE_URL || "https://domi.ysbdesigns.uk").replace(/\/$/, ""),
 };
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
