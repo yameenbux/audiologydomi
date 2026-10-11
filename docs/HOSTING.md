@@ -49,6 +49,7 @@ UK hosting is necessary but not enough. The demo deliberately leaves these out:
 - **Persistent database.** Data is in memory and resets on restart. Move to managed Postgres in the same London region, encrypted at rest, with daily backups and a restore that has actually been tested.
 - **Accounts.** Turn off demo mode (`DEMO_MODE=0`): no shown password, no code helper, no QR sign-in. Each person sets their own password and enrols their own authenticator. Add password reset by email and recovery codes.
 - **Sessions.** Already server-side, HttpOnly cookies, idle and absolute timeouts, remote sign-out. With more than one server, move sessions into the database or Redis.
+- **Offline copy on phones.** The clinician app keeps today's round and records in the phone's browser storage and wipes it on sign-out. For production, encrypt it with a key held only while signed in, and require a passcode on clinicians' phones (device management).
 - **Secrets.** Twilio and database keys go in the host's secret store, never in the repo.
 - **Logs.** Keep patient details out of application logs. The audit log stays inside the database.
 - **Paperwork:**
