@@ -81,6 +81,7 @@ async function load() {
   S = await api("GET", "/api/state");
   fetchedAt = Date.now();
   if (S.user.clinicianId) UI.lastClin = "u-" + S.user.clinicianId;
+  if (UI.myRoute && !isAdmin()) UI.myRoute = await api("GET", "/api/route?day=0").catch(() => null);
   if (UI.pid) { try { UI.rec = await api("GET", "/api/patients/" + UI.pid + "?background=1"); } catch (e) { UI.pid = null; UI.rec = null; } }
   render();
   if (UI.drawer) renderDrawer();
@@ -132,7 +133,7 @@ function onEvent(type, e) {
 /* ---------- Sign-in: password, then the code from an authenticator app ---------- */
 async function enter() {
   clearErrors();
-  UI.tab = "today"; UI.pid = null; UI.rec = null; UI.auth = { step: "password" };
+  UI.tab = "today"; UI.pid = null; UI.rec = null; UI.myRoute = null; UI.auth = { step: "password" };
   await load();
   connect();
 }
@@ -343,7 +344,7 @@ function board(nowM) {
     }).join("");
     return `<div class="lane" style="height:${H}px;background-size:100% ${60 * PX}px">${blocks}${gaps}${UI.day === 0 ? `<div class="now" data-now style="top:${nowY}px">${ci === 0 ? `<span class="now-label mono" data-clock>${hm(nowM)}</span>` : ""}</div>` : ""}</div>`;
   }).join("");
-  const heads = S.clinicians.map((c) => `<div class="col-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div></div></div>`).join("");
+  const heads = S.clinicians.map((c) => `<div class="col-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div style="min-width:0;flex:1"><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div></div><button class="icon-btn sm" type="button" data-act="route" data-c="${c.id}" title="${esc(c.first)}'s route on a map" aria-label="${esc(c.first)}'s route on a map">${icon("pin")}</button></div>`).join("");
   return `<div class="board" style="grid-template-columns:56px repeat(${S.clinicians.length},minmax(210px,1fr))"><div class="col-h"></div>${heads}<div class="times" style="height:${H}px">${ticks}</div>${lanes}</div>`;
 }
 
@@ -429,6 +430,8 @@ function todayTab(c) {
     <div class="progress"><i style="width:${list.length ? done / list.length * 100 : 0}%"></i></div>
     ${moved ? `<div class="banner">${icon("bolt")}<div><b>${moved.moved ? "Your diary changed" : "New visit added"}</b>${esc(moved.note)}</div></div>` : ""}
     ${hero}
+    ${list.length ? `<div class="route-card">${UI.myRoute ? routeMap(UI.myRoute, { height: 320 }) + routeSummary(UI.myRoute) : ""}
+      <button class="btn secondary sm block" type="button" data-act="my-route">${icon("pin")}${UI.myRoute ? "Hide today's route" : "Today's route on a map"}</button></div>` : ""}
     ${rest.length ? `<div class="section-t"><span class="caps">Rest of today</span></div><div class="visits">${cards}</div>` : ""}
     ${!list.length ? `<div class="empty"><b>No visits today</b>Your round will appear here.</div>` : ""}`;
 }
@@ -496,6 +499,7 @@ function renderDrawer() {
   else if (d.kind === "wl") inner = wlDrawer();
   else if (d.kind === "book") inner = bookDrawer();
   else if (d.kind === "qr") inner = qrModal();
+  else if (d.kind === "route") inner = routeDrawer(d.data);
   if (!inner) { closeDrawer(); return; }
   const root = $("#drawer-root");
   const html = d.kind === "qr" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
@@ -503,6 +507,78 @@ function renderDrawer() {
   const fresh = !root.firstChild;
   paint(root, html);
   if (fresh) { const f = root.querySelector("select, button:not(.x), input"); if (f) f.focus({ preventScroll: true }); }
+}
+/* ---------- Route map: drawn here from coordinates, so it needs no map service and works offline ---------- */
+const mins = (m) => m >= 60 ? `${Math.floor(m / 60)} h ${m % 60 ? (m % 60) + " min" : ""}`.trim() : `${m} min`;
+function routeMap(r, { height = 300 } = {}) {
+  const W = 480, H = height, pad = 42;
+  const pts = [r.base, ...r.stops];
+  const lat0 = pts.reduce((t, p) => t + p.lat, 0) / pts.length, cos = Math.cos(lat0 * Math.PI / 180);
+  const xs = pts.map((p) => p.lon * cos), ys = pts.map((p) => p.lat);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const k = Math.min((W - pad * 2.8) / Math.max(maxX - minX, 0.004), (H - pad * 2) / Math.max(maxY - minY, 0.004));
+  const ox = (W - (maxX - minX) * k) / 2, oy = (H - (maxY - minY) * k) / 2;
+  const raw = (p) => [ox + (p.lon * cos - minX) * k, H - oy - (p.lat - minY) * k];
+  // Markers at (nearly) the same place fan out around it, so each one can be read and tapped.
+  const spots = [];
+  const at = new Map(pts.map((p) => {
+    const [x0, y0] = raw(p); let x = x0, y = y0, n = 0;
+    while (spots.some(([px, py]) => Math.hypot(px - x, py - y) < 28) && n < 16) { n++; const a = n * 2.4, d = 30 + n * 4; x = x0 + Math.cos(a) * d; y = y0 + Math.sin(a) * d; }
+    spots.push([x, y]);
+    return [p, [x, y]];
+  }));
+  const P = (p) => at.get(p);
+  // Labels: first free spot among right / left / above / below; skipped if none is free (the list below has it all).
+  const boxes = spots.map(([x, y]) => [x - 13, y - 13, x + 13, y + 13]);
+  const hit = (b) => b[0] < 2 || b[2] > W - 2 || b[1] < 2 || b[3] > H - 2 || boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
+  const label = (x, y, text, cls, size = 7.4) => {
+    const w = text.length * size, tries = [[x + 16, y + 4, "start"], [x - 16, y + 4, "end"], [x, y - 17, "middle"], [x, y + 25, "middle"]];
+    for (const [tx, ty, anchor] of tries) {
+      const x0 = anchor === "start" ? tx : anchor === "end" ? tx - w : tx - w / 2, b = [x0, ty - 12, x0 + w, ty + 3];
+      if (!hit(b)) { boxes.push(b); return `<text x="${tx}" y="${ty}" text-anchor="${anchor}" class="${cls}">${esc(text)}</text>`; }
+    }
+    return "";
+  };
+  const col = r.clinician.color, prop = "var(--apricot)";
+  const seq = [r.base, ...r.stops, r.base];
+  const lines = [], legLabels = [];
+  seq.slice(1).forEach((to, i) => {
+    const from = seq.at(i), [x1, y1] = P(from), [x2, y2] = P(to);
+    const isHome = i === seq.length - 2, proposed = to.proposed || from.proposed, leg = isHome ? r.home : to.leg;
+    lines.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${proposed ? prop : isHome ? "var(--muted)" : col}" stroke-width="${proposed ? 2.5 : 2}" ${proposed || isHome ? 'stroke-dasharray="6 5"' : ""} marker-end="url(#rm-${proposed ? "p" : isHome ? "h" : "c"})" opacity="${isHome ? 0.55 : 0.9}"/>`);
+    if (leg && leg.min && Math.hypot(x2 - x1, y2 - y1) > 90) legLabels.push([(x1 + x2) / 2, (y1 + y2) / 2, `${leg.min} min`]);
+  });
+  const district = (r.districts || []).map((d) => { const [x, y] = raw(d); return x > 30 && x < W - 30 && y > 24 && y < H - 10 ? `<text x="${x}" y="${y}" class="rm-district" text-anchor="middle">${esc(d.name)}</text>` : ""; }).join("");
+  const [bx, by] = P(r.base);
+  const stopLabels = r.stops.map((st) => { const [x, y] = P(st); return label(x, y, `${hm(st.start)} ${st.proposed ? "New: " + first(st.name) : first(st.name)}`, "rm-label" + (st.proposed ? " prop" : "")); });
+  const baseLabel = label(bx, by, "Home base", "rm-label quiet");
+  const legText = legLabels.map(([x, y, t]) => { const b = [x - 22, y - 10, x + 22, y + 4]; if (hit(b)) return ""; boxes.push(b); return `<text x="${x}" y="${y}" text-anchor="middle" class="rm-leg">${t}</text>`; }).join("");
+  const stops = r.stops.map((st, i) => {
+    const [x, y] = P(st), fill = st.proposed ? prop : st.status === "done" ? "var(--muted)" : col;
+    return `<g class="rm-stop"><circle cx="${x}" cy="${y}" r="11" fill="${fill}" stroke="var(--surface)" stroke-width="2.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" class="rm-num">${st.proposed ? "+" : i + 1}</text>${stopLabels.at(i)}</g>`;
+  }).join("");
+  return `<svg class="routemap" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of ${esc(r.clinician.first)}'s round: ${r.totals.visits} visits, ${mins(r.totals.driveMin)} driving">
+    <defs>${[["c", col], ["p", prop], ["h", "var(--muted)"]].map(([id, c]) => `<marker id="rm-${id}" viewBox="0 0 10 10" refX="21" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join("")}</defs>
+    <rect x="0" y="0" width="${W}" height="${H}" rx="14" class="rm-bg"/>
+    ${district}${lines.join("")}${legText}
+    <g><rect x="${bx - 11}" y="${by - 11}" width="22" height="22" rx="6" fill="var(--ink)"/><path d="M${bx - 6} ${by + 1}l6 -6l6 6v6h-12z" fill="var(--surface)"/>${baseLabel}</g>
+    ${stops}
+  </svg>`;
+}
+function routeSummary(r) {
+  const seq = [{ name: "Home base" }, ...r.stops];
+  return `<div class="rm-totals"><span><b>${r.totals.visits}</b> visits</span><span><b>${mins(r.totals.driveMin)}</b> driving</span><span><b>${r.totals.miles}</b> miles (est.)</span></div>
+    <ol class="rm-legs">${r.stops.map((st, i) => `<li class="${st.proposed ? "prop" : ""}"><span class="mono">${hm(st.start)}</span><span>${esc(seq.at(i).name.split(" ")[0])} → <b>${esc(st.name)}</b>${st.proposed ? " (proposed)" : ""}</span><span class="muted">${st.leg.min ?? "?"} min · ${st.leg.miles} mi${st.leg.source === "road" ? "" : " · est."}</span></li>`).join("")}
+      ${r.stops.length ? `<li><span class="mono">${hm(r.stops.at(-1).end)}</span><span>${esc(r.stops.at(-1).name.split(" ")[0])} → home base</span><span class="muted">${r.home.min} min · ${r.home.miles} mi</span></li>` : ""}</ol>`;
+}
+async function openRoute(cid, day) {
+  const data = await api("GET", `/api/route?clinician=${encodeURIComponent(cid)}&day=${day}`);
+  openDrawer({ kind: "route", data });
+}
+function routeDrawer(r) {
+  return `<div class="drawer-h"><div><div class="caps">${esc(r.day === 0 ? "Today" : dayName(r.day))}</div><h2 style="margin-top:6px">${esc(r.clinician.first)}'s route</h2></div>${closeX}</div>
+    <div class="drawer-b">${r.stops.length ? routeMap(r) + routeSummary(r) : `<div class="empty"><b>No visits</b>Nothing booked on this day.</div>`}
+      <p class="muted" style="font-size:12.5px;margin-top:14px">Drive times are road routes between the patients' postcodes. Miles are estimated from distance.</p></div>`;
 }
 const closeX = `<button class="icon-btn" type="button" data-act="close" aria-label="Close">${icon("x")}</button>`;
 
@@ -599,7 +675,8 @@ function bookDrawer() {
        <div class="offers">${B.results.slots.map((x, i) => { const c = cln(x.clinicianId); return `<div class="offer ${i === 0 ? "accepted" : ""}" style="${i === 0 ? "" : ""}">
          <div class="oh"><span style="display:flex;gap:10px;align-items:center"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><span><b class="mono">${x.day === 0 ? "Today" : esc(dayName(x.day))} · ${esc(x.label)}</b><div class="muted" style="font-size:12.5px">${esc(c.name)}</div></span></span>${i === 0 ? `<span class="badge b-ok">Best fit</span>` : `<span class="badge b-plain">+${x.extraDrive} min</span>`}</div>
          <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}<span class="src ${x.route === "road" ? "road" : ""}" title="${x.route === "road" ? "Driving times from a road route between the two postcodes" : "No road route available, so this is estimated from the distance"}">${icon(x.route === "road" ? "car" : "pin")}${x.route === "road" ? "Road route" : "Estimated"}</span></div>
-         <div class="oa"><button class="btn sm" type="button" data-act="book-slot" data-c="${x.clinicianId}" data-d="${x.day}" data-s="${x.start}">${icon("check")}Book ${x.day === 0 ? "" : esc(dayName(x.day).slice(0, 3)) + " "}${esc(x.label.slice(0, 5))}</button></div></div>`; }).join("")}</div>`
+         ${B.map && B.map.i === i ? `<div class="slot-map">${routeMap(B.map.data, { height: 280 })}${routeSummary(B.map.data)}</div>` : ""}
+         <div class="oa"><button class="btn secondary sm" type="button" data-act="slot-map" data-i="${i}">${icon("pin")}${B.map && B.map.i === i ? "Hide map" : "Map"}</button><button class="btn sm" type="button" data-act="book-slot" data-c="${x.clinicianId}" data-d="${x.day}" data-s="${x.start}">${icon("check")}Book ${x.day === 0 ? "" : esc(dayName(x.day).slice(0, 3)) + " "}${esc(x.label.slice(0, 5))}</button></div></div>`; }).join("")}</div>`
     : `<div class="callout apricot" style="margin-top:18px">${icon("clock")}<div><b>No gap this week fits without a long detour</b><div style="margin-top:2px">Put ${esc(B.results.patient.name)} on the waiting list and they'll be offered the next cancellation nearby.</div>
        <button class="btn sm" style="margin-top:10px" type="button" data-act="book-waitlist">${icon("plus")}Add to waiting list</button></div></div>`)
     : "";
@@ -704,6 +781,15 @@ document.addEventListener("click", async (e) => {
       case "auth-back": UI.auth = { step: "password" }; render(); break;
       case "new-pair": UI.pair = null; renderDrawer(); break;
       case "close": closeDrawer(); break;
+      case "route": await openRoute(el.dataset.c, UI.view === "week" ? 0 : UI.day); break;
+      case "my-route": UI.myRoute = UI.myRoute ? null : await api("GET", "/api/route?day=0"); render(); break;
+      case "slot-map": {
+        const B = UI.book, i = Number(el.dataset.i);
+        if (B.map && B.map.i === i) { B.map = null; renderDrawer(); break; }
+        const x = B.results.slots[i], p = B.results.patient;
+        const q = new URLSearchParams({ clinician: x.clinicianId, day: x.day, pc: p.pc, start: x.start, type: B.results.type, name: p.name });
+        B.map = { i, data: await api("GET", "/api/route?" + q) }; renderDrawer(); break;
+      }
       case "send-reminders": {
         el.disabled = true;
         const r = await api("POST", "/api/reminders/send");
@@ -764,7 +850,7 @@ document.addEventListener("submit", async (e) => {
   try {
     if (e.target.id === "book-form") {
       const b = bookInput(); UI.book = Object.assign(UI.book || {}, { patientId: b.patientId });
-      UI.book.results = await api("POST", "/api/slots", b); renderDrawer();
+      UI.book.results = await api("POST", "/api/slots", b); UI.book.map = null; renderDrawer();
       const best = document.querySelector("#book-form .offer"); if (best) best.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }

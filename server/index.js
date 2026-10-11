@@ -297,6 +297,15 @@ route("PUT", "/api/settings", {}, (req, body, user) => {
   return st;
 });
 
+// A clinician's day as a map: office for anyone, a clinician for their own round. Optional proposed visit.
+route("GET", "/api/route", {}, (req, body, user) => {
+  const q = new URL(req.url, "http://x").searchParams;
+  const cid = q.get("clinician") || user.clinicianId;
+  if (user.role !== "admin" && cid !== user.clinicianId) throw new svc.HttpError(403, "That's another clinician's round.");
+  const insert = q.get("pc") ? { pc: q.get("pc"), start: q.get("start"), type: q.get("type"), name: q.get("name") } : null;
+  return svc.routeFor(cid, Number(q.get("day") || 0), insert);
+});
+
 // Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
 route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(1, user.name); });
 
