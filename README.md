@@ -39,13 +39,13 @@ How the free tier behaves:
 
 ## Marketing website
 
-`site/` is a one-page website for practices: what Domi does, real screenshots, what's coming, questions people ask and the site's privacy policy. It's static, so GitHub Pages hosts it. The app needs a server, so it isn't part of the website: *Try the demo* links to wherever the app runs (Render, above).
+`site/` is a one-page website for practices, laid out like the Tidemark site in Domi's colours: a laptop, tablet and phone showing the app, a 22-second film of a cancellation refilling, a deck of cards with each feature, what's built and what's coming, the data promise, searchable questions and the site's privacy policy. It's static, so GitHub Pages hosts it. The app needs a server, so it isn't part of the website: *Try the demo* links to wherever the app runs (Render, above).
 
 - **Preview:** `npm run site`, then open `_site/index.html`.
 - **Publish:** `.github/workflows/pages.yml` builds it on every push to `main` that touches the site. Turn it on once under **Settings → Pages → Source: GitHub Actions**.
 - **Settings:** optional repository variables (**Settings → Secrets and variables → Actions → Variables**): `DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default `yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`, used for link previews and the uptime check).
 - **Uptime check:** `.github/workflows/site-check.yml` checks the website and the demo every 6 hours. A failed run is the alert.
-- **Screenshots** in `site/shots/` are taken from the running demo. Retake them after changing the app's screens.
+- **Pictures and film** (`site/shots/`, `site/film/`) are taken from the running demo: the device frames are drawn around real screenshots, and the film is the office screen and a clinician's phone recorded during one refill. Retake them after changing the app's screens.
 
 ## What's in it
 
