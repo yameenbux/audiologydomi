@@ -1,0 +1,49 @@
+name: Deploy website to Pages
+
+# Publishes the marketing website (site/) to GitHub Pages. The app itself needs a server, so it isn't here:
+# "Try the demo" links to wherever the app runs (Render or Fly.io, see README).
+# Settings → Pages → Source: GitHub Actions. Optional repository variables (Settings → Secrets and variables →
+# Actions → Variables): DEMO_URL, EMAIL, SITE_URL (the custom domain, for link previews).
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'public/fonts/**', 'public/logo.svg', 'public/favicon.svg', 'scripts/build-site.js', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Assemble the site
+        run: node scripts/build-site.js _site
+        env:
+          DEMO_URL: ${{ vars.DEMO_URL }}
+          EMAIL: ${{ vars.EMAIL }}
+          SITE_URL: ${{ vars.SITE_URL }}
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

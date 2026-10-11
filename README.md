@@ -37,6 +37,16 @@ How the free tier behaves:
 - **Every visitor gets their own private demo**, so people opening the link can't see or break each other's. Demos are cleared after 3 hours idle or when the server sleeps.
 - Pages send `noindex`, so search engines won't list it.
 
+## Marketing website
+
+`site/` is a one-page website for practices: what Domi does, real screenshots, what's coming, questions people ask and the site's privacy policy. It's static, so GitHub Pages hosts it. The app needs a server, so it isn't part of the website: *Try the demo* links to wherever the app runs (Render, above).
+
+- **Preview:** `npm run site`, then open `_site/index.html`.
+- **Publish:** `.github/workflows/pages.yml` builds it on every push to `main` that touches the site. Turn it on once under **Settings → Pages → Source: GitHub Actions**.
+- **Settings:** optional repository variables (**Settings → Secrets and variables → Actions → Variables**): `DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default `yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`, used for link previews and the uptime check).
+- **Uptime check:** `.github/workflows/site-check.yml` checks the website and the demo every 6 hours. A failed run is the alert.
+- **Screenshots** in `site/shots/` are taken from the running demo. Retake them after changing the app's screens.
+
 ## What's in it
 
 | | |

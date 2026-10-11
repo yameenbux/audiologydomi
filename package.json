@@ -11,6 +11,7 @@
     "start": "node --experimental-sqlite --no-warnings server/index.js",
     "dev": "node --experimental-sqlite --no-warnings --watch server/index.js",
     "test": "node --experimental-sqlite --no-warnings --test test/*.test.js",
-    "reset": "rm -f data/domi.sqlite*"
+    "reset": "rm -f data/domi.sqlite*",
+    "site": "node scripts/build-site.js _site"
   }
 }
