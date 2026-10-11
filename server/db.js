@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS appointments (
   cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT,
   reminded INTEGER NOT NULL DEFAULT 0              -- day-before reminder sent
 );
+CREATE TABLE IF NOT EXISTS invoices (
+  id TEXT PRIMARY KEY, number TEXT NOT NULL UNIQUE, appointment_id TEXT UNIQUE REFERENCES appointments(id),
+  patient_id TEXT NOT NULL REFERENCES patients(id), items TEXT NOT NULL, total_pence INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','paid','void')), method TEXT,
+  issued_at TEXT NOT NULL, issued_day INTEGER NOT NULL DEFAULT 0, paid_at TEXT
+);
 CREATE TABLE IF NOT EXISTS recalls (
   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), type TEXT NOT NULL, reason TEXT NOT NULL,
   due_day INTEGER NOT NULL,                       -- days from today; negative = overdue
@@ -78,7 +84,7 @@ const USERS = [
   { id: "u-c3", email: "priya@domi-hearing.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "messages", "offers", "notes", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
+const TABLES = ["audit", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox. */
 function openDb() {
@@ -212,6 +218,7 @@ const map = {
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), aids: r.aids, audio: J(r.audio, null) }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
+  invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),

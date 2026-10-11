@@ -266,8 +266,9 @@ function setStatus(id, status, user) {
       sendSms({ to: p.phone, name: p.name, kind: "on-the-way", fromClinicianId: c.id, body: `Hi ${first(p.name)}, ${c.first} from ${BRAND} is on the way and should be with you in about ${a.drive || 12} minutes.` });
     }
     audit(user.name, "appointment." + status, id, `${p.name} at ${hm(a.start)}`);
+    const invoice = status === "done" ? raiseInvoice(getAppt(id), user) : null;
     bus.emit({ type: "appointment.updated", clinicianId: a.clinicianId, appointmentId: id, status });
-    return getAppt(id);
+    return { ...getAppt(id), invoice };
   });
 }
 
@@ -334,6 +335,52 @@ async function routeFor(cid, day, insert) {
   const box = { n: Math.max(...pts.map((p) => p.lat)) + 0.01, s: Math.min(...pts.map((p) => p.lat)) - 0.01, e: Math.max(...pts.map((p) => p.lon)) + 0.015, w: Math.min(...pts.map((p) => p.lon)) - 0.015 };
   const districts = Object.entries(travel.CENTRES).filter(([, [lat, lon]]) => lat < box.n && lat > box.s && lon < box.e && lon > box.w).map(([name, [lat, lon]]) => ({ name, lat, lon }));
   return { clinician: { id: c.id, name: c.name, first: c.first, color: c.color }, day, base: { pc: c.base, ...travel.locate(c.base) }, stops, home, totals, districts };
+}
+
+/* ---------- Invoicing ---------- */
+const getInvoice = (id) => { const r = one("SELECT * FROM invoices WHERE id = ?", String(id)); if (!r) throw new HttpError(404, "Invoice not found."); return map.invoice(r); };
+
+/** Raised when a visit is completed (inside its transaction), at the practice's price for that visit type. */
+function raiseInvoice(a, user) {
+  const price = Number((settings().prices || {})[a.type] || 0);
+  if (price <= 0 || one("SELECT 1 FROM invoices WHERE appointment_id = ?", a.id)) return null;
+  const n = one("SELECT COUNT(*) AS n FROM invoices").n + 1;
+  const id = newId("i"), number = "INV-" + String(n).padStart(4, "0");
+  const items = [{ desc: `${TYPES[a.type].name}, home visit ${DAYS[a.day]} ${hm(a.start)}`, pence: price * 100 }];
+  run("INSERT INTO invoices (id, number, appointment_id, patient_id, items, total_pence, issued_at, issued_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    id, number, a.id, a.patientId, JSON.stringify(items), price * 100, sandbox.stamp(), a.day);
+  audit(user.name, "invoice.raise", id, `${number} ${getPatient(a.patientId).name} £${price}`);
+  bus.emit({ type: "invoice.updated", invoiceId: id });
+  return { id, number, totalPence: price * 100 };
+}
+
+function payInvoice(id, method, user) {
+  return tx(() => {
+    const inv = getInvoice(id);
+    if (inv.status !== "unpaid") throw new HttpError(409, `That invoice is already ${inv.status}.`);
+    if (!["card", "cash", "bank"].includes(method)) throw new HttpError(400, "Choose card, cash or bank transfer.");
+    run("UPDATE invoices SET status = 'paid', method = ?, paid_at = ? WHERE id = ?", method, sandbox.stamp(), inv.id);
+    audit(user.name, "invoice.paid", inv.id, `${inv.number} by ${method}`);
+    bus.emit({ type: "invoice.updated", invoiceId: inv.id });
+    return getInvoice(inv.id);
+  });
+}
+
+function voidInvoice(id, user) {
+  return tx(() => {
+    const inv = getInvoice(id);
+    if (inv.status !== "unpaid") throw new HttpError(409, "Only unpaid invoices can be voided.");
+    run("UPDATE invoices SET status = 'void' WHERE id = ?", inv.id);
+    audit(user.name, "invoice.void", inv.id, inv.number);
+    bus.emit({ type: "invoice.updated", invoiceId: inv.id });
+    return getInvoice(inv.id);
+  });
+}
+
+function invoiceList() {
+  const list = all("SELECT * FROM invoices ORDER BY number DESC").map(map.invoice);
+  const sum = (st) => list.filter((i) => i.status === st).reduce((t, i) => t + i.totalPence, 0);
+  return { invoices: list, totals: { unpaidPence: sum("unpaid"), paidPence: sum("paid"), count: list.length } };
 }
 
 /* ---------- Mileage and utilisation ---------- */
@@ -544,4 +591,4 @@ async function publicBook(input) {
 }
 const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur }));
 
-module.exports = { weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

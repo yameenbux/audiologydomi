@@ -264,3 +264,27 @@ test("week report: utilisation, driving, miles and mileage value per clinician a
   const tom = await login("u-c2", office.sandbox);
   assert.strictEqual((await call("GET", "/api/reports/week", tom.token)).status, 403);
 });
+
+test("invoicing: completing a visit raises an invoice at the practice's price; pay, void, and no invoice for fittings", async () => {
+  const office = await login("u-admin");
+  const amira = await login("u-c1", office.sandbox);
+  const done = (await call("POST", "/api/appointments/a2/status", amira.token, { status: "done" })).data; // Hilda, wax, live
+  assert.strictEqual(done.invoice.number, "INV-0001");
+  assert.strictEqual(done.invoice.totalPence, 6000);
+  let list = (await call("GET", "/api/invoices", office.token)).data;
+  assert.strictEqual(list.totals.unpaidPence, 6000);
+  const one = (await call("GET", `/api/invoices/${done.invoice.id}`, office.token)).data;
+  assert.strictEqual(one.patient.name, "Hilda Marsh");
+  assert.strictEqual((await call("POST", `/api/invoices/${done.invoice.id}/pay`, office.token, { method: "iou" })).status, 400);
+  assert.strictEqual((await call("POST", `/api/invoices/${done.invoice.id}/pay`, office.token, { method: "card" })).data.status, "paid");
+  assert.strictEqual((await call("POST", `/api/invoices/${done.invoice.id}/void`, office.token)).status, 409, "paid invoices can't be voided");
+  list = (await call("GET", "/api/invoices", office.token)).data;
+  assert.strictEqual(list.totals.paidPence, 6000);
+  assert.strictEqual((await call("GET", "/api/invoices", amira.token)).status, 403, "office only");
+  // Peter's fitting: price 0 by default (aids invoiced separately), so no invoice.
+  for (const st of ["enroute", "live", "done"]) await call("POST", "/api/appointments/a3/status", amira.token, { status: st });
+  assert.strictEqual((await call("GET", "/api/invoices", office.token)).data.totals.count, 1);
+  // Prices are the practice's own.
+  const st = (await call("PUT", "/api/settings", office.token, { prices: { fit: 120 } })).data;
+  assert.strictEqual(st.prices.fit, 120);
+});
