@@ -196,3 +196,29 @@ test("route map data: stops with coordinates, legs, the drive home, and a propos
   assert.strictEqual((await call("GET", "/api/route?clinician=c2", amira.token)).status, 403);
   assert.strictEqual((await call("GET", "/api/route", amira.token)).data.clinician.id, "c1", "defaults to your own round");
 });
+
+test("patients book online: only efficient slots from tomorrow, nothing about other patients, no double-booking", async () => {
+  const office = await login("u-admin");
+  const code = office.sandbox;
+  assert.strictEqual((await call("GET", "/api/public/NOPE99")).status, 404);
+  const info = (await call("GET", `/api/public/${code}`)).data;
+  assert.ok(!info.types.some((t) => t.key === "fit"), "fittings are booked by the office");
+  assert.strictEqual((await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "fit" })).status, 400);
+  const res = await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "review", avail: "any" });
+  const slots = res.data.slots;
+  assert.ok(slots.length > 0 && slots.length <= 4);
+  assert.ok(slots.every((s) => s.day >= 1), "not today");
+  const names = (await state(office.token)).patients.map((p) => p.name);
+  assert.ok(!names.some((n) => JSON.stringify(res.data).includes(n)), "never another patient's name");
+  const form = { pc: "LS16 7SN", type: "review", avail: "any", ref: slots[0].ref, name: "Margery Hollis", phone: "07700 900777", addr: "8 Holt Park Crescent", consent: true };
+  assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, phone: "0113 496 0000" })).status, 400, "needs a mobile to text");
+  assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, consent: false })).status, 400);
+  const ok = await call("POST", `/api/public/${code}/bookings`, null, form);
+  assert.strictEqual(ok.status, 200);
+  assert.match(ok.data.when, /tomorrow|on \w+day/);
+  const s = await state(office.token);
+  const v = s.appts.find((a) => a.note && /booked by the patient online/.test(a.note));
+  assert.ok(v && s.patients.find((p) => p.id === v.patientId).name === "Margery Hollis");
+  assert.ok(s.messages.some((m) => m.name === "Margery Hollis" && /is booked/.test(m.body)), "confirmation text");
+  assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, name: "Someone Else", phone: "07700 900778" })).status, 409, "that time has gone");
+});

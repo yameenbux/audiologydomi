@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Book a home visit · Domi Hearing</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<style>
+  /* Patients are often older: larger type, one question at a time, big targets. */
+  body.bk { font-size: 18px; background: var(--bg) }
+  .bk-top { padding: 18px 20px; border-bottom: 1px solid var(--line); background: var(--surface) }
+  .bk-top img { height: 34px; display: block }
+  .bk-main { max-width: 620px; margin: 0 auto; padding: 28px 20px 64px }
+  .bk-main h1 { font-size: clamp(34px, 7vw, 46px); line-height: 1.05; margin: 6px 0 10px }
+  .bk-lead { color: var(--muted); margin: 0 0 26px; font-size: 18px }
+  .bk-q { margin: 26px 0 10px; font-weight: 700; font-size: 18px }
+  .bk .input { font-size: 18px; padding: 14px 16px; width: 100% }
+  .bk-choices { display: grid; gap: 10px }
+  .bk-choice { display: flex; gap: 14px; align-items: center; padding: 16px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line); cursor: pointer; font-size: 18px }
+  .bk-choice:has(input:checked) { box-shadow: inset 0 0 0 2.5px var(--forest); background: color-mix(in srgb, var(--forest) 6%, var(--surface)) }
+  .bk-choice input { width: 22px; height: 22px; accent-color: var(--forest); flex: none }
+  .bk-choice small { display: block; color: var(--muted); font-size: 15px; margin-top: 2px }
+  .bk .btn.lg { font-size: 19px; padding: 16px 22px; width: 100%; justify-content: center; margin-top: 28px }
+  .bk-back { margin-top: 18px; font-size: 16px }
+  .bk-note { margin-top: 22px; font-size: 15.5px; color: var(--muted); display: flex; gap: 10px }
+  .bk-note svg { flex: none; width: 20px; height: 20px; color: var(--forest); margin-top: 2px }
+  .bk-err { margin-top: 16px }
+  .bk-done { background: var(--surface); border-radius: 18px; padding: 24px; box-shadow: inset 0 0 0 1.5px var(--forest) }
+  .bk-done b { font-size: 22px; display: block; margin: 8px 0 }
+  .bk-steps { display: flex; gap: 6px; margin-bottom: 18px }
+  .bk-steps i { height: 6px; flex: 1; border-radius: 99px; background: var(--subtle) }
+  .bk-steps i.on { background: var(--forest) }
+</style>
+</head>
+<body class="bk">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+</svg>
+<header class="bk-top"><img src="/logo-lockup.svg" alt="Domi Hearing"></header>
+<main class="bk-main" id="root" aria-live="polite"><p class="bk-lead">Loading…</p></main>
+<script>
+(function () {
+"use strict";
+const code = (location.pathname.split("/")[2] || "").toUpperCase();
+const root = document.getElementById("root");
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const DAYS = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
+const longDay = (d) => { const [w, n, m] = String(d).split(" "); return `${DAYS[w] || w} ${n} ${m === "Oct" ? "October" : m}`; };
+const S = { step: 1, info: null, slots: [], form: {} };
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({ error: "Something went wrong. Please call us to book." }));
+  if (!r.ok) throw new Error(d.error || "Something went wrong. Please call us to book.");
+  return d;
+}
+const steps = (n) => `<div class="bk-steps" aria-hidden="true">${[1, 2, 3].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</div>`;
+const err = (m) => m ? `<div class="err bk-err" role="alert">${esc(m)}</div>` : "";
+
+function view(e) {
+  const f = S.form;
+  if (S.step === 1) return `${steps(1)}<div class="caps">Home visits</div><h1>Book a hearing visit at home</h1>
+    <p class="bk-lead">Tell us where you live and what you need, and we'll show you the times when one of our team is nearby.</p>
+    <form id="f1">
+      <label class="bk-q" for="pc">Your postcode</label>
+      <input class="input" id="pc" autocomplete="postal-code" autocapitalize="characters" placeholder="For example LS16 7SN" value="${esc(f.pc || "")}" required>
+      <p class="bk-q">What is the visit for?</p>
+      <div class="bk-choices">${S.info.types.map((t, i) => `<label class="bk-choice"><input type="radio" name="type" value="${t.key}" ${(f.type || S.info.types[0].key) === t.key ? "checked" : ""}><span>${esc(t.name)}<small>About ${t.dur} minutes</small></span></label>`).join("")}</div>
+      <p class="bk-q">When are you usually at home?</p>
+      <div class="bk-choices">${Object.entries(S.info.avail).map(([k, v]) => `<label class="bk-choice"><input type="radio" name="avail" value="${k}" ${(f.avail || "any") === k ? "checked" : ""}><span>${esc(v)}</span></label>`).join("")}</div>
+      ${err(e)}
+      <button class="btn lg" type="submit">Find a time</button>
+    </form>`;
+  if (S.step === 2) return `${steps(2)}<div class="caps">Choose a time</div><h1>${S.slots.length ? "These times are free near you" : "No times online this week"}</h1>
+    ${S.slots.length ? `<p class="bk-lead">We only offer times when a clinician is already visiting nearby, so they spend more time with patients and less time driving.</p>
+    <form id="f2"><div class="bk-choices">${S.slots.map((s, i) => `<label class="bk-choice"><input type="radio" name="slot" value="${esc(s.ref)}" ${i === 0 ? "checked" : ""}><span><b>${esc(longDay(s.dayLabel))}</b>, ${esc(s.time.replace("–", " to "))}<small>with ${esc(s.clinician)}</small></span></label>`).join("")}</div>
+      ${err(e)}<button class="btn lg" type="submit">Continue</button></form>`
+    : `<p class="bk-lead">Please call us and we'll find a time, or add you to our list for the next free visit nearby.</p>`}
+    <button class="linkish bk-back" type="button" data-back="1">Change postcode or visit type</button>`;
+  if (S.step === 3) return `${steps(3)}<div class="caps">Your details</div><h1>Nearly done</h1>
+    <p class="bk-lead">${esc(longDay(f.choice.dayLabel))}, ${esc(f.choice.time.replace("–", " to "))}, with ${esc(f.choice.clinician)}.</p>
+    <form id="f3">
+      <label class="bk-q" for="nm">Your full name</label><input class="input" id="nm" autocomplete="name" value="${esc(f.name || "")}" required>
+      <label class="bk-q" for="ph">Mobile number</label><input class="input" id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="07700 900000" value="${esc(f.phone || "")}" required>
+      <label class="bk-q" for="ad">First line of your address</label><input class="input" id="ad" autocomplete="address-line1" value="${esc(f.addr || "")}" required>
+      <p class="muted" style="margin:8px 0 0;font-size:16px">Postcode ${esc(f.pc)}</p>
+      <label class="bk-choice" style="margin-top:20px"><input type="checkbox" id="ok" ${f.consent ? "checked" : ""}><span>Text me about this visit<small>A confirmation, a reminder the day before, and when the clinician is on the way.</small></span></label>
+      ${err(e)}<button class="btn lg" type="submit">Book this visit</button>
+    </form><button class="linkish bk-back" type="button" data-back="2">Choose another time</button>`;
+  return `<div class="bk-done"><div class="caps">You're booked</div><b>${esc(longDay(S.done.dayLabel))} at ${esc(S.done.time.slice(0, 5))}</b>
+    <p style="margin:0">${esc(S.done.clinician)} will visit you at home. We've sent a text to confirm, and we'll remind you the day before.</p></div>
+    <p class="bk-note"><svg><use href="#i-msg"/></svg><span>Can't make it? Reply CANCEL to our text and we'll offer the time to someone else who is waiting.</span></p>`;
+}
+function render(e) {
+  root.innerHTML = view(e);
+  const h = root.querySelector("h1"); if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+  window.scrollTo(0, 0);
+}
+root.addEventListener("click", (ev) => { const b = ev.target.closest("[data-back]"); if (b) { S.step = Number(b.dataset.back); render(); } });
+root.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = ev.target.querySelector("[type=submit]"); btn.disabled = true;
+  const f = S.form, val = (n) => (ev.target.querySelector(`[name=${n}]:checked`) || {}).value;
+  try {
+    if (ev.target.id === "f1") {
+      Object.assign(f, { pc: document.getElementById("pc").value.trim(), type: val("type"), avail: val("avail") });
+      S.slots = (await api("POST", `/api/public/${code}/slots`, { pc: f.pc, type: f.type, avail: f.avail })).slots;
+      S.step = 2;
+    } else if (ev.target.id === "f2") {
+      f.choice = S.slots.find((s) => s.ref === val("slot")); S.step = 3;
+    } else if (ev.target.id === "f3") {
+      Object.assign(f, { name: document.getElementById("nm").value, phone: document.getElementById("ph").value, addr: document.getElementById("ad").value, consent: document.getElementById("ok").checked });
+      S.done = await api("POST", `/api/public/${code}/bookings`, { pc: f.pc, type: f.type, avail: f.avail, ref: f.choice.ref, name: f.name, phone: f.phone, addr: f.addr, consent: f.consent });
+      S.step = 4;
+    }
+    render();
+  } catch (e) {
+    if (/just been taken/.test(e.message) && S.step === 3) { S.slots = S.slots.filter((s) => s.ref !== f.choice.ref); S.step = 2; }
+    render(e.message);
+  }
+});
+api("GET", `/api/public/${code}`).then((info) => { S.info = info; render(); })
+  .catch((e) => { root.innerHTML = `<h1>Booking link not found</h1><p class="bk-lead">${esc(e.message)}</p>`; });
+})();
+</script>
+</body>
+</html>

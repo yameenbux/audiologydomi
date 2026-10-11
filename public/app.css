@@ -60,6 +60,8 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .btn.lg { padding: 13px 20px; font-size: 15px; border-radius: 14px }
 .btn.ghost { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line) }
 .btn.ghost:hover { box-shadow: inset 0 0 0 1px var(--muted); filter: none }
+.btn.secondary { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line) }
+.btn.secondary:hover { box-shadow: inset 0 0 0 1px var(--muted); filter: none }
 .btn.soft { background: var(--subtle); color: var(--ink) }
 .btn.danger { background: var(--crit-soft); color: var(--crit) }
 .btn.apricot { background: var(--apricot); color: #fff }
@@ -458,3 +460,6 @@ textarea.note:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--forest)
 .slot-map { margin: 6px 0 10px }
 .offer .oa { gap: 8px }
 .rm-label.quiet { fill: var(--muted) }
+.head-btns { display: flex; flex-direction: column; gap: 8px; align-items: stretch; align-self: center }
+.copyline { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: var(--subtle); border-radius: 12px; padding: 8px 8px 8px 12px; font-size: 12.5px; word-break: break-all }
+a.btn { text-decoration: none }

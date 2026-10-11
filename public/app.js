@@ -107,9 +107,10 @@ function onEvent(type, e) {
   if (type === "reset") { UI.pid = null; UI.rec = null; closeDrawer(); toast("This demo was started again"); return; }
   if (!isAdmin()) {
     if (type === "slot.filled") toast(`Diary changed: ${e.patient} at ${hm(e.start)}`);
-    if (type === "appointment.booked") toast(`New visit: ${e.patient}, ${e.day ? dayName(e.day) + " " : ""}${hm(e.start)}`);
+    if (type === "appointment.booked") toast(`New visit${e.online ? " (booked online)" : ""}: ${e.patient}, ${e.day ? dayName(e.day) + " " : ""}${hm(e.start)}`);
     return;
   }
+  if (type === "appointment.booked" && e.online) toast(`Booked online by the patient: ${e.patient}, ${dayName(e.day)} ${hm(e.start)} (+${e.extraDrive} min driving)`);
   if (type === "refill.started") {
     if (e.cancelled && e.cancelled.byText) toast(`${e.cancelled.patient} texted to cancel. Refilling ${hm(e.start)}.`);
     if (!UI.flow || UI.flow.slotId !== e.slotId) { UI.flow = flowFrom(e); openDrawer({ kind: "flow" }); }
@@ -242,7 +243,8 @@ function officeView() {
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
         <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p></div>
       <div class="quick-stats">
-        <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
+        <div class="head-btns"><button class="btn lg" type="button" data-act="book">${icon("plus")}Book a visit</button>
+          <button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button></div>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
         <div class="qs"><b>${left}</b><span>still to go</span></div>
         <div class="qs"><b>${waiting.length}</b><span>waiting list</span></div>
@@ -500,9 +502,10 @@ function renderDrawer() {
   else if (d.kind === "book") inner = bookDrawer();
   else if (d.kind === "qr") inner = qrModal();
   else if (d.kind === "route") inner = routeDrawer(d.data);
+  else if (d.kind === "booklink") inner = bookLinkModal();
   if (!inner) { closeDrawer(); return; }
   const root = $("#drawer-root");
-  const html = d.kind === "qr" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
+  const html = d.kind === "qr" || d.kind === "booklink" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
     : `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true">${inner}</aside>`;
   const fresh = !root.firstChild;
   paint(root, html);
@@ -707,6 +710,17 @@ function wlDrawer() {
     <button class="btn block lg" type="submit">${icon("plus")}Add to waiting list</button>
   </form>`;
 }
+/** The practice's own booking page, for its website, recall texts and leaflets. */
+function bookLinkModal() {
+  const url = `${location.origin}/book/${S.sandbox}`;
+  let qr = "";
+  try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">For patients</div><h2 style="margin-top:6px;font-size:30px">Patient booking page</h2></div>${closeX}</div>
+    <p class="muted" style="margin:8px 0 0">Patients pick a time themselves. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Fittings stay with the office.</p>
+    ${qr ? `<div class="qr">${qr}</div>` : ""}
+    <div class="copyline"><span class="mono">${esc(url)}</span><button class="btn secondary sm" type="button" data-act="copy" data-v="${esc(url)}">${icon("copy")}Copy</button></div>
+    <p style="text-align:center;margin:12px 0 0"><a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Open it</a></p>`;
+}
 function qrModal() {
   const as = UI.qrAs || "u-c1";
   const p = UI.pair && UI.pair.as === as && Date.now() < UI.pair.until ? UI.pair : null;
@@ -781,6 +795,8 @@ document.addEventListener("click", async (e) => {
       case "auth-back": UI.auth = { step: "password" }; render(); break;
       case "new-pair": UI.pair = null; renderDrawer(); break;
       case "close": closeDrawer(); break;
+      case "booklink": openDrawer({ kind: "booklink" }); break;
+      case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, UI.view === "week" ? 0 : UI.day); break;
       case "my-route": UI.myRoute = UI.myRoute ? null : await api("GET", "/api/route?day=0"); render(); break;
       case "slot-map": {

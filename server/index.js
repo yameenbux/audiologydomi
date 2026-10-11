@@ -297,6 +297,22 @@ route("PUT", "/api/settings", {}, (req, body, user) => {
   return st;
 });
 
+/* ---------- Patients booking online (public: no sign-in, limited per connection) ---------- */
+const publicHits = new Map();
+function limitPublic(req, kind, max) {
+  const key = kind + ":" + ipOf(req), now = Date.now(), list = (publicHits.get(key) || []).filter((t) => now - t < 10 * 60e3);
+  if (list.length >= max) throw new svc.HttpError(429, "Too many requests. Please wait a few minutes, or call us to book.");
+  list.push(now); publicHits.set(key, list);
+}
+setInterval(() => publicHits.clear(), 30 * 60e3).unref();
+const practice = (code) => { const sb = sandbox.get(code); if (!sb) throw new svc.HttpError(404, "This booking link has expired. Please call the practice."); return sb; };
+route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) => {
+  const sb = practice(code);
+  return { practice: "Domi Hearing", code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL };
+});
+route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
+route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
+
 // A clinician's day as a map: office for anyone, a clinician for their own round. Optional proposed visit.
 route("GET", "/api/route", {}, (req, body, user) => {
   const q = new URL(req.url, "http://x").searchParams;
@@ -378,6 +394,7 @@ function serveStatic(req, res) {
   if (p === "/") p = "/index.html";
   if (p === "/under-the-hood") p = "/under-the-hood.html";
   if (p === "/brand") p = "/brand.html";
+  if (p === "/book" || p.startsWith("/book/")) p = "/book.html"; // a practice's patient booking page: /book/<practice code>
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   // HTML, CSS and JS revalidate on every load (cheap 304s via ETag) so a redeploy shows up immediately;

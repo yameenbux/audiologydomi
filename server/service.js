@@ -409,28 +409,77 @@ async function bookVisit(input, user) {
     const start = Number(input.start), day = Number(input.day || 0);
     const slot = slotsFor(draft, input.type, input.avail).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
     if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
-    let p = draft;
-    if (!draft.id) {
-      const id = newId("p");
-      run("INSERT INTO patients (id, name, age, addr, pc, phone) VALUES (?, ?, NULL, ?, ?, ?)", id, draft.name, draft.addr, draft.pc, draft.phone);
-      p = getPatient(id);
-    }
-    const t = TYPES[input.type];
-    const id = newId("v");
-    const note = `New visit booked by the office: ${p.name} (${t.name.toLowerCase()}) ${when(day, start)}, ${p.addr}.`;
-    run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
-      id, c.id, p.id, input.type, day, start, slot.driveIn, note, sandbox.nowMin());
-    // The visit after this one is now reached from the new patient's house.
-    const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
-    if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
-    run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
-    addNote(p.id, `Booked for ${DAYS[day]} at ${hm(start)} with ${c.name}.`, user, { silent: true });
-    sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${BRAND} is booked ${when(day, start)} (${t.name.toLowerCase()}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
-    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${t.name.toLowerCase()}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
-    audit(user.name, "appointment.book", id, `${p.name} ${DAYS[day]} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
-    bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, day, start, extraDrive: slot.extraDrive });
-    return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, label: slot.label, dayLabel: DAYS[day], extraDrive: slot.extraDrive };
+    return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office" });
   });
 }
 
-module.exports = { routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+/** Write a new visit into a round (inside a transaction): patient if new, appointment, next leg, texts, audit, event. */
+function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
+  let p = draft;
+  if (!draft.id) {
+    const id = newId("p");
+    run("INSERT INTO patients (id, name, age, addr, pc, phone) VALUES (?, ?, NULL, ?, ?, ?)", id, draft.name, draft.addr, draft.pc, draft.phone);
+    p = getPatient(id);
+  }
+  const t = TYPES[type];
+  const id = newId("v");
+  const note = `New visit booked by ${by}: ${p.name} (${t.name.toLowerCase()}) ${when(day, start)}, ${p.addr}.`;
+  run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
+    id, c.id, p.id, type, day, start, slot.driveIn, note, sandbox.nowMin());
+  // The visit after this one is now reached from the new patient's house.
+  const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
+  if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
+  run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
+  addNote(p.id, `Booked by ${by} for ${DAYS[day]} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
+  sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${BRAND} is booked ${when(day, start)} (${t.name.toLowerCase()}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
+  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit${by === "the office" ? "" : " (booked online)"}: ${p.name}, ${t.name.toLowerCase()}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
+  audit(actor, "appointment.book", id, `${p.name} ${DAYS[day]} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
+  bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, day, start, extraDrive: slot.extraDrive, online: by !== "the office" });
+  return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, label: slot.label, dayLabel: DAYS[day], extraDrive: slot.extraDrive };
+}
+
+/* ---------- Online booking by patients ---------- */
+// Fittings need hearing aids ordered first, so the office books those.
+const ONLINE_TYPES = ["assess", "review", "wax", "follow"];
+// A self-booked visit may add at most this much driving, so online bookings can't scatter a round.
+const ONLINE_MAX_EXTRA = 20;
+
+/** What a patient may choose from: only from tomorrow, and only slots that fit a round efficiently. Never other patients' details. */
+function publicSlotList(input) {
+  const type = ONLINE_TYPES.includes(input.type) ? input.type : null;
+  if (!type) throw new HttpError(400, "Choose what the visit is for.");
+  const pc = travel.normalise(input.pc);
+  if (!travel.known(pc)) throw new HttpError(400, "We couldn't find that postcode. Please check it, or call us and we'll book for you.");
+  const avail = ["am", "pm"].includes(input.avail) ? input.avail : "any";
+  const clinicians = Object.fromEntries(all("SELECT id, first FROM clinicians").map((r) => [r.id, r.first]));
+  return slotsFor({ id: null, pc }, type, avail).filter((s) => s.day >= 1 && s.extraDrive <= ONLINE_MAX_EXTRA).slice(0, 4)
+    .map((s) => ({ ref: `${s.clinicianId}.${s.day}.${s.start}`, clinicianId: s.clinicianId, day: s.day, start: s.start, dayLabel: DAYS[s.day], time: s.label, clinician: clinicians[s.clinicianId], slot: s }));
+}
+
+async function publicFindSlots(input) {
+  await warmRoutes({ pc: input.pc });
+  return { slots: publicSlotList(input).map(({ slot, ...rest }) => rest) };
+}
+
+async function publicBook(input) {
+  const name = String(input.name || "").trim().replace(/\s+/g, " ");
+  const phone = String(input.phone || "").replace(/[\s()-]/g, "");
+  const addr = String(input.addr || "").trim();
+  if (name.length < 2 || name.length > 80) throw new HttpError(400, "Please enter your full name.");
+  if (!/^(\+44|0)7\d{9}$/.test(phone)) throw new HttpError(400, "Please enter a UK mobile number, so we can text you about the visit.");
+  if (addr.length < 4 || addr.length > 120) throw new HttpError(400, "Please enter the first line of your address.");
+  if (input.consent !== true) throw new HttpError(400, "Please agree to us texting you about this visit.");
+  await warmRoutes({ pc: input.pc });
+  return tx(() => {
+    const choice = publicSlotList(input).find((x) => x.ref === String(input.ref || ""));
+    if (!choice) throw new HttpError(409, "Sorry, that time has just been taken. Please choose another.");
+    const digits = phone.replace(/^\+44/, "0");
+    const known = all("SELECT * FROM patients").find((r) => r.phone.replace(/\D/g, "") === digits);
+    const draft = known ? map.patient(known) : { id: null, name, pc: travel.normalise(input.pc), addr, phone: digits.replace(/^(\d{5})(\d{6})$/, "$1 $2"), alerts: [] };
+    const r = placeVisit({ draft, c: getClinician(choice.clinicianId), type: input.type, day: choice.day, start: choice.start, slot: choice.slot, actor: "Online booking", by: "the patient online" });
+    return { dayLabel: r.dayLabel, time: r.label, clinician: choice.clinician, when: when(r.day, r.start) };
+  });
+}
+const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur }));
+
+module.exports = { publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
