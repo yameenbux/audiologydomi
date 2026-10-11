@@ -44,6 +44,7 @@ How the free tier behaves:
 - **Preview:** `npm run site`, then open `_site/index.html`.
 - **Publish:** `.github/workflows/pages.yml` builds it on every push to `main` that touches the site. Turn it on once under **Settings → Pages → Source: GitHub Actions**.
 - **Settings:** optional repository variables (**Settings → Secrets and variables → Actions → Variables**): `DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default `yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`, used for link previews and the uptime check).
+- **If a deploy says it succeeded but the old page still shows**, GitHub has reused an earlier deployment of the same commit (this happens after switching from "Deploy from a branch"). Push any new commit that touches the site and it publishes properly.
 - **Uptime check:** `.github/workflows/site-check.yml` checks the website and the demo every 6 hours. A failed run is the alert.
 - **Pictures and film** (`site/shots/`, `site/film/`) are taken from the running demo: the device frames are drawn around real screenshots, and the film is the office screen and a clinician's phone recorded during one refill. Retake them after changing the app's screens.
 
