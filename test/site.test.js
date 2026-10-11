@@ -20,7 +20,7 @@ test("website builds with its settings filled in and no third-party requests", (
   // Scripts, styles, fonts and images all come from this site
   const external = [...html.matchAll(/(?:src|url)\(?=?["']?(https?:[^"')\s]+)/g)].map((m) => m[1]);
   assert.deepStrictEqual(external, []);
-  for (const m of html.matchAll(/(?:src|href)="((?:shots|fonts)\/[^"]+|logo\.svg|favicon\.svg)"/g)) {
+  for (const m of html.matchAll(/(?:src|href|poster)="((?:shots|fonts|film)\/[^"]+|logo\.svg|favicon\.svg)"/g)) {
     assert.ok(fs.existsSync(path.join(out, m[1])), `${m[1]} is missing from the build`);
   }
   for (const m of html.matchAll(/url\((fonts\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(out, m[1])), `${m[1]} is missing`);

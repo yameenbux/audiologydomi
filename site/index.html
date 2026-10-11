@@ -5,396 +5,821 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Domi · Home-visit diaries that refill themselves</title>
 <meta name="description" content="Diary software for home-visit hearing practices. When a patient cancels, Domi texts the best-matched person on your waiting list, books the first yes and updates the clinician's phone.">
-<meta name="theme-color" content="#1E4D40">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0C1412">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <!--SOCIAL-->
 <script>document.documentElement.classList.add('js')</script>
 <style>
   /* Everything on this page is served from this site: no font services, no analytics, no cookies. */
-  @font-face { font-family: "Instrument Serif"; font-weight: 400; font-display: swap; src: url(fonts/instrument-serif-latin-400-normal.woff2) format("woff2") }
-  @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url(fonts/instrument-serif-latin-400-italic.woff2) format("woff2") }
-  @font-face { font-family: "Plus Jakarta Sans"; font-weight: 400; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-400-normal.woff2) format("woff2") }
-  @font-face { font-family: "Plus Jakarta Sans"; font-weight: 500; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-500-normal.woff2) format("woff2") }
-  @font-face { font-family: "Plus Jakarta Sans"; font-weight: 600; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-600-normal.woff2) format("woff2") }
-  @font-face { font-family: "Plus Jakarta Sans"; font-weight: 700; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-700-normal.woff2) format("woff2") }
+  @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-400-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 500; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-500-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 600; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-600-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 700; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-700-normal.woff2) format('woff2'); }
 
-  /* The app's own palette (public/app.css). The hero is forest in both themes, like the app's income band. */
+  /* Laid out like the Tidemark site, in Domi's own colours (public/app.css): one dark palette, a forest night with
+     apricot light, whatever the device is set to. */
   :root {
-    --bg: #F4F6F3; --surface: #FFFFFF; --subtle: #EBEFEA; --ink: #15241F; --muted: #5C6B65; --line: #DCE3DE;
-    --forest: #1E4D40; --forest-soft: #DCEAE3; --apricot: #E07B4F; --apricot-soft: #FBE7DC; --apricot-ink: #8A3D1C;
-    --hero: #1E4D40; --hero-2: #17392F; --on-hero: #FFFFFF; --on-hero-soft: #BFD6CC; --link: #1E4D40;
-    --shadow: 0 1px 2px rgba(21,36,31,.05), 0 24px 60px -24px rgba(21,36,31,.28);
-    --f-display: "Instrument Serif", Georgia, serif; --f-ui: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    color-scheme: light;
-  }
-  @media (prefers-color-scheme: dark) { :root {
-    --bg: #0E1513; --surface: #151E1B; --subtle: #1C2723; --ink: #E7EEEA; --muted: #95A59F; --line: #26332E;
-    --forest: #7CC3A6; --forest-soft: #1D3A31; --apricot: #F09A72; --apricot-soft: #3A251A; --apricot-ink: #F6C1A6;
-    --hero: #17392F; --hero-2: #10291F; --on-hero: #EAF4EF; --on-hero-soft: #A9C6B9; --link: #7CC3A6;
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 24px 60px -24px rgba(0,0,0,.7);
     color-scheme: dark;
-  } }
+    --paper: #0C1412; --card: rgba(21,31,28,.78); --line: rgba(234,244,239,.10); --ink: #EDF4F0; --soft: #A9BCB4;
+    --forest: #1E4D40; --forest-2: #2C6B58; --forest-deep: #12302A; --on-forest: #F7FBF9; --on-forest-soft: #BFD3CA;
+    --apricot: #E07B4F; --amber: #F4A27D; --link: #F4A27D; --mint: #6CC592; --mint-bg: rgba(22,46,35,.85); --panel: #1B2824;
+  }
 
-  * { box-sizing: border-box }
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100% }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto } }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 var(--f-ui); overflow-x: hidden }
-  a { color: var(--link); text-underline-offset: 3px }
-  img { max-width: 100%; height: auto; display: block }
-  :focus-visible { outline: 3px solid var(--apricot); outline-offset: 3px; border-radius: 6px }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px }
-  .skip { position: absolute; left: -9999px }
-  .skip:focus { left: 16px; top: 16px; background: var(--surface); padding: 8px 14px; z-index: 10 }
-  h1, h2, h3 { margin: 0; font-weight: 400 }
-  h1, h2 { font-family: var(--f-display); letter-spacing: -0.01em; line-height: 1.04 }
-  h2 { font-size: clamp(36px, 5vw, 54px); text-wrap: balance }
-  h3 { font: 700 19px/1.3 var(--f-ui); letter-spacing: -0.01em }
-  h2 em, h1 em { font-style: italic; color: var(--apricot) }
-  .kicker { font: 700 13px/1.4 var(--f-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--apricot-ink); margin: 0 0 14px }
-  @media (prefers-color-scheme: dark) { .kicker { color: var(--apricot) } }
-  .lead { font-size: 19px; color: var(--muted); max-width: 60ch; margin: 18px 0 0 }
-  section { padding: 96px 0 }
-  section + section { border-top: 1px solid var(--line) }
-  .head { max-width: 760px }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: var(--paper); color: var(--ink); position: relative; font: 17px/1.6 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif; overflow-x: hidden; }
+  a { color: var(--link); text-underline-offset: 3px; }
+  img { max-width: 100%; }
+  :focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  .skip { position: absolute; left: -9999px; }
+  .skip:focus { left: 16px; top: 16px; background: var(--card); padding: 8px 14px; z-index: 10; }
+  h1, h2, h3 { font-family: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif; font-weight: 700; letter-spacing: -0.025em; line-height: 1.12; margin: 0; }
+  h2 { font-size: clamp(30px, 4.4vw, 44px); }
+  h3 { font-size: 21px; letter-spacing: -0.015em; }
+  /* Every section opens on a centred head, in line with the intro */
+  .wrap > .kicker, .wrap > h2, .promise-head { text-align: center; }
+  .wrap > h2, .promise-head h2 { text-wrap: balance; max-width: 22ch; margin-left: auto; margin-right: auto; }
+  .kicker { font: 600 14px/1.4 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--link); margin: 0 0 12px; }
+  section { padding: 88px 0; }
+  section + section { border-top: 1px solid var(--line); }
 
-  /* Buttons */
-  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 12px; font: 600 16px/1 var(--f-ui); text-decoration: none; border: 0; cursor: pointer }
-  .btn svg { width: 18px; height: 18px }
-  .btn.primary { background: var(--apricot); color: #fff }
-  .btn.primary:hover { filter: brightness(1.06) }
-  .btn.ghost { background: transparent; color: var(--on-hero); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.45) }
-  .btn.ghost:hover { background: rgba(255,255,255,.08) }
-  .btn.solid { background: var(--forest); color: var(--bg) }
+  /* The film: 22 seconds, no sound. It plays while it's on screen and stops when it isn't; with reduced motion
+     it waits for a tap. The button is there because anything that moves for longer than five seconds needs a pause. */
+  .film { position: relative; max-width: 960px; margin: 36px auto 0; border-radius: 22px; overflow: hidden; background: #0C1412;
+    box-shadow: 0 30px 70px -30px rgba(0,0,0,.7), 0 0 0 1px var(--line); aspect-ratio: 16 / 9; }
+  .film video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .film-btn { position: absolute; right: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
+    display: grid; place-items: center; background: rgba(30,77,64,.82); color: #F7FBF9; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .film-btn:hover { background: rgba(30,77,64,.96); }
+  .film-btn:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+  .film-btn svg { width: 18px; height: 18px; }
+  .film-note { text-align: center; margin: 14px 0 0; font-size: 14px; color: var(--soft); }
+  @media (max-width: 760px) { .film { border-radius: 14px; margin-top: 28px; } .film-btn { right: 10px; bottom: 10px; } }
 
-  /* Header and hero: one forest block */
-  .top { background: radial-gradient(1200px 500px at 85% -10%, rgba(224,123,79,.20), transparent 60%), linear-gradient(180deg, var(--hero), var(--hero-2)); color: var(--on-hero); overflow: hidden }
-  .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 0 }
-  .brand { display: flex; align-items: center; gap: 12px; color: var(--on-hero); text-decoration: none }
-  .brand img { width: 40px; height: 40px }
-  .brand b { font: 400 30px/1 var(--f-display) }
-  .brand small { display: block; font: 700 10px/1 var(--f-ui); letter-spacing: .16em; color: #F4A27D; margin-top: 3px }
-  nav ul { display: flex; gap: 26px; list-style: none; margin: 0; padding: 0; align-items: center }
-  nav a { color: var(--on-hero-soft); text-decoration: none; font-weight: 500; font-size: 15px }
-  nav a:hover { color: var(--on-hero) }
-  nav .btn { padding: 10px 16px; font-size: 15px; color: #fff }
-  @media (max-width: 860px) { nav li:not(:last-child) { display: none } }
-  .hero { padding: 56px 0 0; text-align: center }
-  .hero .kicker { color: #F4A27D }
-  .hero h1 { font-size: clamp(48px, 8.4vw, 96px); max-width: 13ch; margin: 0 auto; text-wrap: balance }
-  .hero h1 em { color: #F4A27D }
-  .hero .lead { color: var(--on-hero-soft); margin: 22px auto 0; font-size: clamp(17px, 2.1vw, 21px) }
-  .ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 32px }
-  .demo-note { font-size: 14px; color: var(--on-hero-soft); margin: 14px 0 0 }
-  .shot-hero { margin: 56px auto 0; max-width: 1080px; border-radius: 16px 16px 0 0; overflow: hidden; box-shadow: 0 -10px 60px -20px rgba(0,0,0,.5); background: #F4F6F3 }
-  @media (max-width: 600px) { .shot-hero { max-width: 340px; margin-top: 40px } }
-  .chrome { display: flex; gap: 7px; padding: 12px 14px; background: #E6EBE7 }
-  .chrome i { width: 11px; height: 11px; border-radius: 50%; background: #C9D2CD }
+  .top { color: var(--on-forest); }
 
-  /* Steps */
-  .steps { display: grid; grid-template-columns: 1fr 1.25fr; gap: 56px; align-items: start; margin-top: 56px }
-  .steps ol { list-style: none; margin: 0; padding: 0; counter-reset: s }
-  .steps li { counter-increment: s; position: relative; padding: 0 0 30px 62px }
-  .steps li::before { content: counter(s); position: absolute; left: 0; top: -4px; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--forest-soft); color: var(--forest); font: 400 24px/1 var(--f-display) }
-  .steps li:not(:last-child)::after { content: ""; position: absolute; left: 20px; top: 44px; bottom: 4px; width: 2px; background: var(--line) }
-  .steps p { margin: 6px 0 0; color: var(--muted) }
-  .stack { display: flex; gap: 20px; align-items: flex-start }
-  .stack .frame { flex: 1.15 }
-  .stack .phone { flex: 1; margin-top: 64px }
-  .frame { border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); background: var(--surface); border: 1px solid var(--line) }
-  .phone { border-radius: 34px; overflow: hidden; border: 8px solid #101814; box-shadow: var(--shadow); background: #101814; max-width: 300px }
-  @media (max-width: 900px) { .steps { grid-template-columns: 1fr } }
-  @media (max-width: 520px) { .stack { gap: 12px } .stack .phone { border-width: 5px; border-radius: 22px; margin-top: 40px } }
+  /* The page background: a forest glow from the top left, five skewed streaks of apricot fading to nothing, a fine
+     grain and a faint dot grid. It's fixed, so the content moves over it. Everything is CSS: no images to load. */
+  .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: var(--paper); pointer-events: none; }
+  .bg-glow { position: absolute; inset: 0;
+    background: radial-gradient(100% 100% at 0% 0%, #22513F 0%, #0C1412 100%);
+    -webkit-mask: radial-gradient(125% 100% at 0% 0%, #000 0%, rgba(0,0,0,.22) 88%, transparent 100%);
+            mask: radial-gradient(125% 100% at 0% 0%, #000 0%, rgba(0,0,0,.22) 88%, transparent 100%); }
+  .bg-streak { position: absolute; inset: 0; opacity: .15; transform: skewX(45deg);
+    background: linear-gradient(#F4A27D 0%, rgba(224,123,79,.35) 45%, transparent 100%); }
+  .bg-streak:nth-child(1) { -webkit-mask: linear-gradient(90deg, transparent 0%, #000 20%, transparent 36%, #000 55%, rgba(0,0,0,.13) 67%, #000 78%, transparent 97%);
+                                    mask: linear-gradient(90deg, transparent 0%, #000 20%, transparent 36%, #000 55%, rgba(0,0,0,.13) 67%, #000 78%, transparent 97%); }
+  .bg-streak:nth-child(2) { -webkit-mask: linear-gradient(90deg, transparent 11%, #000 25%, rgba(0,0,0,.55) 41%, rgba(0,0,0,.13) 67%, #000 78%, transparent 97%);
+                                    mask: linear-gradient(90deg, transparent 11%, #000 25%, rgba(0,0,0,.55) 41%, rgba(0,0,0,.13) 67%, #000 78%, transparent 97%); }
+  .bg-streak:nth-child(3) { -webkit-mask: linear-gradient(90deg, transparent 9%, #000 20%, rgba(0,0,0,.55) 28%, rgba(0,0,0,.42) 40%, #000 48%, rgba(0,0,0,.27) 54%, rgba(0,0,0,.13) 78%, #000 88%, transparent 97%);
+                                    mask: linear-gradient(90deg, transparent 9%, #000 20%, rgba(0,0,0,.55) 28%, rgba(0,0,0,.42) 40%, #000 48%, rgba(0,0,0,.27) 54%, rgba(0,0,0,.13) 78%, #000 88%, transparent 97%); }
+  .bg-streak:nth-child(4) { -webkit-mask: linear-gradient(90deg, transparent 0%, #000 17%, rgba(0,0,0,.55) 26%, #000 35%, transparent 47%, rgba(0,0,0,.13) 69%, #000 79%, transparent 97%);
+                                    mask: linear-gradient(90deg, transparent 0%, #000 17%, rgba(0,0,0,.55) 26%, #000 35%, transparent 47%, rgba(0,0,0,.13) 69%, #000 79%, transparent 97%); }
+  .bg-streak:nth-child(5) { -webkit-mask: linear-gradient(90deg, transparent 0%, #000 20%, rgba(0,0,0,.55) 27%, #000 42%, transparent 48%, rgba(0,0,0,.13) 67%, #000 74%, #000 82%, rgba(0,0,0,.47) 88%, transparent 97%);
+                                    mask: linear-gradient(90deg, transparent 0%, #000 20%, rgba(0,0,0,.55) 27%, #000 42%, transparent 48%, rgba(0,0,0,.13) 67%, #000 74%, #000 82%, rgba(0,0,0,.47) 88%, transparent 97%); }
+  .bg-grain { position: absolute; inset: 0; opacity: .06; background-size: 150px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .6 0'/%3E%3C/filter%3E%3Crect width='150' height='150' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .bg-dots { position: absolute; inset: 0; opacity: .14; background-size: 20px 20px;
+    background-image: radial-gradient(circle at 1px 1px, rgba(247,251,249,.6) 1px, transparent 0); }
+  nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 0; }
+  .brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; font: 700 22px 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.02em; }
+  .brand img { width: 40px; height: 40px; border-radius: 10px; }
+  nav ul { display: flex; gap: 22px; list-style: none; margin: 0; padding: 0; }
+  nav ul a { color: var(--on-forest-soft); text-decoration: none; font-weight: 600; font-size: 15px; }
+  nav ul a:hover { color: var(--on-forest); }
+  @media (max-width: 760px) { nav ul { display: none; } }
 
-  /* Split rows */
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center }
-  .split + .split { margin-top: 96px }
-  .split.rev > :first-child { order: 2 }
-  .points { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 12px }
-  .points li { display: flex; gap: 12px; color: var(--muted) }
-  .points svg { flex: none; width: 22px; height: 22px; color: var(--forest); margin-top: 2px }
-  .points b { color: var(--ink); font-weight: 600 }
-  .pair { display: flex; gap: 20px; justify-content: center; align-items: flex-start }
-  .pair .phone { width: 50% }
-  .pair .phone:nth-child(2) { margin-top: 48px }
-  @media (max-width: 900px) { .split { grid-template-columns: 1fr; gap: 36px } .split.rev > :first-child { order: 0 } }
+  /* The intro: centred words over a fan of three devices that spread out as the page opens */
+  .hero { text-align: center; padding: 40px 0 0; }
+  .hero-copy { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; }
+  .hero h1 { font-size: clamp(42px, 7.4vw, 82px); letter-spacing: -0.04em; line-height: 1.04; text-wrap: balance; }
+  .hero h1 span { display: block; }
+  .hero h1 .calm { background: linear-gradient(90deg, var(--amber), var(--apricot)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.lede { font-size: 19px; color: var(--on-forest-soft); max-width: 34em; margin: 22px 0 30px; text-wrap: balance; }
+  .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .btn { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 999px; font-weight: 600; font-size: 16px;
+    text-decoration: none; transition: transform .2s, background-color .2s; }
+  .btn:active { transform: scale(.97); }
+  .btn-main { background: var(--on-forest); color: var(--forest); }
+  .btn-main:hover { background: #FFFFFF; }
+  .btn-line { color: var(--on-forest); border: 1.5px solid rgba(247,251,249,.32); }
+  .btn-line:hover { background: rgba(247,251,249,.08); }
+  .proof { margin: 18px 0 0; font-size: 14px; font-weight: 600; color: var(--on-forest-soft); letter-spacing: .01em; }
+  .wake { margin: 6px 0 0; font-size: 13px; color: var(--soft); }
 
-  /* Cards */
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 48px }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px }
-  .card svg { width: 26px; height: 26px; color: var(--forest) }
-  .card h3 { margin-top: 14px }
-  .card p { margin: 6px 0 0; color: var(--muted); font-size: 15.5px }
+  /* Three devices: a tablet, a laptop and a phone. The frames are drawn into the images (transparent around them),
+     so the shadow follows each device's outline rather than a box. The laptop sits behind; the tablet and phone in front. */
+  .fan { position: relative; display: flex; justify-content: center; align-items: flex-start; max-width: 1040px; margin: 64px auto 0; padding: 0 8px; }
+  .card { margin: 0; flex: none; filter: drop-shadow(0 26px 34px rgba(0,0,0,.55)); }
+  .card img { display: block; width: 100%; height: auto; }
+  .card-l { width: 25%; z-index: 2; margin-right: -9%; transform: translateY(70px) rotate(-4deg); }
+  .card-c { width: 66%; z-index: 1; transform: translateY(0); }
+  .card-r { width: 17.5%; z-index: 2; margin-left: -8%; transform: translateY(84px) rotate(5deg); }
 
-  /* Roadmap */
-  .road { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 48px }
-  .col { background: var(--surface); border: 1px dashed var(--line); border-radius: 18px; padding: 26px }
-  .col h3 { display: flex; align-items: center; gap: 10px }
-  .pill { font: 700 11px/1 var(--f-ui); letter-spacing: .06em; text-transform: uppercase; padding: 5px 9px; border-radius: 99px; background: var(--apricot-soft); color: var(--apricot-ink) }
-  .col ul { list-style: none; padding: 0; margin: 14px 0 0 }
-  .col li { padding: 12px 0; border-top: 1px solid var(--line) }
-  .col li b { display: block; font-weight: 600 }
-  .col li span { color: var(--muted); font-size: 15px }
-  .honest { margin-top: 22px; color: var(--muted); font-size: 15px; text-align: center }
-  @media (max-width: 760px) { .road { grid-template-columns: 1fr } }
+  .points { list-style: none; margin: 132px auto 0; padding: 0 0 88px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; text-align: center; }
+  .points .h3 { font-size: 20px; letter-spacing: -0.015em; color: var(--on-forest); }
+  .points p { margin: 6px 0 0; color: var(--on-forest-soft); font-size: 16px; }
+  @media (max-width: 760px) {
+    .hero p.lede { font-size: 17px; }
+    .fan { margin-top: 44px; }
+    .points { grid-template-columns: 1fr; gap: 20px; margin-top: 100px; padding-bottom: 64px; }
+  }
+
+  /* Opening: the words rise in one after another, then the tablet and phone slide out from behind the laptop.
+     Only when the script has run and nobody has asked for less motion; otherwise everything is simply there. */
+  @media (prefers-reduced-motion: no-preference) {
+    .js .rise { opacity: 0; transform: translateY(12px); filter: blur(6px); transition: opacity .5s, transform .5s cubic-bezier(.22,1,.36,1), filter .5s; }
+    .js .rise:nth-child(2) { transition-delay: .08s; } .js .rise:nth-child(3) { transition-delay: .16s; } .js .rise:nth-child(4) { transition-delay: .24s; } .js .rise:nth-child(5) { transition-delay: .3s; }
+    .js .fan { opacity: 0; transform: translateY(12px); filter: blur(6px); transition: opacity .5s .35s, transform .5s .35s cubic-bezier(.22,1,.36,1), filter .5s .35s; }
+    .js .card { transition: transform .7s cubic-bezier(.22,1,.36,1); }
+    .js .card-l { transform: translateX(120%) translateY(70px) rotate(-4deg); transition-delay: .5s; }
+    .js .card-r { transform: translateX(-150%) translateY(84px) rotate(5deg); transition-delay: .6s; }
+    .js .opened .rise, .js .opened .fan { opacity: 1; transform: none; filter: none; }
+    .js .opened .card-l { transform: translateY(70px) rotate(-4deg); }
+    .js .opened .card-r { transform: translateY(84px) rotate(5deg); }
+  }
+
+  /* What's built and what's coming: three rows and an outline that glides to the chosen one; its list shows alongside */
+  .plans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin-top: 40px; align-items: start; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .picker { background: var(--card); border: 1px solid var(--line); border-radius: 30px; padding: 12px; margin: 0; }
+  .picker fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .rows input { position: absolute; opacity: 0; pointer-events: none; }
+  .row:has(input:focus-visible) { outline: 3px solid var(--amber); outline-offset: 2px; }
+  .rows { position: relative; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 18px; border: 1.5px solid var(--line);
+    border-radius: 18px; cursor: pointer; }
+  .row-text { display: flex; flex-direction: column; gap: 2px; }
+  .row-name { font: 700 20px/1.2 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.015em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row-price { color: var(--soft); }
+  .row-price b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge { font: 600 12.5px 'Plus Jakarta Sans', sans-serif; padding: 3px 8px; border-radius: 8px; background: var(--mint-bg); color: var(--mint); letter-spacing: 0; }
+  .badge.soon { background: none; color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
+  .dot { flex: none; width: 22px; height: 22px; margin-top: 3px; border-radius: 50%; border: 2px solid var(--soft); display: grid; place-items: center;
+    transition: border-color .3s; }
+  .dot::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--mint); opacity: 0; transition: opacity .3s; }
+  .row:has(input:checked) .dot { border-color: var(--mint); }
+  .row:has(input:checked) .dot::after { opacity: 1; }
+  .glide { position: absolute; left: 0; right: 0; top: 0; height: 0; border: 2.5px solid var(--mint); border-radius: 18px; pointer-events: none;
+    opacity: 0; transition: transform .3s cubic-bezier(.16,1,.3,1), height .3s cubic-bezier(.16,1,.3,1); }
+  .picker.ready .glide { opacity: 1; }
+  .soon-line { margin: 14px 6px 4px; text-align: center; color: var(--soft); font-size: 15px; }
+  .js .plan .panel:not(.on) { display: none; }
+  .panel + .panel { margin-top: 26px; } .js .panel + .panel { margin-top: 0; }
+  @media (prefers-reduced-motion: reduce) { .glide, .dot, .dot::after { transition: none; } }
+  @media (max-width: 760px) { .plans { grid-template-columns: 1fr; } }
+  .plan { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 30px; }
+  .plan ul { list-style: none; padding: 0; margin: 22px 0 0; }
+  .plan li { padding: 9px 0 9px 32px; border-top: 1px solid var(--line); position: relative; }
+  .plan li::before { content: ''; position: absolute; left: 2px; top: 13px; width: 18px; height: 18px; border-radius: 50%; background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236CC592' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5.5 12.5 4.2 4.2 8.8-9.2'/%3E%3C/svg%3E") center / 12px no-repeat; }
+  .plan .panel[data-plan="next"] li::before, .plan .panel[data-plan="later"] li::before { background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F4A27D' stroke-width='2.6' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7.5'/%3E%3Cpath d='M12 8.2V12l2.6 1.6'/%3E%3C/svg%3E") center / 13px no-repeat; }
+  .plan li small { display: block; color: var(--soft); font-size: 15px; }
+  .fine { color: var(--soft); font-size: 15px; margin-top: 18px; }
+  .plans + .fine { text-align: center; max-width: 720px; margin-left: auto; margin-right: auto; }
 
   /* Data promise */
-  .promise { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 44px }
-  .promise div { border-top: 2px solid var(--forest); padding-top: 18px }
-  .promise p { color: var(--muted); margin: 8px 0 0; font-size: 15.5px }
-  @media (max-width: 760px) { .promise { grid-template-columns: 1fr } }
+  .promise dl { margin: 40px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center; }
+  @media (max-width: 860px) { .promise dl { grid-template-columns: 1fr; max-width: 520px; margin-left: auto; margin-right: auto; } }
+  .promise dl div { background: var(--mint-bg); border-radius: 18px; padding: 22px 22px; }
+  .promise dt { font: 700 18px 'Plus Jakarta Sans', sans-serif; color: var(--mint); }
+  .promise dd { margin: 4px 0 0; }
 
-  /* FAQ */
-  .faq { max-width: 820px; margin: 40px auto 0 }
-  details { border-bottom: 1px solid var(--line) }
-  summary { cursor: pointer; list-style: none; padding: 20px 40px 20px 0; position: relative; font-weight: 600; font-size: 18px }
-  summary::-webkit-details-marker { display: none }
-  summary::after { content: "+"; position: absolute; right: 4px; top: 14px; font: 400 30px/1 var(--f-display); color: var(--apricot) }
-  details[open] summary::after { content: "–" }
-  details p { margin: 0 0 20px; color: var(--muted) }
+  /* FAQ: a search box and rounded cards that open one at a time */
+  .faq { margin: 36px auto 0; max-width: 760px; display: flex; flex-direction: column; gap: 12px; }
+  .faq-search { position: relative; }
+  .faq-search input { width: 100%; height: 52px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    padding: 0 48px 0 22px; font: 400 16px 'Plus Jakarta Sans', sans-serif; appearance: none; -webkit-appearance: none; }
+  .faq-search input::placeholder { color: var(--soft); }
+  .faq-search input::-webkit-search-cancel-button, .faq-search input::-webkit-search-decoration { -webkit-appearance: none; }
+  .faq-search input:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+  .faq-clear { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); width: 32px; height: 32px; border: 0; border-radius: 50%;
+    background: transparent; color: var(--soft); cursor: pointer; display: none; align-items: center; justify-content: center; }
+  .faq-clear:hover { background: var(--panel); color: var(--ink); }
+  .faq-search.has-query .faq-clear { display: inline-flex; }
+  .faq-list { display: flex; flex-direction: column; gap: 10px; }
+  .faq details { border-radius: 18px; background: var(--card); border: 1px solid var(--line); overflow: hidden; }
+  .faq details[hidden] { display: none; }
+  .faq summary { cursor: pointer; list-style: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+    padding: 18px 22px; font: 600 17px/1.45 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.01em; border-radius: 18px; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary:focus-visible { outline: 3px solid var(--amber); outline-offset: -3px; }
+  .faq summary svg { flex: none; width: 18px; height: 18px; margin-top: 4px; color: var(--soft); transition: transform .35s cubic-bezier(.16,1,.3,1); }
+  .faq details[open] summary svg { transform: rotate(180deg); }
+  .faq .answer { overflow: hidden; }
+  .faq .answer p { margin: 0; padding: 0 22px 20px; color: var(--soft); max-width: 40em; }
+  .faq mark { background: rgba(244,162,125,.35); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .faq-empty { color: var(--soft); text-align: center; padding: 28px 8px; margin: 0; }
+  @media (prefers-reduced-motion: reduce) { .faq summary svg { transition: none; } }
+  .contact { margin: 36px auto 0; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px 26px; max-width: 760px; text-align: center; }
+  .contact p { margin: 4px 0 0; }
 
-  /* Closing call */
-  .cta { background: linear-gradient(180deg, var(--hero), var(--hero-2)); color: var(--on-hero); border-radius: 24px; padding: 64px 28px; text-align: center }
-  .cta .lead { color: var(--on-hero-soft); margin: 16px auto 0 }
-  .cta h2 em { color: #F4A27D }
-  footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px }
-  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap }
-  .policy { max-width: 820px; margin: 0 auto }
-  .policy p, .policy li { color: var(--muted) }
+  /* The policy as a card of sections that open one at a time */
+  .policy { max-width: 800px; }
+  .policy-card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
+  .policy-head { padding: 24px 24px 20px; border-bottom: 1px solid var(--line); }
+  .policy-head h2 { font-size: 24px; letter-spacing: -0.015em; text-align: left; }
+  .policy-head .muted { color: var(--soft); margin: 6px 0 0; font-size: 15px; }
+  .policy-head .box { background: var(--mint-bg); border-radius: 14px; padding: 14px 16px; margin-top: 16px; font-size: 16px; }
+  .policy-card details + details { border-top: 1px solid var(--line); }
+  .policy-card summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 16px 24px; font: 600 16.5px/1.4 'Plus Jakarta Sans', sans-serif; }
+  .policy-card summary::-webkit-details-marker { display: none; }
+  .policy-card summary:hover span { color: var(--link); }
+  .policy-card summary:focus-visible { outline: 3px solid var(--amber); outline-offset: -3px; }
+  .policy-card summary svg { flex: none; width: 16px; height: 16px; color: var(--soft); transition: transform .25s cubic-bezier(.16,1,.3,1); }
+  .policy-card details[open] summary svg { transform: rotate(180deg); }
+  .policy-panel { padding: 0 24px 18px; color: var(--soft); font-size: 16px; }
+  .policy-panel p { margin: 0 0 10px; } .policy-panel p:last-child { margin-bottom: 0; }
+  @media (prefers-reduced-motion: reduce) { .policy-card summary svg { transition: none; } }
 
-  /* Gentle reveal on scroll; content is visible without JavaScript or with reduced motion */
-  .js .rise { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease }
-  .js .rise.in { opacity: 1; transform: none }
-  @media (prefers-reduced-motion: reduce) { .js .rise { opacity: 1; transform: none; transition: none } }
+  /* Inside Domi: a pile of cards, the app's screens. Throw the top card (drag and let go) and it flies off and slides
+     back in at the bottom; the arrows, arrow keys and autoplay do the same. Without the script the cards simply sit in
+     a grid with their captions. */
+  .deck { position: relative; margin: 36px auto 0; display: flex; flex-direction: column; align-items: center; gap: 22px; outline: none; }
+  .deck:focus-visible { outline: 2px solid var(--amber); outline-offset: 10px; border-radius: 28px; }
+  .deck-pile { position: relative; width: min(84vw, 380px); aspect-ratio: 4 / 5; margin-top: 52px; touch-action: pan-y; }
+  .deck-card { position: absolute; inset: 0; margin: 0; border-radius: 28px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25), 0 36px 64px -30px rgba(0,0,0,.8), inset 0 0 0 1px rgba(247,251,249,.09);
+    transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .4s ease, filter .4s ease; will-change: transform; user-select: none; -webkit-user-select: none; }
+  .deck-card[data-top="1"] { cursor: grab; }
+  .deck-card[data-mode="drag"] { cursor: grabbing; transition: none; }
+  .deck-card[data-mode="fly"] { transition: transform .45s cubic-bezier(.3,.5,.3,1), opacity .45s ease; }
+  .deck-card[data-mode="snap"] { transition: none; }
+  .tone-forest { background: radial-gradient(120% 90% at 50% 0%, #2C6B58 0%, #1E4D40 55%, #12302A 100%); }
+  .tone-deep { background: radial-gradient(110% 80% at 30% 0%, #22513F 0%, #0F1916 72%); }
+  .tone-warm { background: linear-gradient(160deg, #F4A27D 0%, #E07B4F 26%, #1E4D40 74%, #12302A 100%); }
+  .deck-screen { width: 64%; aspect-ratio: 600 / 975; border-radius: 22px; overflow: hidden; background: #F4F6F3;
+    box-shadow: 0 0 0 6px #090D0C, 0 0 0 7px rgba(247,251,249,.14), 0 24px 40px -18px rgba(0,0,0,.7); }
+  .deck-screen img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; pointer-events: none; }
+  .deck-card figcaption { display: none; }
+  .deck-meta { display: flex; align-items: center; gap: 16px; width: min(100%, 560px); }
+  .deck-cap { flex: 1; min-width: 0; text-align: center; min-height: 128px; }
+  .deck-cap > * { animation: deck-in .55s cubic-bezier(.2,.8,.2,1) both; }
+  .deck-cap h3 { font-size: 22px; letter-spacing: -0.015em; margin-top: 2px; animation-delay: .03s; }
+  .deck-cap p { margin: 6px 0 0; color: var(--soft); font-size: 16px; animation-delay: .06s; }
+  .deck-cap .tag { margin-bottom: 8px; }
+  @keyframes deck-in { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .deck-btn { appearance: none; flex: none; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: rgba(21,31,28,.6);
+    color: var(--ink); display: grid; place-items: center; cursor: pointer; transition: background-color .2s, color .2s; }
+  .deck-btn:hover { background: var(--ink); color: var(--paper); }
+  .deck-btn:focus-visible, .deck-play:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .deck-foot { display: flex; align-items: center; gap: 14px; margin-top: -6px; }
+  .deck-count { font: 600 13px/1 'Plus Jakarta Sans', sans-serif; letter-spacing: .14em; color: var(--soft); }
+  .deck-count b { color: var(--ink); font-weight: 600; }
+  .deck-play { appearance: none; border: 1px solid var(--line); background: none; color: var(--soft); border-radius: 999px; padding: 6px 12px;
+    font: 600 12px/1 'Plus Jakarta Sans', sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  .deck-play:hover { color: var(--ink); }
+  .deck-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; }
+  @media (prefers-reduced-motion: reduce) { .deck-card, .deck-card[data-mode="fly"] { transition: opacity .3s ease; } .deck-cap > * { animation: none; } }
+  html:not(.js) .deck-pile { width: 100%; aspect-ratio: auto; margin-top: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+  html:not(.js) .deck-card { position: relative; flex-direction: column; aspect-ratio: auto; padding: 24px 18px 20px; gap: 18px; }
+  html:not(.js) .deck-screen { width: 70%; }
+  html:not(.js) .deck-card figcaption { display: block; text-align: center; }
+  html:not(.js) .deck-card figcaption p { color: var(--on-forest-soft); margin: 6px 0 0; }
+  html:not(.js) .deck-meta, html:not(.js) .deck-foot, html:not(.js) .js-only { display: none; }
+  .tag { display: inline-block; font: 600 12px/1 'Plus Jakarta Sans', sans-serif; letter-spacing: .04em; text-transform: uppercase;
+    padding: 6px 10px; border-radius: 999px; margin-bottom: 12px; }
+  .tag-now { color: var(--mint); background: var(--mint-bg); }
+  .tag-soon { color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
+  .extras-note { text-align: center; color: var(--soft); font-size: 15px; max-width: 720px; margin: 22px auto 0; }
+
+  footer { background: rgba(12,20,18,.6); border-top: 1px solid var(--line); color: var(--on-forest-soft); padding: 40px 0; font-size: 15px; }
+  footer .wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+  footer a { color: var(--on-forest); }
+  footer p { margin: 0; }
 </style>
 </head>
 <body>
+<div class="bg" aria-hidden="true"><div class="bg-glow"><div class="bg-streak"></div><div class="bg-streak"></div><div class="bg-streak"></div><div class="bg-streak"></div><div class="bg-streak"></div></div><div class="bg-grain"></div><div class="bg-dots"></div></div>
 <a class="skip" href="#main">Skip to content</a>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z" fill="currentColor"/></symbol>
-  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
-  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
-  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8"/></symbol>
-  <symbol id="i-loop" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9M20 4v5h-5M20 12a8 8 0 0 1-13.7 5.6L4 15M4 20v-5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 16h14M6.5 16l1.6-5.2A2 2 0 0 1 10 9.4h4a2 2 0 0 1 1.9 1.4L17.5 16M4 16v3h3v-3M17 16v3h3v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
-  <symbol id="i-note" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20zM14 3.5V8h4M9.5 12.5h6M9.5 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
-  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
-  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M3 9.5a13 13 0 0 1 18 0M6 13a8.5 8.5 0 0 1 12 0M9 16.5a4 4 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor"/></symbol>
-  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
-</svg>
 
 <header class="top">
   <div class="wrap">
-    <div class="bar">
-      <a class="brand" href="#main" aria-label="Domi, home">
-        <img src="logo.svg" alt="" width="40" height="40">
-        <span><b>Domi</b><small>HEARING AT HOME</small></span>
-      </a>
-      <nav aria-label="Main"><ul>
+    <nav aria-label="Main">
+      <a class="brand" href="#"><img src="logo.svg" alt="" width="40" height="40">Domi</a>
+      <ul>
         <li><a href="#how">How it works</a></li>
-        <li><a href="#road">Built for the road</a></li>
+        <li><a href="#inside">Inside Domi</a></li>
         <li><a href="#coming">What's coming</a></li>
-        <li><a href="#questions">Questions</a></li>
-        <li><a class="btn primary" href="%%DEMO_URL%%" rel="noopener">Try the demo</a></li>
-      </ul></nav>
-    </div>
-    <div class="hero" id="main">
-      <p class="kicker">For home-visit hearing practices</p>
-      <h1>Cancellations that <em>fill themselves.</em></h1>
-      <p class="lead">When a patient cancels, Domi texts the best-matched person on your waiting list, books the first one who says yes, and updates the clinician's phone. Nobody in the office has to pick up the phone.</p>
-      <div class="ctas">
-        <a class="btn primary" href="%%DEMO_URL%%" rel="noopener"><svg><use href="#i-play"/></svg>Try the live demo</a>
-        <a class="btn ghost" href="mailto:%%EMAIL%%?subject=Domi%20walkthrough"><svg><use href="#i-mail"/></svg>Book a 20-minute walkthrough</a>
+        <li><a href="#support">Questions</a></li>
+        <li><a href="#privacy">Privacy</a></li>
+      </ul>
+    </nav>
+
+    <div class="hero">
+      <div class="hero-copy">
+        <h1 class="rise"><span>Cancellations that</span> <span class="calm">fill themselves.</span></h1>
+        <p class="lede rise">Domi is the diary for home-visit hearing practices. When a patient cancels, it texts the best-matched person on your waiting list, books the first yes, and updates the clinician’s phone.</p>
+        <div class="ctas rise">
+          <a class="btn btn-main" href="%%DEMO_URL%%" rel="noopener">Try the live demo</a>
+          <a class="btn btn-line" href="mailto:%%EMAIL%%?subject=Domi%20walkthrough">Book a walkthrough</a>
+        </div>
+        <p class="proof rise">Laptop, tablet and phone · Nothing to install · Built for home visits</p>
+        <p class="wake rise">The demo uses invented patients. If nobody has opened it for a while, it takes about a minute to wake.</p>
       </div>
-      <p class="demo-note">The demo uses invented patients in Leeds. If nobody has opened it for a while, it takes about a minute to wake up.</p>
-      <div class="shot-hero" aria-hidden="false">
-        <div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
-        <picture>
-          <source media="(max-width: 600px)" srcset="shots/refill.jpg" width="480" height="900">
-          <img src="shots/office.jpg" width="1440" height="900" alt="Domi's office screen: today's diaries for three clinicians side by side, the waiting list, and the income recovered from cancelled visits this week">
-        </picture>
+
+      <div class="fan" id="fan">
+        <figure class="card card-l"><img src="shots/device-tablet.webp" width="828" height="1157" alt="A tablet showing the office screen: today across the team, the income recovered from cancelled visits, and three clinicians' diaries side by side." decoding="async"></figure>
+        <figure class="card card-c"><img src="shots/device-laptop.webp" width="1400" height="820" alt="A laptop showing Domi refilling an 11:00 slot: five suitable patients ranked with their reasons, and the top three offered the slot by text at once." decoding="async"></figure>
+        <figure class="card card-r"><img src="shots/device-phone.webp" width="556" height="1163" alt="A phone showing the clinician's day: 'Your diary changed. Peter Dunn cancelled. Margaret Holt now booked today at 11:00', with the patient she's with now." decoding="async"></figure>
       </div>
+
+      <ul class="points" id="how">
+        <li><h2 class="h3">Refills on its own</h2><p>A cancelled visit is offered to the best-matched patient by text. The first yes is booked, and everyone else keeps their place.</p></li>
+        <li><h2 class="h3">Books by the road</h2><p>New visits go where they add the least driving, weighed against how soon the patient needs to be seen.</p></li>
+        <li><h2 class="h3">On every clinician’s phone</h2><p>Today’s round, records and audiograms. Changes arrive in a second, and it keeps working without signal.</p></li>
+      </ul>
     </div>
   </div>
 </header>
 
-<main>
-<section id="how">
-  <div class="wrap">
-    <div class="head rise">
-      <p class="kicker">How a cancellation refills</p>
-      <h2>A gap in the diary, filled <em>before you've put the kettle on.</em></h2>
-      <p class="lead">Every home-visit practice knows the cost of a cancelled morning: a clinician on the road with nobody to see, and a waiting list of people who'd have taken the slot.</p>
-    </div>
-    <div class="steps">
-      <ol class="rise">
-        <li><h3>A visit is cancelled</h3><p>The office cancels it, or the patient replies CANCEL to their day-before reminder. Either way, the refill starts at once.</p></li>
-        <li><h3>Domi ranks the waiting list</h3><p>Clinical priority first, then whether they live in the clinician's patch, how long they've waited, and who they prefer to see. It only considers people who are home at that time and whose visit fits the gap, including the drive.</p></li>
-        <li><h3>Offers go out by text</h3><p>With days to spare, it asks one person at a time. With under an hour, it asks the top three at once and the first YES gets it. Too close to confirm anyone, and the slot is left open rather than wasted.</p></li>
-        <li><h3>The clinician's phone updates</h3><p>Within a second: the new patient, their address and their notes. Everyone else who was asked is told the slot has gone, and keeps their place.</p></li>
-      </ol>
-      <div class="stack rise">
-        <div class="frame"><img src="shots/refill.jpg" width="480" height="900" loading="lazy" alt="Refilling an 11:00 slot: five suitable patients ranked with their reasons, and the top three offered the slot by text at once"></div>
-        <div class="phone"><img src="shots/phone-changed.jpg" width="390" height="844" loading="lazy" alt="The clinician's phone: 'Your diary changed. Peter Dunn cancelled. Margaret Holt now booked today at 11:00.'"></div>
+<main id="main">
+  <section id="film">
+    <div class="wrap">
+      <p class="kicker">Domi in 22 seconds</p>
+      <h2>Watch a cancellation refill itself.</h2>
+      <div class="film">
+        <video id="film-video" muted playsinline loop preload="none" controls poster="film/poster.webp" width="1920" height="1080"
+          aria-label="A 22-second film with no sound. The office screen on a laptop and a clinician's phone side by side. At 10:20, Peter Dunn cancels his 11:00 visit. Domi ranks five suitable patients on the waiting list and texts the top three at once. Gerald says no, Margaret says yes and is booked, and the clinician's phone shows the change on its own. It ends on the Domi logo: cancellations that fill themselves.">
+          <source src="film/domi.webm" type="video/webm">
+          <source src="film/domi.mp4" type="video/mp4">
+        </video>
       </div>
+      <p class="film-note" id="film-note">No sound. Plays while it’s on screen.</p>
     </div>
-  </div>
-</section>
+  </section>
 
-<section id="road">
-  <div class="wrap">
-    <div class="split rise">
-      <div>
-        <p class="kicker">Built for the road</p>
-        <h2>Books by the drive, <em>not just the clock.</em></h2>
-        <p class="lead">A free slot across the city isn't really free. Domi searches every clinician's round for the week and ranks each gap by the extra driving it adds.</p>
-        <ul class="points">
-          <li><svg><use href="#i-check"/></svg><span><b>Road driving times</b> between full postcodes, for the drive in and the drive on to the next patient.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Urgency counts too.</b> Urgent patients are pulled towards sooner days; routine ones towards less driving.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Every day on a map,</b> with each leg's drive time and the drive home.</span></li>
-        </ul>
+  <section id="inside">
+    <div class="wrap">
+      <p class="kicker">Inside Domi</p>
+      <h2>Everything it does, one card at a time.</h2>
+      <div class="deck" id="deck" role="region" aria-roledescription="carousel" aria-label="What Domi does" tabindex="0">
+        <div class="deck-pile">
+          <figure class="deck-card tone-forest">
+            <div class="deck-screen"><img src="shots/deck/refill.webp" width="600" height="975" alt="Refilling an 11:00 slot: five suitable patients ranked by priority, patch, days waiting and preferred clinician, and the top three asked at once." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>A cancellation, refilled</h3><p>Peter cancels at 10:20. Five people fit the gap, and because the visit is 40 minutes away the top three are texted at once.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-deep">
+            <div class="deck-screen"><img src="shots/deck/yes.webp" width="600" height="975" alt="Slot refilled: Gerald said no, Margaret said yes and is booked for 11:00, and Sylvia was told it's gone." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>The first yes gets it</h3><p>Margaret replies YES and she’s booked. Gerald said no, and Sylvia is told the slot has gone and keeps her place.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-warm">
+            <div class="deck-screen"><img src="shots/deck/changed.webp" width="600" height="975" alt="The clinician's phone: 'Your diary changed. Peter Dunn cancelled. Margaret Holt now booked today at 11:00, 14 Ash Grove.'" loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>The phone updates itself</h3><p>Amira sees the new visit, the address and the notes within a second. Nobody had to ring her.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-forest">
+            <div class="deck-screen"><img src="shots/deck/slots.webp" width="600" height="975" alt="Booking a visit for Irene Battye: the best slots this week, each with the extra driving it adds and the visits it sits between." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Booking by the drive</h3><p>Every gap this week, ranked by the extra driving it adds and weighed against how soon the patient needs to be seen.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-deep">
+            <div class="deck-screen"><img src="shots/deck/route.webp" width="600" height="975" alt="A clinician's day on a map on the phone: numbered stops, drive minutes for each leg and the drive home." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>The day on a map</h3><p>Every stop, every drive and the drive home. It’s drawn on the phone without a map service, so it works offline too.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-warm">
+            <div class="deck-screen"><img src="shots/deck/route-office.webp" width="600" height="975" alt="Amira's route from the office: the map, then each leg with drive minutes and miles, and the day's totals." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Every round, from the office</h3><p>Open any clinician’s day on a map, with the drive times, the miles and the totals for the day.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-forest">
+            <div class="deck-screen"><img src="shots/deck/today.webp" width="600" height="975" alt="The clinician's day on a phone: the patient they're with now, the address, care-home sign-in, and buttons to complete the visit or open the record." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Today’s round</h3><p>Who’s next, where, and what to know at the door. One tap for “On my way”, which texts the patient.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-deep">
+            <div class="deck-screen"><img src="shots/deck/record.webp" width="600" height="975" alt="A patient's record on the phone with their audiogram." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Records and audiograms</h3><p>Notes, history and the audiogram on the phone, with quick note chips for the everyday jobs.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-warm">
+            <div class="deck-screen"><img src="shots/deck/offline.webp" width="600" height="975" alt="The clinician's phone with no signal: a banner says the round and records are saved on this phone." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>No signal, no problem</h3><p>The round and records are kept on the phone. Notes and updates made offline sync in order when signal comes back.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-forest">
+            <div class="deck-screen"><img src="shots/deck/book.webp" width="600" height="975" alt="The patient booking page on a phone: 'These times are free near you', with times on Tuesday and Wednesday with Amira." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Patients book themselves</h3><p>Large text, one question at a time, and only times when a clinician is already nearby.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-deep">
+            <div class="deck-screen"><img src="shots/deck/report.webp" width="600" height="975" alt="Mileage and utilisation for the week: miles driven, mileage value at 45p a mile, time booked and time on the road, per clinician and day." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Mileage and utilisation</h3><p>Booked time, driving time and estimated miles per clinician, valued at HMRC’s 45p rate. Downloads as CSV.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-warm">
+            <div class="deck-screen"><img src="shots/deck/invoices.webp" width="600" height="975" alt="Invoices raised from completed visits: an unpaid £60 invoice for wax removal, with buttons to mark it paid, void it or print it." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Invoices from finished visits</h3><p>Completing a visit raises the invoice at your price for that visit type. Mark it paid, void it or print it.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-forest">
+            <div class="deck-screen"><img src="shots/deck/signin.webp" width="600" height="975" alt="Signing in on a phone: step 2 of 2, enter the six-digit code from your authenticator app." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Two-factor sign-in</h3><p>A password and a six-digit code from an authenticator app. A lost phone can be signed out from the office.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-deep">
+            <div class="deck-screen"><img src="shots/deck/roadmap.webp" width="600" height="975" alt="What's coming, inside the app: features planned but not in the demo yet, such as a permanent UK database, password reset and card payments." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-soon">Coming soon</span><h3>What’s next, inside the app</h3><p>Card payments, Xero, Noah import and more sit where they’ll live, marked Soon. Nothing pretends to work.</p></figcaption>
+          </figure>
+        </div>
+        <div class="deck-meta">
+          <button type="button" class="deck-btn" data-go="prev" aria-label="Previous card"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="deck-cap" aria-hidden="true"></div>
+          <button type="button" class="deck-btn" data-go="next" aria-label="Next card"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="deck-foot">
+          <span class="deck-count" aria-hidden="true"><b>01</b> / 14</span>
+          <button type="button" class="deck-play" aria-pressed="false">Pause</button>
+        </div>
+        <p class="deck-sr" aria-live="polite"></p>
       </div>
-      <div class="frame" style="max-width:460px;justify-self:center;width:100%"><img src="shots/slots.jpg" width="480" height="680" loading="lazy" alt="Booking a visit for Irene Battye: the best slots this week, each showing the extra driving it adds and which visits it sits between"></div>
+      <p class="extras-note"><span class="js-only">Drag the top card away, or use the arrows. </span>Everything marked “In the demo” works in the live demo today, with invented patients. Cards marked “Coming soon” are planned and not built yet.</p>
     </div>
-    <div class="split rev rise">
-      <div>
-        <p class="kicker">On the clinician's phone</p>
-        <h2>Their whole day, <em>even without signal.</em></h2>
-        <p class="lead">No app to install: it opens in the phone's browser. Today's round, each patient's record and audiogram, and one tap for "On my way", which texts the patient.</p>
-        <ul class="points">
-          <li><svg><use href="#i-signal"/></svg><span><b>Works in a dead spot.</b> Today's round and records are kept on the phone; notes and updates made offline sync when signal returns.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Alerts where they matter:</b> care-home sign-in, who will be there, how the patient prefers to be contacted.</span></li>
-          <li><svg><use href="#i-lock"/></svg><span><b>Signing out wipes the copy.</b> A lost phone can be signed out from the office.</span></li>
-        </ul>
-      </div>
-      <div class="pair">
-        <div class="phone"><img src="shots/phone-today.jpg" width="390" height="844" loading="lazy" alt="The clinician's day on a phone: the patient they're with now, and the rest of today's visits with drive times"></div>
-        <div class="phone"><img src="shots/phone-record.jpg" width="390" height="844" loading="lazy" alt="A patient's record on the phone with their audiogram"></div>
-      </div>
-    </div>
-  </div>
-</section>
+  </section>
 
-<section id="features">
-  <div class="wrap">
-    <div class="head rise">
-      <p class="kicker">Everything else, included</p>
-      <h2>The everyday jobs, <em>done properly.</em></h2>
-    </div>
-    <div class="cards rise">
-      <div class="card"><svg><use href="#i-bell"/></svg><h3>Day-before reminders</h3><p>Every visit tomorrow gets a text at the time you choose. A CANCEL reply refills the slot a day ahead.</p></div>
-      <div class="card"><svg><use href="#i-cal"/></svg><h3>Online booking for patients</h3><p>Large text, one question at a time. It only offers times when a clinician is already nearby.</p></div>
-      <div class="card"><svg><use href="#i-loop"/></svg><h3>Recalls that fill gaps</h3><p>Patients due a review join the refill pool, so a cancellation near them goes to someone due anyway.</p></div>
-      <div class="card"><svg><use href="#i-car"/></svg><h3>Mileage and utilisation</h3><p>Booked time, driving time and estimated miles per clinician, valued at HMRC's 45p rate. Downloads as CSV.</p></div>
-      <div class="card"><svg><use href="#i-note"/></svg><h3>Invoicing</h3><p>Completing a visit raises the invoice at your price for that visit type. Mark it paid, void it or print it.</p></div>
-      <div class="card"><svg><use href="#i-lock"/></svg><h3>Two-factor sign-in</h3><p>Password plus a code from an authenticator app. Accounts lock after repeated wrong passwords.</p></div>
-      <div class="card"><svg><use href="#i-list"/></svg><h3>A full audit trail</h3><p>Every booking, offer, text and change is logged with who did it and when.</p></div>
-      <div class="card"><svg><use href="#i-phone"/></svg><h3>Live, everywhere</h3><p>A change in the office reaches the clinician's phone in about a second, and back again.</p></div>
-    </div>
-  </div>
-</section>
-
-<section id="coming">
-  <div class="wrap">
-    <div class="head rise">
+  <section id="coming">
+    <div class="wrap">
       <p class="kicker">What's coming</p>
-      <h2>Not built yet, <em>and not sold as built.</em></h2>
-      <p class="lead">These are planned and shown in the demo as "Soon". We'd rather tell you what's missing than have you find out after you've switched.</p>
-    </div>
-    <div class="road rise">
-      <div class="col"><h3>Coming next <span class="pill">Next</span></h3><ul>
-        <li><b>Your data kept for good, hosted in the UK</b><span>A permanent database in a London data centre, encrypted, with daily backups.</span></li>
-        <li><b>Bring your data across</b><span>Import patients, the waiting list and upcoming visits from your current system or a spreadsheet.</span></li>
-        <li><b>Recall texts sent automatically</b><span>When a review falls due, with the booking link.</span></li>
-        <li><b>Card payments, Xero and care-home billing</b><span>Take payment on the doorstep, sync invoices to your accounts, bill a care home for several residents at once.</span></li>
-        <li><b>AI-drafted visit notes</b><span>A draft to check and save. Nothing is saved without the clinician approving it.</span></li>
-        <li><b>Letters and pre-visit forms</b><span>GP and referrer letters from templates; consent and history forms filled in before the visit.</span></li>
-        <li><b>Password reset and your own authenticator</b><span>Self-service, with recovery codes.</span></li>
-      </ul></div>
-      <div class="col"><h3>Coming later <span class="pill">Later</span></h3><ul>
-        <li><b>Noah 4 integration</b><span>Audiograms and fitting sessions saved into the record automatically. This needs a partnership with HIMSA, who make Noah, so we won't promise a date.</span></li>
-        <li><b>Stock, orders and repairs</b><span>Track aids and parts, raise manufacturer orders, follow repairs.</span></li>
-        <li><b>iPhone and Android apps</b><span>In the App Store and Google Play. Today the clinician app runs in the phone's browser and works offline.</span></li>
-      </ul></div>
-    </div>
-    <p class="honest">No dates are given on purpose. Ask us where any item stands and we'll tell you straight.</p>
-  </div>
-</section>
+      <h2>What’s built, and what isn’t yet.</h2>
+      <div class="plans">
+        <form class="picker" id="picker" aria-label="Choose what to see" onsubmit="return false">
+          <fieldset class="rows">
+            <legend class="sr">Show</legend>
+            <span class="glide" aria-hidden="true"></span>
+            <label class="row"><input type="radio" name="plan" value="built" checked>
+              <span class="row-text"><span class="row-name">In the demo <span class="badge">Working today</span></span><span class="row-price"><b>12</b> features you can try now</span></span><span class="dot" aria-hidden="true"></span></label>
+            <label class="row"><input type="radio" name="plan" value="next">
+              <span class="row-text"><span class="row-name">Coming next <span class="badge soon">Not built yet</span></span><span class="row-price"><b>7</b> smaller pieces, first</span></span><span class="dot" aria-hidden="true"></span></label>
+            <label class="row"><input type="radio" name="plan" value="later">
+              <span class="row-text"><span class="row-name">Coming later <span class="badge soon">Not built yet</span></span><span class="row-price"><b>3</b> bigger pieces, with partners</span></span><span class="dot" aria-hidden="true"></span></label>
+          </fieldset>
+          <p class="soon-line">No dates on purpose. Ask where any item stands and we’ll tell you straight.</p>
+        </form>
 
-<section id="data">
-  <div class="wrap">
-    <div class="head rise">
-      <p class="kicker">Your patients' data</p>
-      <h2>Health data, <em>treated like health data.</em></h2>
+        <div class="plan" aria-live="polite">
+          <div class="panel" data-plan="built">
+            <h3>In the demo</h3>
+            <p class="fine" style="margin-top:6px">Built, tested and working in the live demo, with invented patients.</p>
+            <ul>
+              <li>Cancellations refilled by text: one at a time, or the top three at once when the visit is close</li>
+              <li>A CANCEL reply to a reminder refills the slot, with nobody in the office involved</li>
+              <li>Booking by drive time across every clinician’s round this week</li>
+              <li>Day-before reminder texts</li>
+              <li>A booking page for patients, offering only travel-efficient times</li>
+              <li>Recalls that join the refill pool</li>
+              <li>Each clinician’s day on a map</li>
+              <li>The clinician app on any phone or tablet, working offline</li>
+              <li>Mileage and utilisation report, with CSV</li>
+              <li>Invoices raised from completed visits</li>
+              <li>Two-factor sign-in and remote sign-out</li>
+              <li>A full audit log of every booking, offer and text</li>
+            </ul>
+          </div>
+          <div class="panel" data-plan="next">
+            <h3>Coming next</h3>
+            <p class="fine" style="margin-top:6px">Planned and shown in the demo as “Soon”. Not built yet.</p>
+            <ul>
+              <li>Your data kept for good, hosted in the UK<small>A permanent database in a London data centre, encrypted, with daily backups.</small></li>
+              <li>Bring your data across<small>Import patients, the waiting list and upcoming visits from your current system or a spreadsheet.</small></li>
+              <li>Recall texts sent automatically<small>When a review falls due, with the booking link.</small></li>
+              <li>Card payments, Xero and care-home billing<small>Take payment on the doorstep, sync invoices, bill a care home for several residents at once.</small></li>
+              <li>AI-drafted visit notes<small>A draft to check and save. Nothing is saved without the clinician approving it.</small></li>
+              <li>Letters and pre-visit forms<small>GP and referrer letters from templates; consent and history forms before the visit.</small></li>
+              <li>Password reset and your own authenticator<small>Self-service, with recovery codes.</small></li>
+            </ul>
+          </div>
+          <div class="panel" data-plan="later">
+            <h3>Coming later</h3>
+            <p class="fine" style="margin-top:6px">Bigger pieces that depend on partners or more work. Not built yet.</p>
+            <ul>
+              <li>Noah 4 integration<small>Audiograms and fitting sessions saved into the record automatically. This needs a partnership with HIMSA, who make Noah, so we won’t promise a date.</small></li>
+              <li>Stock, orders and repairs<small>Track aids and parts, raise manufacturer orders, follow repairs.</small></li>
+              <li>iPhone and Android apps<small>In the App Store and Google Play. Today the clinician app runs in the browser and works offline.</small></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <p class="fine">Pricing is agreed with each practice, based on how many clinicians you have. Email us and we’ll give you a straight figure.</p>
     </div>
-    <div class="promise rise">
-      <div><h3>Kept in the UK</h3><p>When your practice goes live, its data is held in a London data centre, as NHS guidance expects. The public demo holds only invented patients.</p></div>
-      <div><h3>Only what's needed</h3><p>Route planning sends postcodes to the routing service, never names. Patient pages never show other patients' details.</p></div>
-      <div><h3>Paperwork done with you</h3><p>Before any real patient is added, we complete a data protection impact assessment with you and sign a data processing agreement.</p></div>
-    </div>
-  </div>
-</section>
+  </section>
 
-<section id="questions">
-  <div class="wrap">
-    <div class="head rise" style="margin:0 auto;text-align:center">
-      <p class="kicker">Before you ask</p>
+  <section id="promise">
+    <div class="wrap promise">
+      <div class="promise-head">
+        <p class="kicker">Your patients' data</p>
+        <h2>Health data, treated like health data.</h2>
+      </div>
+      <dl>
+        <div><dt>Kept in the UK</dt><dd>When your practice goes live, its data is held in a London data centre, as NHS guidance expects. The demo holds only invented patients.</dd></div>
+        <div><dt>Only what’s needed</dt><dd>Route planning sends postcodes, never names. The patient booking page never shows anyone else’s details.</dd></div>
+        <div><dt>Paperwork done with you</dt><dd>Before any real patient is added, we complete a data protection impact assessment with you and sign a processing agreement.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section id="support">
+    <div class="wrap">
+      <p class="kicker">Questions</p>
       <h2>Questions people ask.</h2>
-    </div>
-    <div class="faq">
-      <details><summary>Do we have to replace our current system?</summary><p>No. You can run Domi for the diary, refills and routes and keep your clinical records where they are. Moving everything across is on the roadmap, and we'll do the import with you when it's ready.</p></details>
-      <details><summary>Does it work with Noah?</summary><p>Not yet. Noah integration needs a partnership with HIMSA, which is on our roadmap but outside our control, so we won't give you a date we can't keep.</p></details>
-      <details><summary>Do patients need to download anything?</summary><p>No. Patients deal with text messages and, if they want to book themselves, a simple web page. Clinicians use the app in their phone's browser.</p></details>
-      <details><summary>What if nobody replies to an offer?</summary><p>Each offer has a reply window that fits how soon the visit is. When it closes, the next people are asked automatically. If there's no longer time for anyone to get ready, the slot is left open rather than offered to someone who can't make it.</p></details>
-      <details><summary>What does it cost?</summary><p>We're working with a small number of founding practices and agree pricing with each one, based on how many clinicians you have. Email us and we'll give you a straight figure.</p></details>
-      <details><summary>Is the demo real?</summary><p>The software is. The patients, clinicians and texts are invented, and the demo resets itself. Every visitor gets their own private copy, so you can cancel, book and break things freely.</p></details>
-    </div>
-  </div>
-</section>
-
-<section id="contact">
-  <div class="wrap">
-    <div class="cta rise">
-      <p class="kicker" style="color:#F4A27D">See it working</p>
-      <h2>Cancel a visit <em>and watch it refill.</em></h2>
-      <p class="lead">Open the demo on your laptop, scan the code with your phone, and cancel any visit. It takes about two minutes.</p>
-      <div class="ctas">
-        <a class="btn primary" href="%%DEMO_URL%%" rel="noopener"><svg><use href="#i-play"/></svg>Try the live demo</a>
-        <a class="btn ghost" href="mailto:%%EMAIL%%?subject=Domi%20walkthrough"><svg><use href="#i-mail"/></svg>%%EMAIL%%</a>
+      <div class="faq">
+        <div class="faq-search">
+          <input type="search" id="faq-q" placeholder="Search questions" aria-label="Search questions" aria-controls="faq-list" autocomplete="off">
+          <button class="faq-clear" type="button" aria-label="Clear search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/></svg></button>
+        </div>
+        <div class="faq-list" id="faq-list">
+          <details name="faq">
+            <summary><span>Do we have to replace our current system?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>No. You can run Domi for the diary, refills and routes and keep your clinical records where they are. Moving everything across is on the roadmap, and we’ll do the import with you when it’s ready.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>Does it work with Noah?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>Not yet. Noah integration needs a partnership with HIMSA, which is on our roadmap but outside our control, so we won’t give you a date we can’t keep.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>What does it cost?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>We’re working with a small number of founding practices and agree pricing with each one, based on how many clinicians you have. Email us and we’ll give you a straight figure.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>Does it work on a laptop, a tablet and a phone?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>Yes. Domi runs in the web browser, so there’s nothing to install. The office screen fits a laptop or a tablet, and the clinician app works on any phone, or on a tablet if a clinician prefers a bigger screen.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>Do patients need to download anything?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>No. Patients deal with text messages and, if they want to book themselves, a simple web page with large text and one question at a time.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>What if nobody replies to an offer?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>Each offer has a reply window that fits how soon the visit is. When it closes, the next people are asked automatically. If there’s no longer time for anyone to get ready, the slot is left open rather than offered to someone who can’t make it.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>What happens if a clinician loses their phone?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>The office can see every signed-in device and sign the lost phone out remotely. Signing out wipes the round and records the phone was keeping for working offline.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>Is the demo real?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>The software is. The patients, clinicians and texts are invented, and the demo resets itself. Every visitor gets their own private copy, so you can cancel, book and break things freely.</p></div>
+          </details>
+        </div>
+        <p class="faq-empty" role="status" hidden>No questions match that. Try another word, or email us below.</p>
+      </div>
+      <div class="contact">
+        <h3>Still have a question?</h3>
+        <p>Email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. You’ll hear back from the person who builds Domi.</p>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<section id="privacy" class="policy-section">
-  <div class="wrap policy">
-    <p class="kicker">Privacy</p>
-    <h2 style="font-size:clamp(30px,4vw,40px)">This website's privacy policy</h2>
-    <p>This website doesn't use cookies, analytics or tracking, and it loads nothing from other companies: its fonts and images are served from this site. It's hosted on GitHub Pages, which, like any web host, records visitors' IP addresses in its server logs for security. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>.</p>
-    <p>If you email us, we use your email only to reply to you and keep it only for as long as the conversation needs. You can ask us to delete it at any time. Contact <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>.</p>
-    <p>The live demo is a separate service. It holds only invented patients, and anything you type into it is deleted when your demo is cleared.</p>
-  </div>
-</section>
+  <section id="privacy" class="policy-section">
+    <div class="wrap policy">
+      <p class="kicker">Privacy policy</p>
+      <div class="policy-card">
+        <div class="policy-head">
+          <h2>This website’s privacy policy</h2>
+          <p class="muted">Last updated 11 October 2026.</p>
+          <div class="box">No cookies, no analytics, no tracking. If you email us, we use your email only to reply.</div>
+        </div>
+        <details name="policy"><summary><span>Who we are</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="policy-panel"><p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339. We’re responsible for this website and for anything you send us.</p></div></details>
+        <details name="policy"><summary><span>What this website collects</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="policy-panel"><p>Nothing about you. There are no cookies, analytics, adverts or tracking, and the page loads nothing from other companies: its fonts, pictures and film are served from this site.</p>
+          <p>The site is hosted on GitHub Pages. Like any web host, GitHub records visitors’ IP addresses in its server logs for security. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub’s privacy statement</a>.</p></div></details>
+        <details name="policy"><summary><span>If you email us</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="policy-panel"><p>We use your name, email address and what you write only to reply to you, and keep it only for as long as the conversation needs. We don’t add you to a mailing list or share your details with anyone.</p></div></details>
+        <details name="policy"><summary><span>The live demo</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="policy-panel"><p>The demo is a separate service that holds only invented patients. Each visitor gets a private copy, which is deleted after three hours without use or when the server restarts. Please don’t type real patients’ details into it.</p></div></details>
+        <details name="policy"><summary><span>Your rights</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="policy-panel"><p>You can ask us what we hold about you, and to correct or delete it, at any time. If you’re unhappy with how we’ve handled your information, you can complain to the <a href="https://ico.org.uk/make-a-complaint/">Information Commissioner’s Office</a>.</p></div></details>
+        <details name="policy"><summary><span>Contact</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="policy-panel"><p>Email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>.</p></div></details>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer>
   <div class="wrap">
-    <span>© 2026 YSB Ventures Ltd, registered in England and Wales, company number 16022339.</span>
-    <span><a href="#privacy">Privacy</a> · <a href="mailto:%%EMAIL%%">Contact</a></span>
+    <p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p>
+    <p><a href="#privacy">Privacy policy</a> · <a href="mailto:%%EMAIL%%">Contact</a></p>
   </div>
 </footer>
 
 <script>
-  // Reveal sections as they come into view. Without IntersectionObserver everything simply shows.
+  // Open the intro once the first frame has painted, so its rise and spread are seen
+  requestAnimationFrame(function () { requestAnimationFrame(function () { document.querySelector('.hero').classList.add('opened'); }); });
+</script>
+<script>
+  // FAQ: one answer open at a time, a gentle open and close, and a search that filters and highlights as you type.
+  // Works without this script too: the questions are plain <details> elements.
   (function () {
-    var els = document.querySelectorAll('.rise');
-    if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-    }, { rootMargin: '0px 0px -10% 0px' });
-    els.forEach(function (e) { io.observe(e); });
+    var list = document.getElementById('faq-list'); if (!list) return;
+    var items = Array.prototype.slice.call(list.querySelectorAll('details'));
+    var input = document.getElementById('faq-q'), box = input.parentNode, clear = box.querySelector('.faq-clear');
+    var empty = list.parentNode.querySelector('.faq-empty');
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var EASE = 'cubic-bezier(.16,1,.3,1)';
+    var parts = items.map(function (d) {
+      var q = d.querySelector('summary span'), a = d.querySelector('.answer p');
+      return { d: d, q: q, a: a, qHtml: q.innerHTML, aHtml: a.innerHTML };   // our own markup, kept to undo highlighting
+    });
+
+    function animate(d, open) {
+      var panel = d.querySelector('.answer');
+      if (still.matches || !panel.animate) { d.open = open; return; }
+      if (open) d.open = true;
+      var h = panel.scrollHeight;
+      var anim = panel.animate(open ? [{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }]
+                                    : [{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0 }],
+                               { duration: open ? 420 : 260, easing: EASE });
+      if (!open) anim.onfinish = function () { d.open = false; };
+    }
+    function show(d) {
+      parts.forEach(function (p) { if (p.d !== d && p.d.open) animate(p.d, false); });
+      animate(d, true);
+    }
+    items.forEach(function (d) {
+      d.querySelector('summary').addEventListener('click', function (e) {
+        e.preventDefault();
+        if (d.open) animate(d, false); else show(d);
+      });
+    });
+
+    // Highlight by splitting text nodes, never by writing what was typed into the page as HTML
+    function mark(el, html, q) {
+      el.innerHTML = html;
+      if (!q) return;
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [], n;
+      while ((n = walker.nextNode())) nodes.push(n);
+      nodes.forEach(function (node) {
+        var text = node.nodeValue, lower = text.toLowerCase(), at = lower.indexOf(q);
+        if (at < 0) return;
+        var frag = document.createDocumentFragment(), from = 0;
+        while (at >= 0) {
+          frag.appendChild(document.createTextNode(text.slice(from, at)));
+          var m = document.createElement('mark'); m.textContent = text.slice(at, at + q.length); frag.appendChild(m);
+          from = at + q.length; at = lower.indexOf(q, from);
+        }
+        frag.appendChild(document.createTextNode(text.slice(from)));
+        node.parentNode.replaceChild(frag, node);
+      });
+    }
+    function search() {
+      var q = input.value.trim().toLowerCase();
+      box.classList.toggle('has-query', input.value.length > 0);
+      var shown = [];
+      parts.forEach(function (p) {
+        mark(p.q, p.qHtml, ''); mark(p.a, p.aHtml, '');
+        var hit = !q || (p.q.textContent + ' ' + p.a.textContent).toLowerCase().indexOf(q) >= 0;
+        p.d.hidden = !hit;
+        mark(p.q, p.qHtml, q); mark(p.a, p.aHtml, q);
+        if (hit) shown.push(p.d);
+      });
+      empty.hidden = shown.length > 0;
+      if (q) { if (!shown.some(function (d) { return d.open; }) && shown[0]) { parts.forEach(function (p) { p.d.open = false; }); shown[0].open = true; } }
+      else parts.forEach(function (p) { p.d.open = false; });
+    }
+    input.addEventListener('input', search);
+    clear.addEventListener('click', function () { input.value = ''; search(); input.focus(); });
   })();
+</script>
+<script>
+  // What's coming: the outline glides to the chosen row, whose list shows alongside. Without this script the form
+  // still works as radios and every list shows.
+  (function () {
+    var form = document.getElementById('picker'); if (!form) return;
+    var rows = form.querySelector('.rows'), glide = rows.querySelector('.glide');
+    var panels = document.querySelectorAll('.plan .panel');
+    function place() {
+      var row = form.querySelector('input[name=plan]:checked').closest('.row');
+      glide.style.transform = 'translateY(' + row.offsetTop + 'px)';
+      glide.style.height = row.offsetHeight + 'px';
+      var plan = row.querySelector('input').value;
+      panels.forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-plan') === plan); });
+    }
+    form.addEventListener('change', place);
+    window.addEventListener('resize', place);
+    place(); requestAnimationFrame(function () { form.classList.add('ready'); });
+  })();
+</script>
+<script>
+  // Inside Domi: the card deck. Drag the top card and let go to throw it (it slides back in at the bottom), or use
+  // the arrows, the arrow keys or autoplay. Autoplay waits while someone is interacting, stops off-screen, can be
+  // paused, and is off for anyone who asks for less motion.
+  (function () {
+    var deck = document.getElementById('deck');
+    if (!deck) return;
+    var pile = deck.querySelector('.deck-pile'), cards = [].slice.call(pile.children), n = cards.length;
+    var cap = deck.querySelector('.deck-cap'), count = deck.querySelector('.deck-count b'), live = deck.querySelector('.deck-sr');
+    count.nextSibling.textContent = ' / ' + n;   // the total follows the cards, so adding one never leaves it wrong
+    var play = deck.querySelector('.deck-play');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var top = 0, busy = false, over = null, lastTouch = 0, playing = !reduce, seen = false, AUTO = 5200;
+
+    function wrap(i) { return ((i % n) + n) % n; }
+    function pad(i) { return i < 10 ? '0' + i : String(i); }
+    function tilt(i) { var u = (((i + 1) * 2654435761) >>> 0) / 4294967296; return (u * 2 - 1) * 7; }
+    function render() {
+      cards.forEach(function (c, i) {
+        var depth = wrap(i - top), d = Math.min(depth, 3), o = over && over.i === i ? over : null;
+        c.style.transform = o ? 'translate(' + o.x + 'px,' + o.y + 'px) rotate(' + o.r + 'deg)'
+          : 'translateY(' + (d ? -d * 16 : 0) + 'px) scale(' + (1 - d * 0.055) + ') rotate(' + (depth === 0 || reduce ? 0 : tilt(i)).toFixed(2) + 'deg)';
+        c.style.zIndex = o ? n + 1 : n - depth;
+        c.style.opacity = o ? 1 : depth > 3 ? 0 : 1;
+        c.style.filter = o || depth === 0 ? 'none' : 'brightness(' + (1 - d * 0.08) + ')';
+        c.dataset.mode = o ? o.mode : '';
+        c.dataset.top = depth === 0 ? '1' : '0';
+        if (depth === 0) c.removeAttribute('aria-hidden'); else c.setAttribute('aria-hidden', 'true');
+      });
+    }
+    function caption() {
+      var f = cards[top].querySelector('figcaption'), fresh = cap.cloneNode(false);
+      [].forEach.call(f.childNodes, function (k) { fresh.appendChild(k.cloneNode(true)); });
+      cap.parentNode.replaceChild(fresh, cap); cap = fresh;           // a new node replays the rise-in
+      count.textContent = pad(top + 1);
+      live.textContent = 'Card ' + (top + 1) + ' of ' + n + ': ' + f.querySelector('h3').textContent;
+    }
+    function settle(t) { over = null; top = t; busy = false; render(); caption(); }
+    function throwTop(dirX, fromX, fromY, dirY) {
+      if (busy || n < 2) return;
+      busy = true;
+      var w = pile.offsetWidth || 380, sx = dirX >= 0 ? 1 : -1;
+      over = { i: top, x: (fromX || 0) + sx * w * 1.25, y: (fromY || 0) + (dirY || 0) * 0.4 - 40, r: sx * 16, mode: 'fly' };
+      render();
+      setTimeout(function () { settle(wrap(top + 1)); }, reduce ? 200 : 430);
+    }
+    function pullBack() {
+      if (busy || n < 2) return;
+      busy = true;
+      var w = pile.offsetWidth || 380, i = wrap(top - 1);
+      over = { i: i, x: -w * 1.25, y: -40, r: -16, mode: 'snap' }; render();
+      requestAnimationFrame(function () { requestAnimationFrame(function () {
+        over = { i: i, x: 0, y: 0, r: 0, mode: 'fly' }; render();
+        setTimeout(function () { settle(i); }, reduce ? 200 : 450);
+      }); });
+    }
+
+    // Dragging the top card
+    var drag = null;
+    pile.addEventListener('pointerdown', function (e) {
+      var c = e.target.closest('.deck-card');
+      lastTouch = performance.now();
+      if (!c || c !== cards[top] || busy || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      c.setPointerCapture(e.pointerId);
+      drag = { el: c, x: e.clientX, y: e.clientY, lx: e.clientX, lt: e.timeStamp, vx: 0 };
+    });
+    pile.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var dt = Math.max(1, e.timeStamp - drag.lt);
+      drag.vx = 0.8 * ((e.clientX - drag.lx) / dt) + 0.2 * drag.vx; drag.lx = e.clientX; drag.lt = e.timeStamp;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      over = { i: top, x: dx, y: dy, r: reduce ? 0 : dx * 0.05, mode: 'drag' }; render();
+    });
+    function up(e) {
+      if (!drag) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y, vx = drag.vx, w = pile.offsetWidth || 380;
+      drag = null; lastTouch = performance.now();
+      if (Math.abs(dx) > w * 0.28 || (Math.abs(vx) > 0.55 && Math.abs(dx) > 24)) throwTop(dx, dx, dy, dy);
+      else { over = null; render(); }
+    }
+    pile.addEventListener('pointerup', up);
+    pile.addEventListener('pointercancel', up);
+
+    deck.querySelector('[data-go="next"]').addEventListener('click', function () { lastTouch = performance.now(); throwTop(1); });
+    deck.querySelector('[data-go="prev"]').addEventListener('click', function () { lastTouch = performance.now(); pullBack(); });
+    deck.addEventListener('keydown', function (e) {
+      if (e.target !== deck) return;
+      if (e.key === 'ArrowRight') throwTop(1); else if (e.key === 'ArrowLeft') pullBack(); else return;
+      lastTouch = performance.now(); e.preventDefault();
+    });
+
+    function showPlay() { play.textContent = playing ? 'Pause' : 'Play'; play.setAttribute('aria-pressed', playing ? 'false' : 'true'); }
+    play.addEventListener('click', function () { playing = !playing; lastTouch = performance.now(); showPlay(); });
+    if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { seen = es[0].isIntersecting; }).observe(deck);
+    setInterval(function () {
+      if (!playing || !seen || document.hidden || busy || drag || performance.now() - lastTouch < AUTO || deck.matches(':hover') || deck.contains(document.activeElement)) return;
+      throwTop(1);
+    }, AUTO);
+
+    showPlay(); render(); caption();
+  })();
+</script>
+<script>
+// The film plays only while at least half of it is on screen, never with reduced motion, and always has a pause button.
+(function () {
+  var v = document.getElementById('film-video');
+  if (!v) return;
+  var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var paused = still;          // the viewer's choice wins over scrolling
+  if (still) document.getElementById('film-note').textContent = 'No sound. Press play to watch.';
+  v.removeAttribute('controls');
+  var b = document.createElement('button');
+  b.type = 'button'; b.className = 'film-btn';
+  var play = '<svg viewBox="0 0 18 18" aria-hidden="true"><path fill="currentColor" d="M5 3.2v11.6a.8.8 0 0 0 1.2.7l9.3-5.8a.8.8 0 0 0 0-1.4L6.2 2.5A.8.8 0 0 0 5 3.2Z"/></svg>';
+  var pause = '<svg viewBox="0 0 18 18" aria-hidden="true"><rect x="4" y="3" width="3.6" height="12" rx="1" fill="currentColor"/><rect x="10.4" y="3" width="3.6" height="12" rx="1" fill="currentColor"/></svg>';
+  function show() { var on = !v.paused; b.innerHTML = on ? pause : play; b.setAttribute('aria-label', on ? 'Pause the film' : 'Play the film'); }
+  v.parentNode.appendChild(b);
+  v.addEventListener('play', show); v.addEventListener('pause', show); show();
+  b.addEventListener('click', function () { if (v.paused) { paused = false; v.play(); } else { paused = true; v.pause(); } });
+  if (!('IntersectionObserver' in window)) return;
+  new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting && !paused) { v.preload = 'auto'; var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+      else if (!e.isIntersecting && !v.paused) v.pause();
+    });
+  }, { threshold: 0.5 }).observe(v);
+})();
 </script>
 </body>
 </html>
