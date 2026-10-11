@@ -9,7 +9,7 @@ let base;
 test.before(async () => { const s = await start(0); base = `http://127.0.0.1:${s.address().port}`; });
 test.after(() => server.close());
 
-const EMAIL = { "u-admin": "sarah@domi-hearing.example", "u-c1": "amira@domi-hearing.example", "u-c2": "tom@domi-hearing.example", "u-c3": "priya@domi-hearing.example" };
+const EMAIL = { "u-admin": "sarah@airevalleyhearing.example", "u-c1": "amira@airevalleyhearing.example", "u-c2": "tom@airevalleyhearing.example", "u-c3": "priya@airevalleyhearing.example" };
 const PASSWORD = require("../server/auth").DEMO_PASSWORD;
 
 async function call(method, path, cookie, body, headers = {}) {
@@ -287,4 +287,24 @@ test("invoicing: completing a visit raises an invoice at the practice's price; p
   // Prices are the practice's own.
   const st = (await call("PUT", "/api/settings", office.token, { prices: { fit: 120 } })).data;
   assert.strictEqual(st.prices.fit, 120);
+});
+
+test("texts are signed with the practice's name, which the office can change; the product stays Domi", async () => {
+  const office = await login("u-admin");
+  const st = await state(office.token);
+  assert.strictEqual(st.settings.practice, "Aire Valley Hearing");
+  const first = (await call("POST", "/api/appointments/a3/cancel", office.token, { reason: "Patient unwell" })).data;
+  assert.match(first.offers[0].body, /it's Aire Valley Hearing\./);
+  assert.doesNotMatch(first.offers[0].body, /Domi/);
+  // The office renames the practice: new texts and the booking page use the new name
+  assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: "  Kirkby   Hearing\u0007 " })).status, 200);
+  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Hearing");
+  assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: " " })).status, 200);
+  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Hearing", "a blank name is ignored");
+  const pub = (await call("GET", "/api/public/" + st.sandbox)).data;
+  assert.strictEqual(pub.practice, "Kirkby Hearing");
+  const ken = (await call("POST", "/api/demo/sms", office.token, { patientId: "p4", body: "CANCEL" })).data;
+  const texts = JSON.stringify((await state(office.token)).messages);
+  assert.match(texts, /Kirkby Hearing/);
+  assert.ok(ken);
 });

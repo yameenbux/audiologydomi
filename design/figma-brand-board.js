@@ -1,4 +1,4 @@
-// Domi Hearing — Figma foundations. Run with the Figma MCP `use_figma` tool against the product design file.
+// Domi — Figma foundations. Run with the Figma MCP `use_figma` tool against the product design file.
 // Creates: colour variables (Light + Dark collections), text styles, logo components and a brand board.
 // Safe to re-run: collections, variables and styles are reused by name.
 
@@ -116,7 +116,7 @@ const board = AL('v', { fill: 'bg/canvas', gap: 48, pad: 64, name: 'Brand & toke
 board.x = 0; board.y = 0;
 const head = AL('v', { gap: 8 });
 head.appendChild(T('BRAND & DESIGN TOKENS', 'Label/Caps', 'brand/apricot'));
-head.appendChild(T('Domi Hearing', 'Display/XL'));
+head.appendChild(T('Domi', 'Display/XL'));
 head.appendChild(T('Placeholder identity for the demo. The mark is a roof over sound waves: hearing care that comes to the patient’s home. Colours are variables in two matching collections, Light and Dark.', 'Body/M', 'text/muted', { w: 760 }));
 add(board, head);
 

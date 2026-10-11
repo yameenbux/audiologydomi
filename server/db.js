@@ -78,10 +78,10 @@ CREATE INDEX IF NOT EXISTS idx_offer_pending ON offers(status, expires_at);
 
 // Demo sign-in accounts. Static, so the sign-in screen can list them before a sandbox exists.
 const USERS = [
-  { id: "u-admin", email: "sarah@domi-hearing.example", name: "Sarah Lane", role: "admin", clinicianId: null, title: "Office manager", color: "#C9714A" },
-  { id: "u-c1", email: "amira@domi-hearing.example", name: "Amira Shah", role: "clinician", clinicianId: "c1", title: "Audiologist", color: "#1E4D40" },
-  { id: "u-c2", email: "tom@domi-hearing.example", name: "Tom Whitfield", role: "clinician", clinicianId: "c2", title: "Hearing aid dispenser", color: "#3F6E8C" },
-  { id: "u-c3", email: "priya@domi-hearing.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
+  { id: "u-admin", email: "sarah@airevalleyhearing.example", name: "Sarah Lane", role: "admin", clinicianId: null, title: "Office manager", color: "#C9714A" },
+  { id: "u-c1", email: "amira@airevalleyhearing.example", name: "Amira Shah", role: "clinician", clinicianId: "c1", title: "Audiologist", color: "#1E4D40" },
+  { id: "u-c2", email: "tom@airevalleyhearing.example", name: "Tom Whitfield", role: "clinician", clinicianId: "c2", title: "Hearing aid dispenser", color: "#3F6E8C" },
+  { id: "u-c3", email: "priya@airevalleyhearing.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Audiologist", color: "#7A5A8C" },
 ];
 
 const TABLES = ["audit", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];

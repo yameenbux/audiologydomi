@@ -1,8 +1,8 @@
-# Domi Hearing — domiciliary audiology diary (demo)
+# Domi — domiciliary audiology diary (demo)
 
 A working demo of a diary system for a home-visit audiology practice. When a visit is cancelled, the system picks the best patient from the waiting list, texts them an offer, and puts them into the slot when they reply YES. The clinician's phone updates on its own.
 
-"Domi Hearing" is a placeholder name. The patients, phone numbers (Ofcom's reserved drama range) and street names are invented. The postcodes are real Leeds postcodes, so the drive times are real.
+Domi is the product. The sample practice in the demo, "Aire Valley Hearing", is invented: patients see the practice's name in every text, on the booking page and on invoices, and the office can change it (Waiting list → "Texts are signed"), so a prospect can see the demo with their own name. The patients, phone numbers (Ofcom's reserved drama range) and street names are invented. The postcodes are real Leeds postcodes, so the drive times are real.
 
 ## Run it
 

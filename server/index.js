@@ -292,6 +292,10 @@ route("PUT", "/api/settings", {}, (req, body, user) => {
   if (Number(body.offerMinutes) >= 1 && Number(body.offerMinutes) <= 240) st.offerMinutes = Number(body.offerMinutes);
   if (body.fee !== undefined && Number(body.fee) >= 0 && Number(body.fee) <= 2000) st.fee = Math.round(Number(body.fee));
   if (typeof body.reminders === "boolean") st.reminders = body.reminders;
+  if (typeof body.practice === "string") {
+    const name = body.practice.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (name.length >= 2) st.practice = name;
+  }
   if (body.prices && typeof body.prices === "object") {
     for (const [k, v] of Object.entries(body.prices)) if (k in st.prices && Number(v) >= 0 && Number(v) <= 5000) st.prices[k] = Math.round(Number(v));
   }
@@ -312,7 +316,7 @@ setInterval(() => publicHits.clear(), 30 * 60e3).unref();
 const practice = (code) => { const sb = sandbox.get(code); if (!sb) throw new svc.HttpError(404, "This booking link has expired. Please call the practice."); return sb; };
 route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) => {
   const sb = practice(code);
-  return { practice: "Domi Hearing", code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL };
+  return { practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL };
 });
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
 route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
@@ -324,7 +328,7 @@ route("POST", "/api/invoices/:id/void", {}, (req, body, user, { id }) => { needA
 route("GET", "/api/invoices/:id", {}, (req, body, user, { id }) => {
   needAdmin(user);
   const inv = svc.getInvoice(id), p = svc.getPatient(inv.patientId);
-  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: "Domi Hearing", addr: "Sample practice, Leeds", email: "hello@domi-hearing.example" } };
+  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: sandbox.current().settings.practice, addr: "Sample practice, Leeds", email: "hello@practice.example" } };
 });
 
 // Mileage and utilisation for the week, per clinician and day.
@@ -501,7 +505,7 @@ function start(port = PORT) {
 
 if (require.main === module) {
   start().then(() => {
-    console.log(`Domi Hearing demo running on http://localhost:${PORT}`);
+    console.log(`Domi demo running on http://localhost:${PORT}`);
     console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
     console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);
   });

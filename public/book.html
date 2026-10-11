@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Book a home visit · Domi Hearing</title>
+<title>Book a home visit</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/app.css">
@@ -12,7 +12,8 @@
   /* Patients are often older: larger type, one question at a time, big targets. */
   body.bk { font-size: 18px; background: var(--bg) }
   .bk-top { padding: 18px 20px; border-bottom: 1px solid var(--line); background: var(--surface) }
-  .bk-top img { height: 34px; display: block }
+  .bk-top b { display: block; font: 400 28px/1.1 var(--f-display); min-height: 31px }
+  .bk-top small { display: block; color: var(--muted); font-size: 14px; margin-top: 2px }
   .bk-main { max-width: 620px; margin: 0 auto; padding: 28px 20px 64px }
   .bk-main h1 { font-size: clamp(34px, 7vw, 46px); line-height: 1.05; margin: 6px 0 10px }
   .bk-lead { color: var(--muted); margin: 0 0 26px; font-size: 18px }
@@ -40,7 +41,7 @@
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
   <symbol id="i-msg" viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
 </svg>
-<header class="bk-top"><img src="/logo-lockup.svg" alt="Domi Hearing"></header>
+<header class="bk-top"><b id="practice"></b><small>Home visits</small></header>
 <main class="bk-main" id="root" aria-live="polite"><p class="bk-lead">Loading…</p></main>
 <script>
 (function () {
@@ -123,7 +124,7 @@ root.addEventListener("submit", async (ev) => {
     render(e.message);
   }
 });
-api("GET", `/api/public/${code}`).then((info) => { S.info = info; render(); })
+api("GET", `/api/public/${code}`).then((info) => { S.info = info; document.getElementById("practice").textContent = info.practice; document.title = "Book a home visit · " + info.practice; render(); })
   .catch((e) => { root.innerHTML = `<h1>Booking link not found</h1><p class="bk-lead">${esc(e.message)}</p>`; });
 })();
 </script>
