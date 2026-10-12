@@ -1,0 +1,25 @@
+flowchart LR
+    W["<b>Something looks wrong</b>"]
+    D{"<b>Where?</b>"}
+    DM["<b>The demo</b><br/>muddled or stuck"]
+    RS["<b>Reset the demo</b><br/>the ↺ button in the top bar,<br/>or wait: it resets when it wakes"]
+    DT["<b>Drive times say Estimated</b><br/>the router is down;<br/>it falls back, then retries"]
+    WS["<b>The website shows</b><br/><b>an old page</b>"]
+    NC["<b>Push a new commit</b><br/>GitHub reused an old<br/>deployment of the same one"]
+    BUG["<b>A real bug</b><br/>reproduce it in a test,<br/>fix, npm test, merge"]
+    OUT["<b>Fixed for everyone</b><br/>Render and Pages<br/>deploy from main"]
+
+    W --> D
+    D --> DM --> RS
+    D --> DT
+    D --> WS --> NC --> OUT
+    D --> BUG --> OUT
+
+    classDef core fill:#1E4D40,stroke:#E07B4F,stroke-width:3px,color:#FFFFFF
+    classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
+    classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
+    classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
+    class W ext
+    class D,RS,NC,BUG core
+    class DM,DT,WS ext
+    class OUT live

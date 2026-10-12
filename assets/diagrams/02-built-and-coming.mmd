@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph NOW["In the demo today: built and tested"]
+        direction LR
+        A1["<b>Refills by text</b><br/>one at a time, or the top<br/>three when the visit is close"]
+        A2["<b>Booking by the drive</b><br/>every gap this week,<br/>ranked by extra driving"]
+        A3["<b>Clinician app</b><br/>any phone or tablet,<br/>works without signal"]
+        A4["<b>Patient booking page</b><br/>only travel-efficient times"]
+        A5["<b>Reminders and recalls</b><br/>CANCEL replies refill;<br/>recalls join the pool"]
+        A6["<b>Mileage and invoices</b><br/>HMRC 45p report, CSV;<br/>invoice on completion"]
+        A7["<b>Sign-in and audit</b><br/>password + authenticator,<br/>every change logged"]
+    end
+    subgraph NEXT["Coming next: not built yet"]
+        direction LR
+        B1["<b>UK database</b><br/>London, backed up daily"]
+        B2["<b>Data import</b><br/>from your current system"]
+        B3["<b>Automatic recall texts</b>"]
+        B4["<b>Card payments, Xero,</b><br/><b>care-home billing</b>"]
+        B5["<b>AI-drafted notes</b><br/>the clinician approves"]
+        B6["<b>Letters and forms</b><br/>GP letters, consent"]
+        B7["<b>Password reset</b><br/>own authenticator"]
+    end
+    subgraph LATER["Coming later: needs partners or more work"]
+        direction LR
+        L1["<b>Noah 4</b><br/>needs a HIMSA partnership"]
+        L2["<b>Stock, orders, repairs</b>"]
+        L3["<b>iPhone and Android apps</b>"]
+    end
+    NOW --> NEXT --> LATER
+
+    classDef core fill:#1E4D40,stroke:#E07B4F,stroke-width:3px,color:#FFFFFF
+    classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
+    classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
+    classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
+    class A1,A2,A3,A4,A5,A6,A7 live
+    class B1,B2,B3,B4,B5,B6,B7,L1,L2,L3 dev

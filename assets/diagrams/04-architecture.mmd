@@ -1,0 +1,43 @@
+flowchart TB
+    subgraph BROWSERS["In the browser: nothing to install"]
+        direction LR
+        OFF["<b>Office screen</b><br/>laptop or tablet<br/>public/app.js"]
+        CLIN["<b>Clinician app</b><br/>phone, works offline<br/>public/sw.js"]
+        BOOK["<b>Patient booking page</b><br/>public/book.html"]
+    end
+    subgraph SERVER["One Node process: no dependencies"]
+        direction TB
+        IDX["<b>server/index.js</b><br/>routes, sign-in, static files,<br/>live updates"]
+        SVC["<b>service.js</b><br/>bookings, texts, audit,<br/>in one transaction"]
+        RF["<b>refill.js</b><br/>ranking and offer plans"]
+        TR["<b>travel.js</b><br/>drive times, cached,<br/>with a fallback"]
+        AU["<b>auth.js</b><br/>passwords, codes,<br/>sessions"]
+        SB[("<b>A private demo per visitor</b><br/>sandbox.js · in-memory<br/>SQLite, node:sqlite")]
+        IDX --> SVC --> SB
+        SVC --> RF
+        SVC --> TR
+        IDX --> AU
+    end
+    OFF --> IDX
+    CLIN --> IDX
+    BOOK --> IDX
+    PC["<b>postcodes.io + OSRM</b><br/>postcodes only, never names"]
+    TW["<b>Twilio</b><br/>real texts, only<br/>if keys are set"]
+    TR -.-> PC
+    SVC -.-> TW
+    RENDER["<b>Render</b><br/>runs the demo · render.yaml<br/>Fly.io London ready · fly.toml"]
+    RENDER --- SERVER
+    subgraph WEB["GitHub Pages: static files only"]
+        SITE["<b>domi.ysbdesigns.uk</b><br/>the website, site/"]
+    end
+    GHA["<b>GitHub Actions</b><br/>builds and deploys the site<br/>checks it every 6 hours"]
+    GHA --> WEB
+    SITE -.->|"Try the demo"| RENDER
+
+    classDef core fill:#1E4D40,stroke:#E07B4F,stroke-width:3px,color:#FFFFFF
+    classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
+    classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
+    classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
+    class IDX,SVC,RF,TR,AU,SB,GHA core
+    class OFF,CLIN,BOOK,SITE live
+    class PC,TW,RENDER ext

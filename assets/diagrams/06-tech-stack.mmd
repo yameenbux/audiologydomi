@@ -1,0 +1,13 @@
+flowchart LR
+    L1["<b>Code</b><br/>plain JavaScript · Node 22 built-ins:<br/>http, node:sqlite, crypto · no npm packages"]
+    L2["<b>In the browser</b><br/>vanilla HTML, CSS and JS · a service worker<br/>for offline · self-hosted fonts"]
+    L3["<b>Running it</b><br/>Render for the demo · Docker + Fly.io London<br/>ready · GitHub Pages for the website"]
+    L4["<b>Outside services</b><br/>postcodes.io · OSRM · Twilio (optional)<br/>and nothing else"]
+    L1 --> L2 --> L3 --> L4
+
+    classDef core fill:#1E4D40,stroke:#E07B4F,stroke-width:3px,color:#FFFFFF
+    classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
+    classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
+    classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
+    class L1,L2,L3 core
+    class L4 ext
