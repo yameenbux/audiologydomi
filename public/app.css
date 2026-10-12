@@ -522,3 +522,27 @@ a.btn { text-decoration: none }
 /* Practice name, as patients see it in texts */
 .practice-name { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted) }
 .practice-name input { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px }
+
+/* Import patients */
+.imp-how { margin: 0 0 16px; padding-left: 20px; font-size: 13.5px; display: grid; gap: 8px }
+.imp-how i { font-style: normal; font-family: var(--f-mono); font-size: 12.5px }
+.imp-drop { display: flex; gap: 14px; align-items: center; padding: 22px; border: 1.5px dashed var(--line); border-radius: 14px; cursor: pointer; background: var(--subtle) }
+.imp-drop:hover, .imp-drop:focus-within { border-color: var(--apricot) }
+.imp-drop svg { width: 26px; height: 26px; color: var(--apricot) }
+.imp-drop span { display: grid; gap: 2px } .imp-drop small { color: var(--muted) }
+.linkish { border: 0; background: none; padding: 0; color: var(--apricot-ink); text-decoration: underline; font: inherit; cursor: pointer }
+.imp-map { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-bottom: 14px }
+.imp-map summary { cursor: pointer; font-weight: 600; font-size: 13.5px }
+.imp-cols { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px }
+.imp-cols th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 4px }
+.imp-cols td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.imp-cols select { width: 100%; min-width: 150px }
+.imp-filter { width: 100%; margin-bottom: 10px; flex-wrap: wrap } .imp-filter button { flex: 1; justify-content: center; font-size: 12.5px; padding: 7px 8px }
+.imp-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px }
+.imp-rows li { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 13.5px }
+.imp-rows li.error { border-color: color-mix(in srgb, var(--crit) 35%, transparent) }
+.ir-h { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap } .ir-h .badge { margin-left: auto }
+.ir-m { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 12.5px; color: var(--warn) }
+.ir-m .e { color: var(--crit) } .ir-m .ok { color: var(--ok) }
+.kv .late { color: var(--warn); font-weight: 600 }
+.input.sm { padding: 6px 8px; font-size: 13px; min-height: 0 }

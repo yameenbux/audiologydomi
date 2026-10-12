@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE TABLE IF NOT EXISTS patients (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER, addr TEXT NOT NULL, pc TEXT NOT NULL, phone TEXT NOT NULL,
-  contact TEXT NOT NULL DEFAULT 'Text', alerts TEXT NOT NULL DEFAULT '[]', specs TEXT NOT NULL DEFAULT 'None on record', rx TEXT
+  contact TEXT NOT NULL DEFAULT 'Text', alerts TEXT NOT NULL DEFAULT '[]', specs TEXT NOT NULL DEFAULT 'None on record', rx TEXT,
+  dob TEXT, email TEXT,
+  eligibility TEXT,                               -- the condition that stops them leaving home unaccompanied (needed on a GOS 6)
+  rep TEXT,                                       -- next of kin or carer, and their number
+  last_test TEXT                                  -- date of the last sight test, ISO
 );
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id TEXT NOT NULL REFERENCES patients(id), label TEXT NOT NULL,
@@ -227,7 +231,7 @@ sandbox.setOpener(openDb);
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null) }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, lastTest: r.last_test }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),

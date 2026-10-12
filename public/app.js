@@ -157,7 +157,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "reset"];
+const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -311,7 +311,7 @@ function officeView() {
     <div class="page-head">
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
         <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
-        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}${soon("import", "Import your data", "copy")}<button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
+        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}<button class="btn secondary sm" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
       <div class="quick-stats">
         <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
@@ -583,14 +583,14 @@ function record(p) {
     <div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
       <div class="soon-row" style="margin-top:10px">${soon("pcse-online", "Claim GOS 6", "send")}${soon("images", "Add fundus photos", "copy")}</div></div>
     <div class="sec"><h3>Letters &amp; forms</h3><div class="soon-row">${soon("letters", "GP letter", "note")}${soon("letters", "Pre-visit form", "msg")}</div></div>
-    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd><dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
+    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
 }
 
 /* ============ Drawers ============ */
 function openDrawer(d) { UI.drawer = d; renderDrawer(); }
-function closeDrawer() { UI.drawer = null; UI.flow = null; UI.book = null; $("#drawer-root").innerHTML = ""; }
+function closeDrawer() { UI.drawer = null; UI.flow = null; UI.book = null; UI.imp = null; /* the file stays only as long as the drawer is open */ $("#drawer-root").innerHTML = ""; }
 function renderDrawer() {
   const d = UI.drawer; if (!d || (!S && d.kind !== "soon")) return;
   let inner = "";
@@ -598,6 +598,7 @@ function renderDrawer() {
   else if (d.kind === "flow") inner = flowDrawer();
   else if (d.kind === "wl") inner = wlDrawer();
   else if (d.kind === "book") inner = bookDrawer();
+  else if (d.kind === "import") inner = importDrawer();
   else if (d.kind === "qr") inner = qrModal();
   else if (d.kind === "route") inner = routeDrawer(d.data);
   else if (d.kind === "booklink") inner = bookLinkModal();
@@ -691,7 +692,7 @@ function routeDrawer(r) {
 const ROADMAP = [
   { id: "persist", when: "next", area: "Platform", title: "Your data kept for good, hosted in the UK", body: "A permanent database (PostgreSQL) in a London data centre, encrypted, with daily backups and tested restores. This demo resets on purpose." },
   { id: "reset", when: "next", area: "Sign-in", title: "Password reset and your own authenticator", body: "Each person sets their own password and links their own authenticator app, with recovery codes and reset by email." },
-  { id: "import", when: "next", area: "Getting started", title: "Bring your data across", body: "Import patients, the waiting list and upcoming visits from your current system or a spreadsheet, checked before anything goes live." },
+  { id: "import", when: "next", area: "Getting started", title: "Bring visits and the waiting list across", body: "Patients can already be imported from a spreadsheet. Next: upcoming visits and the waiting list too, so nothing has to be typed in twice." },
   { id: "recall-auto", when: "next", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a sight test falls due, with the booking link, instead of the office pressing Text link." },
   { id: "card", when: "next", area: "Payments", title: "Take card payments on the doorstep", body: "Take a card payment on the clinician's phone or a card reader at the end of the visit, marked paid on the invoice straight away." },
   { id: "xero", when: "next", area: "Payments", title: "Sync invoices to Xero or QuickBooks", body: "Invoices and payments flow into your accounts package, so nothing is typed in twice." },
@@ -792,6 +793,71 @@ function flowDrawer() {
 function bookInput() {
   const v = (id) => { const e = $("#" + id); return e ? e.value : ""; };
   return { patientId: v("bk-p"), name: v("bk-name"), pc: v("bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail") };
+}
+/* ---------- Importing patients from a spreadsheet ---------- */
+// The file is read in the browser and sent for checking; nothing is saved until the office presses Import.
+const IMPORT_TEMPLATE = "First name,Surname,Date of birth,Address,Town,Postcode,Mobile,Other phone,Email,Reason for home visit,Next of kin,Next of kin phone,Access notes,Glasses,Last sight test,Notes\n";
+function importDrawer() {
+  const I = UI.imp || (UI.imp = {});
+  const head = (cap, title) => `<div class="drawer-h"><div><div class="caps">${cap}</div><h2 style="margin-top:6px">${title}</h2></div>${closeX}</div>`;
+  if (I.done) {
+    const d = I.done;
+    return `${head("Import finished", `${d.imported} patient${d.imported === 1 ? "" : "s"} added`)}<div class="drawer-b">
+      <ol class="steps">
+        <li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.imported} added to Domi</div><div class="sd">Each record notes it came from the spreadsheet. Search for them under Patients.</div></div></li>
+        ${d.recalls ? `<li class="step ok"><span class="ic">${icon("cal")}</span><div><div class="st">${d.recalls} due a sight test</div><div class="sd">They're on the recall list and in the refill pool, so a cancellation near them can go to them.</div></div></li>` : ""}
+        ${d.duplicates ? `<li class="step"><span class="ic">${icon("copy")}</span><div><div class="st">${d.duplicates} skipped as already on Domi</div><div class="sd">Matched by mobile number, or name with postcode or date of birth.</div></div></li>` : ""}
+        ${d.errors ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.errors} skipped with problems</div><div class="sd">Fix them in the spreadsheet and import the file again: anyone already added is skipped next time.</div></div></li>` : ""}
+      </ol>
+      <div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Now stop using the spreadsheet</b><div style="margin-top:2px">From here on, add and change patients in Domi only, so there's one up-to-date record. Delete or archive the sheet once you've checked the import.</div></div></div>
+    </div><div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Import another file</button><button class="btn" type="button" data-act="close">Done</button></div>`;
+  }
+  if (!I.pv) {
+    return `${head("Getting started", "Import patients")}<div class="drawer-b">
+      <p class="muted" style="margin:0 0 14px;font-size:13.5px">Bring your patient list across from a spreadsheet in one go. You'll see every row checked before anything is saved.</p>
+      <ol class="imp-how">
+        <li><b>Save your sheet as a CSV file.</b> Google Sheets: <i>File → Download → Comma-separated values</i>. Excel: <i>Save As → CSV UTF-8</i>.</li>
+        <li><b>Choose the file below.</b> Domi works out which column is which; you can change any of them.</li>
+        <li><b>Check the preview, then import.</b> Problems and possible duplicates are shown first, and skipped.</li>
+      </ol>
+      <label class="imp-drop" for="imp-file">${icon("copy")}<span><b>${I.busy ? "Checking…" : "Choose a CSV file"}</b><small>Up to 5,000 patients, 3 MB</small></span></label>
+      <input type="file" id="imp-file" accept=".csv,text/csv" hidden>
+      ${I.err ? `<div class="err" role="alert" style="margin-top:12px">${esc(I.err)}</div>` : ""}
+      <p class="muted" style="font-size:12.5px;margin:14px 0 0">No spreadsheet yet, or want the ideal layout? <button class="linkish" type="button" data-act="import-template">Download a template</button>. Only a name and a postcode are required.</p>
+      <p class="muted" style="font-size:12.5px;margin:8px 0 0">The file is checked in this demo only and isn't kept. Before importing real patients, the practice needs the live UK hosting and the data protection agreement in place.</p>
+    </div>`;
+  }
+  const pv = I.pv, c = pv.counts, f = I.filter || "all";
+  const fieldOpts = (cur) => `<option value="">Don't import</option>` + pv.fields.map((x) => `<option value="${x.key}" ${x.key === cur ? "selected" : ""}>${esc(x.label)}</option>`).join("");
+  const shown = pv.rows.filter((r) => f === "all" || (f === "problems" ? r.status === "error" : f === "dup" ? r.status === "duplicate" : r.status === "ready" && r.warnings.length));
+  const badge = (r) => r.status === "error" ? `<span class="badge b-crit">Won't import</span>` : r.status === "duplicate" ? `<span class="badge b-plain">Already on Domi</span>` : r.warnings.length ? `<span class="badge b-warn">Check</span>` : `<span class="badge b-ok">Ready</span>`;
+  const LIMIT = 150;
+  return `${head(`${esc(I.name || "Your file")} · ${c.total} row${c.total === 1 ? "" : "s"}`, "Check before importing")}<div class="drawer-b">
+    ${pv.missing.length ? `<div class="err" role="alert" style="margin-bottom:12px">Choose which column holds ${esc(pv.missing.join(" and "))}.</div>` : ""}
+    <details class="imp-map" ${pv.missing.length || I.openMap ? "open" : ""}><summary>Columns · ${pv.mapping.filter(Boolean).length} of ${pv.headers.length} used</summary>
+      <table class="imp-cols"><thead><tr><th>Your column</th><th>Example</th><th>Goes into</th></tr></thead><tbody>
+      ${pv.headers.map((h, i) => `<tr><td><b>${esc(h || "(no heading)")}</b></td><td class="muted">${esc(pv.samples[i] || "")}</td><td><select class="input sm imp-col" data-i="${i}" aria-label="Field for ${esc(h)}">${fieldOpts(pv.mapping[i])}</select></td></tr>`).join("")}
+      </tbody></table></details>
+    <div class="seg imp-filter" role="group" aria-label="Show rows">
+      <button type="button" data-act="imp-filter" data-v="all" aria-pressed="${f === "all"}">All ${c.total}</button>
+      <button type="button" data-act="imp-filter" data-v="warn" aria-pressed="${f === "warn"}">To check ${c.warnings}</button>
+      <button type="button" data-act="imp-filter" data-v="dup" aria-pressed="${f === "dup"}">Duplicates ${c.duplicate}</button>
+      <button type="button" data-act="imp-filter" data-v="problems" aria-pressed="${f === "problems"}">Won't import ${c.error}</button>
+    </div>
+    <ul class="imp-rows">${shown.slice(0, LIMIT).map((r) => `<li class="${r.status}"><div class="ir-h"><span class="mono muted">Row ${r.line}</span><b>${esc(r.name || "(no name)")}</b><span class="muted">${esc(r.pc || "")}${r.age ? " · " + r.age : ""}</span>${badge(r)}</div>
+      ${r.errors.length || r.warnings.length || r.duplicateOf ? `<div class="ir-m">${r.errors.map((m) => `<span class="e">${esc(m)}</span>`).join("")}${r.duplicateOf ? `<span>Same as ${esc(r.duplicateOf)}</span>` : ""}${r.warnings.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
+      ${r.recallDue != null && r.recallDue <= 14 && r.status === "ready" ? `<div class="ir-m"><span class="ok">Sight test ${r.recallDue < 0 ? `overdue by ${-r.recallDue} days` : r.recallDue === 0 ? "due today" : `due in ${r.recallDue} days`}: will join recalls</span></div>` : ""}</li>`).join("")}
+      ${shown.length > LIMIT ? `<li class="muted" style="text-align:center">…and ${shown.length - LIMIT} more</li>` : ""}${!shown.length ? `<li class="muted" style="text-align:center">Nothing here.</li>` : ""}</ul>
+    ${I.err ? `<div class="err" role="alert" style="margin-top:12px">${esc(I.err)}</div>` : ""}
+  </div>
+  <div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Choose another file</button><button class="btn" type="button" data-act="import-commit" ${!c.ready || pv.missing.length || I.busy ? "disabled" : ""}>${icon("check")}${I.busy ? "Importing…" : `Import ${c.ready} patient${c.ready === 1 ? "" : "s"}`}</button></div>`;
+}
+async function importPreview(mapping) {
+  const I = UI.imp;
+  I.busy = true; I.err = null; renderDrawer();
+  try { I.pv = await api("POST", "/api/import/preview", { csv: I.csv, mapping }); }
+  catch (e) { I.err = e.message; if (!mapping) I.csv = null; }
+  I.busy = false; renderDrawer();
 }
 function bookDrawer() {
   const B = UI.book || (UI.book = {});
@@ -1046,6 +1112,16 @@ document.addEventListener("click", async (e) => {
       case "see-clin": UI.lastClin = "u-" + el.dataset.c; closeDrawer(); await viewAs(UI.lastClin); window.scrollTo(0, 0); break;
       case "add-wl": openDrawer({ kind: "wl" }); break;
       case "book": UI.book = {}; openDrawer({ kind: "book" }); break;
+      case "import": UI.imp = {}; openDrawer({ kind: "import" }); break;
+      case "import-again": UI.imp = {}; renderDrawer(); break;
+      case "imp-filter": UI.imp.filter = el.dataset.v; renderDrawer(); break;
+      case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
+      case "import-commit": {
+        const I = UI.imp; I.busy = true; I.err = null; renderDrawer();
+        try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast(`${I.done.imported} patients imported`); }
+        catch (e) { I.err = e.message; }
+        I.busy = false; renderDrawer(); break;
+      }
       case "day": UI.view = "day"; UI.day = Number(el.dataset.v); render(); break;
       case "week": UI.view = "week"; render(); break;
       case "book-again": UI.book = {}; renderDrawer(); break;
@@ -1124,6 +1200,16 @@ document.addEventListener("submit", async (e) => {
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.id === "imp-file" && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.size > 3e6) { UI.imp.err = "That file is over 3 MB. Split it into smaller files."; renderDrawer(); return; }
+      UI.imp = { name: file.name, csv: await file.text() };
+      await importPreview(null);
+    }
+    if (e.target.classList.contains("imp-col")) {
+      const m = UI.imp.pv.mapping.slice(); m[Number(e.target.dataset.i)] = e.target.value || null;
+      UI.imp.openMap = true; await importPreview(m);
+    }
     if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; renderDrawer(); }
     if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; renderDrawer(); }
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }

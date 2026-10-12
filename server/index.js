@@ -68,9 +68,11 @@ const send = (res, status, data, cookies = []) => {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...(cookies.length ? { "Set-Cookie": cookies } : {}) });
   res.end(JSON.stringify(data));
 };
-async function readBody(req) {
-  let raw = "";
-  for await (const chunk of req) { raw += chunk; if (raw.length > 1e5) throw new svc.HttpError(413, "Request too large."); }
+async function readBody(req, max = 1e5) {
+  // Collect bytes, then decode once, so a name like Siân split across two chunks isn't mangled.
+  const parts = []; let size = 0;
+  for await (const chunk of req) { size += chunk.length; if (size > max) throw new svc.HttpError(413, "Request too large."); parts.push(chunk); }
+  const raw = Buffer.concat(parts).toString("utf8");
   if (!raw) return {};
   if ((req.headers["content-type"] || "").includes("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(raw));
   try { return JSON.parse(raw); } catch { throw new svc.HttpError(400, "Body must be JSON."); }
@@ -338,6 +340,9 @@ route("GET", "/api/reports/week", {}, (req, body, user) => { needAdmin(user); re
 // Recalls: text the patient a booking link, or take them off the list.
 const publicBase = (req) => process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${req.headers.host}`;
 route("POST", "/api/recalls/:id/text", {}, (req, body, user, { id }) => { needAdmin(user); return svc.textRecall(id, `${publicBase(req)}/book/${sandbox.current().id}`, user); });
+// Patient import: preview first (nothing saved), then commit. Office only, like every other change to patient records.
+route("POST", "/api/import/preview", {}, (req, body, user) => { needAdmin(user); return svc.previewImport(body); });
+route("POST", "/api/import/commit", {}, (req, body, user) => { needAdmin(user); return svc.commitImport(body, user); });
 route("POST", "/api/pcse/:id/done", {}, (req, body, user, { id }) => { needAdmin(user); return svc.completePcse(id, user); });
 route("POST", "/api/recalls/:id/dismiss", {}, (req, body, user, { id }) => { needAdmin(user); return svc.dismissRecall(id, user); });
 
@@ -479,7 +484,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && !r.raw && (req.headers["x-domi"] !== "1" || !sameOrigin(req))) throw new svc.HttpError(403, "Request blocked: it didn't come from the app.");
     who = verify(req);
     if (!r.public && !who) throw new svc.HttpError(401, "You've been signed out. Sign in again.");
-    const body = req.method === "GET" ? {} : await readBody(req);
+    const body = req.method === "GET" ? {} : await readBody(req, url.pathname.startsWith("/api/import/") ? 4e6 : 1e5); // a spreadsheet of patients is bigger than any other request
     req.auth = who; req.cookies = [];
     const data = who && !r.raw ? await sandbox.run(who.sb, () => r.handler(req, body, who.user, params)) : await r.handler(req, body, who && who.user, params);
     send(res, 200, data, req.cookies);
