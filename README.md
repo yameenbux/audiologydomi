@@ -1,117 +1,277 @@
-# Domi — domiciliary audiology diary (demo)
+<div align="center">
 
-A working demo of a diary system for a home-visit audiology practice. When a visit is cancelled, the system picks the best patient from the waiting list, texts them an offer, and puts them into the slot when they reply YES. The clinician's phone updates on its own.
+<img src="public/logo.svg" alt="Domi" width="96">
 
-Domi is the product. The sample practice in the demo, "Aire Valley Hearing", is invented: patients see the practice's name in every text, on the booking page and on invoices, and the office can change it (Waiting list → "Texts are signed"), so a prospect can see the demo with their own name. The patients, phone numbers (Ofcom's reserved drama range) and street names are invented. The postcodes are real Leeds postcodes, so the drive times are real.
+# Domi
 
-## Run it
+**Home-visit diaries that refill themselves.**
 
-Requires **Node 22.5 or newer**. There are no packages to install.
+When a patient cancels, Domi texts the best-matched person on the waiting list,
+books the first yes, and updates the clinician's phone. Nobody in the office has to ring round.
+
+Made by YSB Ventures Ltd · [domi.ysbdesigns.uk](https://domi.ysbdesigns.uk)
+
+![Node](https://img.shields.io/badge/Node-22-1E4D40?style=flat-square&labelColor=15241F&color=1E4D40)
+![Dependencies](https://img.shields.io/badge/npm%20dependencies-none-E07B4F?style=flat-square&labelColor=15241F)
+![Database](https://img.shields.io/badge/database-node%3Asqlite-1E4D40?style=flat-square&labelColor=15241F&color=1E4D40)
+![Status](https://img.shields.io/badge/status-working%20demo-2F7A4F?style=flat-square&labelColor=15241F)
+![Hosting](https://img.shields.io/badge/UK%20hosting-ready%2C%20not%20live-A86A12?style=flat-square&labelColor=15241F)
+![Licence](https://img.shields.io/badge/licence-all%20rights%20reserved-E07B4F?style=flat-square&labelColor=15241F)
+
+</div>
+
+<br/>
+
+> [!NOTE]
+> **Reading this without a technical background?** Start at *The problem*, *What's
+> in it* and *One cancellation, end to end*. Those three explain what Domi is and
+> what it does for a home-visit hearing practice. Everything after *How the
+> pieces fit* is for whoever maintains the code.
+
+### How to read the diagrams
+
+Every picture in this file uses the same four colours, and they always mean the
+same thing. The connectors animate, so you can see which way the information
+actually travels.
+
+| | Means |
+| :--- | :--- |
+| 🟩 **Forest, apricot border** | Domi itself: our code |
+| 🟢 **Pale mint** | Built and working in the demo today |
+| 🟨 **Sand, dashed border** | In development: not built, not sold as built |
+| ⬜ **Stone** | A person, or something outside Domi |
+
+---
+
+## The problem, in one picture
+
+A home-visit practice loses more to a cancellation than a clinic does. The
+clinician is already out on the road, the gap is too short to fill by ringing
+round, and the people on the waiting list who would have taken it never hear
+about it.
+
+<img src="assets/diagrams/01-the-problem.svg" alt="Two lanes. Without Domi: a patient cancels at 10:20, the office rings round between other calls, nobody picks up in time and the clinician drives on with an empty hour. With Domi: the cancellation is ranked against the waiting list, the top three are texted, Margaret replies yes and is booked, and the clinician's phone shows the new visit" width="100%">
+
+Plenty of systems keep a diary. What Domi does differently is **act on the gap**:
+it works out who fits it (home at that time, close enough, the visit fits the
+time including the drive), asks them by text, and books the first yes without
+anyone in the office touching it. It also books new visits **by the road**,
+putting them where they add the least driving, weighed against how soon the
+patient needs to be seen.
+
+> [!TIP]
+> **The practice keeps its own name.** Patients see the practice's name in every
+> text, on the booking page and on invoices, never "Domi". In the demo the sample
+> practice is the invented *Aire Valley Hearing*, and the office can change it
+> (Waiting list → *Texts are signed*), so a prospect can see the demo with their
+> own name.
+
+---
+
+## What's in it
+
+<img src="assets/diagrams/02-built-and-coming.svg" alt="What's in the demo today (refills by text, booking by drive time, the offline clinician app, the patient booking page, reminders and recalls, mileage and invoices, sign-in and audit), what's coming next, and what's coming later" width="100%">
+
+> [!IMPORTANT]
+> **Everything in green is built, tested and working in the demo. Domi is not yet
+> used by a practice.** The demo keeps its data in memory and resets itself; it
+> holds only invented patients. Before any real patient goes in, it needs the
+> permanent UK database and the paperwork in *Before real patients*, below.
+> Features in sand are shown in the app with a *Soon* badge and say plainly that
+> they aren't built.
+
+| | |
+| :--- | :--- |
+| **Office view** | Every clinician's diary for any day this week, a week grid showing how full each round is, the waiting list, and every text sent. Cancel any visit, today or later in the week, to start a refill. Fits a laptop or a tablet |
+| **Clinician view** | Phone-first. Today's round with drive times, patient records (alerts, audiogram, aids, history), quick note chips, *On my way* (texts the patient), *Arrived*, *Complete visit* |
+| **Refill engine** | Hard rules: same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons |
+| **Offers that respect the clock** | Days or hours away: one person at a time (patients who need 24 hours' notice qualify for later days), with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready |
+| **Patients cancel by text** | A patient texting CANCEL cancels the visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone |
+| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. Domi searches the whole week for every gap where the visit fits, including the drive in and on to the next patient, and ranks them by the extra driving, weighed against how soon it is. Booking texts the patient and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list |
+| **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, from the office's own fee per visit |
+| **Day-before reminders** | Every visit tomorrow gets a reminder text at the practice's reminder time (17:00 by default). A CANCEL reply refills that slot a day ahead |
+| **Route map** | Each clinician's day on a map: numbered stops, drive minutes per leg, the drive home, and totals. Drawn from coordinates, so it needs no map service and works offline |
+| **Patient booking page** | `/book/<practice code>`: large text, one question at a time. Only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Fittings stay with the office |
+| **Recalls** | Patients due a review join the refill pool, so a cancellation near them goes to someone due anyway. The office can text them the booking page |
+| **Mileage & utilisation** | Per clinician and day: time booked, driving time, estimated miles and their value at HMRC's 45p rate. Downloads as CSV |
+| **Invoicing** | Completing a visit raises an invoice at the practice's price for that visit type (£0 = none). Mark paid by card, cash or transfer, void, or print. No VAT is added |
+| **Offline clinician app** | A service worker keeps the app on the phone. Today's round and records are saved on the device; notes and visit updates made without signal sync in order when it returns. Signing out wipes the copy |
+| **Sign-in** | Password (scrypt) then a six-digit authenticator code (TOTP). Codes can't be reused; accounts lock after 5 wrong passwords; sessions end after 2 hours idle or 12 hours. The office can see every signed-in device and sign a lost phone out |
+| **Live updates** | Server-Sent Events. A change on the laptop reaches the phone within a second |
+| **What's coming** | Features not built yet sit where they'll live, with a *Soon* badge, and *What's coming* lists them all, split into next and later, with no dates. The list is `ROADMAP` in `public/app.js` |
+| **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser |
+
+---
+
+## One cancellation, end to end
+
+What happens between a patient cancelling and the clinician's phone showing the
+new visit, and which file does each step.
+
+<img src="assets/diagrams/03-one-cancellation.svg" alt="A visit is cancelled; the slot is freed; refill.js ranks the waiting list; the offer is planned as one at a time or the top three; notify.js sends the texts; the first yes is booked in one transaction and the clinician's phone updates through bus.js; everyone else is told; if nobody replies the next people are asked; if it's too close, the slot is left open" width="100%">
+
+The booking, the texts and the live update are one transaction (`tx()` in
+`server/service.js`): texts and events are only released once the database has
+committed, so a patient is never told about a visit that didn't save, and two
+YES replies can't both win.
+
+---
+
+## How the pieces actually fit
+
+<img src="assets/diagrams/04-architecture.svg" alt="Architecture: the office screen, clinician app and patient booking page in the browser talk to one Node process (index.js, service.js, refill.js, travel.js, auth.js) with a private in-memory SQLite demo per visitor; travel.js asks postcodes.io and OSRM for drive times; service.js sends texts through Twilio when configured; Render runs the demo; GitHub Actions publishes the website to GitHub Pages" width="100%">
+
+### Why there are no dependencies
+
+Domi uses only what ships with Node 22: `node:http` for the server,
+`node:sqlite` for the database and `node:crypto` for passwords and codes. The
+browser side is plain HTML, CSS and JavaScript with no build step. Nothing to
+install means nothing to keep patched, a tiny attack surface, and a demo that
+starts in a second.
+
+### Why every visitor gets a private demo
+
+`server/sandbox.js` gives each visitor their own in-memory copy of the sample
+practice, with a clock that starts at 10:20 on a Monday, using
+`AsyncLocalStorage` so every request sees only its own demo. People opening the
+same link can't see or break each other's demo. A phone joins a laptop's demo by
+scanning the QR code under **Open on phone**, a one-time sign-in link. Demos are
+cleared after 3 hours idle or when the server restarts.
+
+### Where patient data goes
+
+<img src="assets/diagrams/05-where-data-goes.svg" alt="In the demo, each visitor's private copy stays in memory and is deleted after 3 hours idle; postcodes only go to postcodes.io and OSRM for drive times; texts go to Twilio only when keys are set; the clinician's phone keeps today's round offline and wipes it on sign-out; a live practice would use a UK database in London after a DPIA" width="100%">
+
+| It leaves when… | What goes | Where |
+| :--- | :--- | :--- |
+| A drive time is worked out | Postcodes only, never names | postcodes.io and the OSRM router |
+| A text is sent, with Twilio set up | The phone number and the message | Twilio. Without keys, texts stay in the demo's outbox |
+| A clinician works offline | Today's round and its records | That phone's browser storage, wiped on sign-out |
+| Someone visits the website | Nothing | No cookies, analytics or third-party requests |
+
+---
+
+## The stack, in four layers
+
+<img src="assets/diagrams/06-tech-stack.svg" alt="The stack in four layers: plain JavaScript on Node 22 built-ins with no npm packages; vanilla HTML, CSS and JS in the browser with a service worker for offline; Render for the demo, Docker and Fly.io London ready, GitHub Pages for the website; postcodes.io, OSRM and optionally Twilio outside" width="100%">
+
+| Layer | What and why |
+| :--- | :--- |
+| **Node 22**, no npm packages | `node:http`, `node:sqlite`, `node:crypto`. Nothing to install or patch |
+| **`server/refill.js`** | The ranking and offer rules as pure functions, unit-tested on their own |
+| **Vanilla front end** | `public/app.js`, `app.css`, no framework, no build. Self-hosted fonts, so pages make no third-party requests |
+| **Service worker** | `public/sw.js` keeps the clinician app working without signal |
+| **Drive times** | postcodes.io places postcodes; OSRM gives road times, cached, with a straight-line fallback |
+| **Texts** | `server/notify.js`: a demo outbox, or real Twilio when keys are set |
+| **Render** · Docker · Fly.io | Render runs the demo (`render.yaml`); `Dockerfile` and `fly.toml` are ready for London |
+| **GitHub Actions → Pages** | Builds and publishes the website from `main`, checks it every 6 hours |
+
+---
+
+## This repository
+
+```
+server/          the API, sign-in, booking service, refill rules, drive times, texts (start here)
+public/          the app: office and clinician screens, patient booking page, service worker
+site/            the marketing website, published to domi.ysbdesigns.uk
+test/            engine, database, API, sign-in, travel and website tests
+docs/HOSTING.md  UK hosting options, and what's needed before real patients
+design/          the Figma build script for the colours and logo
+assets/diagrams/ the diagrams in this file, as source and as SVG
+scripts/         builds the website and the diagrams
+```
+
+Needs **Node 22.5 or newer**. There's nothing to install:
 
 ```bash
-npm start          # http://localhost:3000
-npm test           # unit + API integration tests
+npm start           # http://localhost:3000
+npm test            # unit, API and website tests
+npm run site        # builds the website into _site/
 ```
 
 - App: `http://localhost:3000`
 - Technical view: `http://localhost:3000/under-the-hood` (office sign-in only)
 - Brand and design tokens: `http://localhost:3000/brand`
 
-Every visitor gets a **private demo**: their own in-memory copy of the sample practice, with a clock that starts at 10:20. Sign in with a password and then a six-digit code from an authenticator app. In the demo, the sign-in screen shows the password and can fill the code in for you. To put a phone in the same demo, click **Open on phone** in the office view and scan the QR code: it's a one-time sign-in link.
+Sign in with a password and then a six-digit code from an authenticator app. In
+the demo, the sign-in screen shows the password and can fill the code in for you.
 
-## Put it online
+### Deploying the demo
 
-**For a UK-hosted copy**, see [docs/HOSTING.md](docs/HOSTING.md): Fly.io London, using `fly.toml` and the `Dockerfile`, plus the options for real patients and why NHS guidance expects UK hosting.
-
-### Render (free, Frankfurt)
-
-The repo includes a `render.yaml` Blueprint, so Render reads the settings from the repo.
+The demo needs a server, so it runs on Render, not GitHub Pages. `render.yaml`
+is a Blueprint, so Render reads the settings from the repo:
 
 1. Sign in at [dashboard.render.com](https://dashboard.render.com) with GitHub and give Render access to this repo.
-2. **New → Blueprint**, choose this repo and the branch, then **Apply**.
-3. Wait about two minutes for the build (it runs the tests) and the start. The link looks like `https://domi-hearing-demo.onrender.com`.
+2. **New → Blueprint**, choose this repo and `main`, then **Apply**.
+3. About two minutes later it's at `https://domi-hearing-demo.onrender.com`. The build runs the tests, so a failing test stops a bad deploy.
 
-How the free tier behaves:
-- **It sleeps after 15 minutes without visits.** The first visit after that takes about a minute to wake it. Open the link a couple of minutes before a meeting.
-- **Data resets whenever it wakes or redeploys.** For a demo that's useful: every viewing starts from the same story.
-- **Every visitor gets their own private demo**, so people opening the link can't see or break each other's. Demos are cleared after 3 hours idle or when the server sleeps.
-- Pages send `noindex`, so search engines won't list it.
+On the free plan it **sleeps after 15 minutes without visits** and takes about
+30–60 seconds to wake. Open it a few minutes before a meeting. Every wake
+starts the demo story afresh. Pages send `noindex`. For a UK-hosted copy, see
+[docs/HOSTING.md](docs/HOSTING.md): Fly.io London, using `fly.toml` and the `Dockerfile`.
 
-## Marketing website
+### Deploying the website
 
-`site/` is a one-page website for practices, laid out like the Tidemark site in Domi's colours: a laptop, tablet and phone showing the app, a two-minute tour of every feature (with sound, plays when pressed), a deck of cards with each feature, what's built and what's coming, the data promise, searchable questions and the site's privacy policy. It's static, so GitHub Pages hosts it. The app needs a server, so it isn't part of the website: *Try the demo* links to wherever the app runs (Render, above).
+`.github/workflows/pages.yml` runs on every push to `main` that touches the site,
+and publishes:
 
-- **Preview:** `npm run site`, then open `_site/index.html`.
-- **Publish:** `.github/workflows/pages.yml` builds it on every push to `main` that touches the site. Turn it on once under **Settings → Pages → Source: GitHub Actions**.
-- **Settings:** optional repository variables (**Settings → Secrets and variables → Actions → Variables**): `DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default `yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`, used for link previews and the uptime check).
-- **If a deploy says it succeeded but the old page still shows**, GitHub has reused an earlier deployment of the same commit (this happens after switching from "Deploy from a branch"). Push any new commit that touches the site and it publishes properly.
-- **Uptime check:** `.github/workflows/site-check.yml` checks the website and the demo every 6 hours. A failed run is the alert.
-- **Pictures** (`site/shots/`) are taken from the running demo: the device frames are drawn around real screenshots. Retake them after changing the app's screens.
-- **The tour** (`site/film/domi-tour.mp4`, with `poster.webp`) is encoded for the web with `+faststart`, so it starts playing before it has fully downloaded.
+| Address | What it is |
+| :--- | :--- |
+| `domi.ysbdesigns.uk/` | The website: what Domi does, the two-minute tour, the feature deck, what's built and coming, questions, and the site's privacy policy |
+| `/404.html` | The "page not found" page |
 
-## What's in it
+**Settings → Pages → Source** must be **GitHub Actions**, not a branch. Optional
+repository variables (**Settings → Secrets and variables → Actions → Variables**):
+`DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default
+`yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`).
+`site-check.yml` loads the website and the demo every 6 hours and fails, which
+makes GitHub email you, if one is down.
 
-| | |
-|---|---|
-| **Office view** | Every clinician's diary for any day this week, a week grid showing how full each round is, the waiting list, and every text sent. Cancel any visit, today or later in the week, to start a refill. |
-| **Clinician view** | Phone-first. Today's round with drive times, patient records (alerts, audiogram, aids, history), quick note chips, *On my way* (texts the patient), *Arrived*, *Complete visit*. |
-| **Refill engine** | Hard rules: same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons. |
-| **Offers that respect the clock** | Days or hours away: one person at a time (patients who need 24 hours' notice qualify for later days), with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready. |
-| **Patients cancel by text** | A patient texting CANCEL cancels today's visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone. |
-| **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. The system searches the whole week for every gap in every round where the visit fits, including the drive in and the drive on to the next patient, and ranks them by the extra driving they add, weighed against how soon it is (urgent patients are pulled towards sooner days, routine ones towards less driving). Booking texts the patient, updates the next visit's drive time and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list. Drive times are road routes between full postcodes (see *Drive times* below). |
-| **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, calculated from the office's own fee per visit. |
-| **Day-before reminders** | Every visit tomorrow gets a reminder text at the practice's reminder time (17:00 by default, or *Send now* in the Reminders panel). A CANCEL reply cancels that visit and starts the refill a day ahead. |
-| **Route map** | Each clinician's day on a map: numbered stops, drive minutes per leg, the drive home, and totals. It's drawn from coordinates, so it needs no map service and works offline. In booking, *Map* shows where a proposed visit would fit. |
-| **Patient booking page** | `/book/<practice code>`: patients choose a time themselves, with large text and one question at a time. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Fittings stay with the office. |
-| **Recalls** | Patients due a review (annual review, 6-month check, wax recheck) join the refill pool, so a cancellation near them is offered to someone due anyway. The office can text them the booking page. |
-| **Mileage & utilisation** | For each clinician and day: time booked against the working day, driving time, estimated miles and their value at HMRC's 45p rate. Downloads as CSV for mileage claims. |
-| **Invoicing** | Completing a visit raises an invoice at the practice's price for that visit type (£0 = none). The office marks invoices paid by card, cash or bank transfer, voids them, or prints them. No VAT is added: check your VAT treatment with an accountant. |
-| **Offline clinician app** | A service worker keeps the app on the phone. Today's round and its records are saved on the device, and notes and visit updates made without signal are queued and synced in order when it returns. Signing out wipes the copy. Office screens don't keep one. |
-| **Sign-in** | Email and password (scrypt-hashed), then a six-digit code from any authenticator app (TOTP, RFC 6238). Codes can't be reused. Accounts lock after 5 wrong passwords. Sessions are server-side, in an HttpOnly cookie, and end after 2 hours idle or 12 hours. The office can view the app as any clinician (audited), see every signed-in device, and sign a lost phone out remotely. |
-| **Live updates** | Server-Sent Events. A cancellation on the laptop appears on the clinician's phone within a second. |
-| **What's coming** | Features not built yet sit where they'll live, with a *Soon* badge: Noah import and AI notes in the patient record, card payments, Xero and care-home billing in Invoices, automatic recall texts, stock and repairs, data import, password reset and native apps. Clicking one says what it will do and that it's not in the demo. *What's coming* lists them all, split into next and later, with no dates. The list is `ROADMAP` in `public/app.js`. |
-| **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. |
+> [!CAUTION]
+> **A deploy can say it succeeded and change nothing.** Pages names each
+> deployment after its commit. If a deployment of that commit already exists
+> (for example from before switching off "Deploy from a branch"), GitHub keeps
+> the old one and still reports success. Push a new commit that touches the site
+> and it publishes properly. **The custom domain lives in two places**: the
+> CNAME record at the domain's DNS and **Settings → Pages → Custom domain**.
+> Change one and change the other in the same sitting.
 
-## Architecture
+The website's pictures (`site/shots/`) are real screenshots from the running
+demo, with device frames drawn around them; retake them after changing the
+app's screens. The tour (`site/film/domi-tour.mp4`, with `poster.webp`) is
+encoded with `+faststart` so it starts before it has fully downloaded.
 
-```
-public/index.html          Office + clinician app shell; app.js / app.css (vanilla, no build step)
-public/brand.html          Logo, colour tokens and type
-design/                    Figma build script for the same tokens and logo
-public/under-the-hood.html Technical view
-server/index.js            HTTP API, sign-in routes, static files, SSE, request log
-server/auth.js             Passwords (scrypt), two-factor codes (TOTP), sessions, phone pairing links
-server/service.js          Booking service: transactions, audit, texts, events
-server/refill.js           Ranking and offer-planning rules (pure functions, unit tested)
-server/sandbox.js          Private demo per visitor + demo clock (AsyncLocalStorage)
-server/notify.js           SMS gateway: demo outbox, or real Twilio if keys are set
-server/travel.js           Postcode lookup + road drive times (postcodes.io, OSRM), cached, with fallback
-server/bus.js              Live event fan-out, scoped by role
-server/db.js               SQLite schema + seed data (node:sqlite)
-test/                      Engine, database and API integration tests
-```
+### Where things live
 
-Security in the demo:
-
-- **Sign-in:** two-step sign-in (password plus authenticator code) with lockout and per-connection limits; server-side sessions with remote sign-out; CSRF protection (an app-only header plus an Origin check); secrets hidden even from the database browser.
-- **Isolation:** per-visitor sandboxes.
-- **Access:** role checks on every endpoint (a clinician can only open patients on their round or in their patch).
-- **Data integrity:** validated state transitions; a double-booking guard; texts and live events released only after the database commits.
-- **Audit:** a log of every change and every record a person opens.
-- **Inbound texts:** Twilio signature verification.
-- **Static files:** path-traversal-safe serving. Fonts and libraries are self-hosted, so pages make no third-party requests.
+| What you want to change | File |
+| :--- | :--- |
+| Who is offered a cancelled slot, and in what order | `server/refill.js` |
+| Booking, texts, audit, invoices, reminders | `server/service.js` |
+| The words in every patient text | `server/service.js` (search for `sendSms`) |
+| Drive times and the fallback | `server/travel.js` |
+| Passwords, codes, sessions, phone pairing | `server/auth.js` |
+| The sample practice, its patients and diary | `server/db.js` |
+| Demo defaults: practice name, fee, prices, reminder time | `server/sandbox.js` |
+| The office and clinician screens | `public/app.js`, `public/app.css` |
+| What's marked *Soon*, and the roadmap | `ROADMAP` in `public/app.js` |
+| The patient booking page | `public/book.html` |
+| Working offline | `public/sw.js`, and the offline module in `public/app.js` |
+| Colours, type and the logo | `public/app.css`, `public/brand.html`, `design/` |
+| The website | `site/index.html`, built by `scripts/build-site.js` |
 
 ### Drive times
 
 Each booking option is labelled **Road route** or **Estimated**.
 
-- **Postcodes** are placed with [postcodes.io](https://postcodes.io), which is free and uses Ordnance Survey and ONS data.
-- **Road driving times** come from an [OSRM](https://project-osrm.org) table request covering every stop in the diary. Each time has 30% added for daytime traffic and 4 minutes for parking.
-- **Caching and fallback:** results are cached. Requests time out after 3 seconds, and after a failure the router is left alone for a minute. Until it's back, estimates from straight-line distance are used, so booking never waits on a third party.
+- **Postcodes** are placed with [postcodes.io](https://postcodes.io) (free; Ordnance Survey and ONS data).
+- **Road times** come from an [OSRM](https://project-osrm.org) table request covering every stop in the diary, with 30% added for daytime traffic and 4 minutes for parking.
+- **Caching and fallback:** results are cached; requests time out after 3 seconds, and after a failure the router is left alone for a minute. Until then, straight-line estimates are used, so booking never waits on a third party.
 - **The sample diary** uses road times saved from OSRM (`server/routes-seed.json`), so it shows real routes even offline.
-- **When it's on:** live lookups need `ROUTING_PROVIDER=osrm`, which `render.yaml` sets. Locally and in the tests, new postcodes are estimated.
+- **Live lookups** need `ROUTING_PROVIDER=osrm`, which `render.yaml` sets. Locally and in the tests, new postcodes are estimated.
 
-For production, swap the public OSRM demo server (fair use only, no traffic data) for a self-hosted OSRM with the UK map, or a paid service with live traffic (Google Routes, TomTom, Mapbox). Only `server/travel.js` changes.
+For real patients, swap the public OSRM demo server (fair use only, no traffic
+data) for a self-hosted OSRM with the UK map, or a paid service under a data
+processing agreement. Only `server/travel.js` changes.
 
 ### Sending real texts
 
@@ -119,12 +279,14 @@ For production, swap the public OSRM demo server (fair use only, no traffic data
 TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM=+44... npm start
 ```
 
-Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/inbound`. That endpoint only exists when Twilio is configured, and it rejects any request without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_URL` on Render).
+Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/inbound`.
+That endpoint only exists when Twilio is configured, and it rejects any request
+without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_URL` on Render).
 
 ### Settings
 
 | Variable | Default | |
-|---|---|---|
+| :--- | :--- | :--- |
 | `PORT` | 3000 | |
 | `OFFER_MINUTES` | 20 | How long a patient has to reply |
 | `DEMO_MODE` | `1` | `0` removes the demo shortcuts: no password on screen, no code helper, no QR sign-in |
@@ -132,22 +294,117 @@ Point the Twilio number's incoming-message webhook at `https://<host>/api/sms/in
 | `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
 
-## Demo script (about 8 minutes)
+### Security in the demo
 
-1. On the laptop, click **Sarah Lane (office)**. That fills in her email and password and takes you to the code step. Click **Fill in the current code**, then **Verify**. (Or scan the QR there with Google or Microsoft Authenticator and type the real code.) Click **Open on phone** and scan the QR code: your phone signs in as Amira in the same demo.
-2. On the laptop, click **Peter Dunn, 11:00** → *Cancel and refill this slot*.
-3. Show the ranking and the plan: the visit is 40 minutes away, so the top three are asked at once. Irene is ruled out because she's only free in the afternoons.
+- **Sign-in:** password plus authenticator code, with lockout and per-connection limits; server-side sessions in an HttpOnly cookie, with remote sign-out; CSRF protection (an app-only header plus an Origin check).
+- **Isolation and access:** a private sandbox per visitor; role checks on every endpoint (a clinician only opens patients on their round or in their patch).
+- **Data integrity:** validated state transitions, a double-booking guard, and texts and live events released only after the database commits.
+- **Audit:** every change and every record a person opens is logged.
+- **Inbound texts:** Twilio signature verification. **Static files:** path-traversal-safe, all self-hosted.
+
+---
+
+## Showing the demo (about 8 minutes)
+
+1. On the laptop, click **Sarah Lane (office)**, then **Fill in the current code** and **Verify**. Click **Open on phone** and scan the QR code: your phone signs in as Amira in the same demo.
+2. Optional: under Waiting list, type the prospect's practice name into **Texts are signed**.
+3. Click **Peter Dunn, 11:00** → *Cancel and refill this slot*. The visit is 40 minutes away, so the top three are asked at once. Irene is ruled out: she's only free in the afternoons.
 4. Reply **NO** as Gerald, then **YES** as Margaret. Sylvia is told it's gone and keeps her place.
-5. Hold up the phone. The banner, the new visit and the office's text are already there. The income panel now shows the visit recovered.
-6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. The slot refills with nobody in the office touching it, one patient at a time because there's more time.
-7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 today with Amira, between Peter and Ken, and later options across the week. Book it and show the phone.
-8. Click **Week** to show how full each round is this week. Open Thursday and cancel a visit: with days to spare, it asks one person at a time.
-9. Click the pin on Amira's column to show her route map. In **Reminders**, click *Send now*, then reply CANCEL as one of tomorrow's patients: the slot refills a day ahead.
-10. Click **Patient booking page**, open it on the phone and book a visit as a patient. The office sees it arrive.
-11. On the phone, turn on airplane mode, complete a visit and add a note, then turn signal back on: both sync. Open **Invoices** to show the invoice that completing the visit raised.
-12. Click **What's coming** to show what's planned, and that nothing on the list pretends to work yet.
-13. Open **Under the hood** and show the audit log, the offers table and the database rows that were just written.
+5. Hold up the phone: the banner, the new visit and the text are already there. The income panel shows the visit recovered.
+6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. It refills with nobody in the office touching it, one patient at a time because there's more time.
+7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 today with Amira, between Peter and Ken. Book it and show the phone.
+8. Click **Week** to show how full each round is. Cancel a Thursday visit: with days to spare, it asks one person at a time.
+9. Click the pin on Amira's column for her route map. In **Reminders**, click *Send now*, then reply CANCEL as one of tomorrow's patients: the slot refills a day ahead.
+10. Click **Patient booking page**, open it on the phone and book as a patient. The office sees it arrive.
+11. On the phone, turn on airplane mode, complete a visit and add a note, then turn signal back on: both sync. Open **Invoices** for the invoice that raised.
+12. Click **What's coming**: what's planned, and that nothing on the list pretends to work yet.
+13. Open **Under the hood**: the audit log, the offers table and the rows just written.
 
-## Deliberately out of scope for the demo
+---
 
-Persistent UK-hosted Postgres with backups (see [docs/HOSTING.md](docs/HOSTING.md)), password reset and per-person authenticator enrolment, encrypted storage for the offline copy on the phone, recurring visits and diaries beyond this week, GP letters, stock and repairs, an AI note-writer, Noah/audiometer import, and the data-protection paperwork (DPIA, DSPT).
+## When something goes wrong
+
+<img src="assets/diagrams/07-support.svg" alt="Support path: a muddled demo is reset with the button in the top bar or resets when it wakes; drive times marked Estimated mean the router is down and Domi falls back; an old website page means pushing a new commit; a real bug is reproduced in a test, fixed, tested and merged, and Render and Pages deploy it from main" width="100%">
+
+### Who fixes what
+
+| It is… | Who | How |
+| :--- | :--- | :--- |
+| The demo in a muddle | **You** | The ↺ (start again) button in the top bar, or wait: it starts afresh when it wakes |
+| Drive times marked *Estimated* | **Nobody** | The router is down; Domi falls back and retries after a minute |
+| The demo link shows Render's "waking up" screen | **Nobody** | The free plan was asleep; it's ready in under a minute |
+| The website shows an old page | **Us** | Push a new commit that touches the site (see *Deploying the website*) |
+| A wrong ranking, text or number | **Us** | Reproduce it in a test, fix it, `npm test`, merge |
+
+The contact address is `yameen@ysbdesigns.uk`, set as the website's `EMAIL` variable.
+
+---
+
+## Before real patients
+
+> [!WARNING]
+> **The demo is not for real patient data.** It keeps everything in memory, holds
+> invented patients only, and says so on the website. [docs/HOSTING.md](docs/HOSTING.md)
+> has the detail; the short list is below.
+
+1. **A permanent UK database:** managed Postgres in London, encrypted, with daily backups and a restore that has actually been tested.
+2. **Real accounts:** `DEMO_MODE=0`, each person sets their own password and authenticator, and password reset with recovery codes.
+3. **Encrypt the offline copy** on clinicians' phones, and require a passcode on those phones.
+4. **Secrets** (Twilio, database) in the host's secret store, never in this repo. Patient details kept out of logs.
+5. **Routing** on a self-hosted OSRM or a paid service under a data processing agreement.
+6. **The paperwork:** a DPIA with the practice, ICO registration and a privacy notice, data processing agreements with the host, Twilio and the router, the NHS Data Security and Protection Toolkit for NHS work, and Cyber Essentials.
+
+---
+
+## Before you change any copy
+
+> [!CAUTION]
+> **Never claim a feature that isn't built.** Anything not in the demo is marked
+> *Soon* in the app and *Not built yet* on the website, until it's real. The same
+> goes for customers: Domi has none yet, so no testimonials, logos or "trusted
+> by" lines.
+
+Three more that catch people out:
+
+- **Patients see the practice, not Domi.** Every patient text, the booking page and invoices use the practice's name (`settings.practice`). Domi's own name belongs on the staff screens.
+- **The demo practice is invented.** *Aire Valley Hearing* was checked against real UK practices before use. Don't swap in a real practice's name, staff or patients.
+- **Patient texts are service messages, not marketing.** Keep them about the visit. Anything promotional sent to patients needs their consent under PECR.
+
+British English throughout: *colour*, *programme*, *licence* (the noun).
+
+---
+
+## The diagrams
+
+Seven SVGs, and the connectors animate. GitHub renders mermaid but can't animate
+it, so these are built rather than inlined. The sources stay in the repo as text,
+so a diagram is still something you can edit and diff:
+
+```bash
+assets/diagrams/*.mmd             # the source, one file per diagram
+node scripts/build-diagrams.mjs   # regenerates the SVGs
+```
+
+The build script holds the palette and the animation in one place. It declares
+the colours light-first and redefines them under `prefers-color-scheme`, so the
+diagrams follow GitHub's theme, and it keeps a `prefers-reduced-motion` guard,
+so anybody who has asked their machine for less movement gets a still picture.
+It fetches mermaid-cli with `npx`, so Domi itself still has no dependencies.
+
+> [!NOTE]
+> **Do not add a `font-family` override to that stylesheet.** Mermaid sizes every
+> box for the font it measured with *before* the stylesheet is added, so changing
+> the face afterwards clips the last line of a label.
+
+Rendering needs a Chromium. If the machine has one already:
+
+```bash
+PUPPETEER_EXECUTABLE_PATH=/path/to/chrome node scripts/build-diagrams.mjs
+```
+
+---
+
+## Licence
+
+All rights reserved, YSB Ventures Ltd. Not open source. The fonts in
+`public/fonts/` are under the SIL Open Font Licence.

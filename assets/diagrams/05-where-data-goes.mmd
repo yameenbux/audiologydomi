@@ -1,0 +1,23 @@
+flowchart LR
+    subgraph DEMO["The demo: invented patients only"]
+        direction TB
+        MEM[("<b>A private copy per visitor</b><br/>in memory; deleted after<br/>3 hours idle or a restart")]
+        PHONE["<b>The clinician's phone</b><br/>today's round, kept offline;<br/>wiped on sign-out"]
+    end
+    PC["<b>postcodes.io and OSRM</b><br/>postcodes, to work out<br/>drive times"]
+    TW["<b>Twilio</b><br/>phone number and message,<br/>only when keys are set"]
+    LIVE["<b>A live practice</b><br/>UK database in London,<br/>after a DPIA with you"]
+
+    MEM -.->|"postcodes only"| PC
+    MEM -.->|"texts"| TW
+    MEM --> PHONE
+    DEMO -.->|"before real patients"| LIVE
+
+    classDef core fill:#1E4D40,stroke:#E07B4F,stroke-width:3px,color:#FFFFFF
+    classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
+    classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
+    classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
+    class MEM core
+    class PHONE live
+    class PC,TW ext
+    class LIVE dev

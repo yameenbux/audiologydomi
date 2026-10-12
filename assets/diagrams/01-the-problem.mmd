@@ -1,0 +1,27 @@
+flowchart TB
+    subgraph WITHOUT["Without Domi: the office rings round"]
+        direction LR
+        C1["<b>10:20 · a patient cancels</b><br/>their 11:00 home visit"]
+        R1["<b>The office rings round</b><br/>between other calls,<br/>from memory or a spreadsheet"]
+        E1["<b>Nobody picks up in time</b><br/>the clinician drives on<br/>with an empty hour"]
+        C1 --> R1 --> E1
+    end
+    subgraph WITH["With Domi: the slot refills itself"]
+        direction LR
+        C2["<b>10:20 · a patient cancels</b><br/>or replies CANCEL<br/>to their reminder"]
+        K2["<b>Domi ranks the waiting list</b><br/>priority, patch, days waiting,<br/>who fits the gap and the drive"]
+        T2["<b>Texts the top three</b><br/>the visit is 40 min away,<br/>so all three at once"]
+        Y2["<b>Margaret replies YES</b><br/>booked in the same second;<br/>the others keep their place"]
+        P2["<b>The clinician's phone</b><br/>shows the new visit,<br/>address and notes"]
+        C2 --> K2 --> T2 --> Y2 --> P2
+    end
+    WITHOUT ~~~ WITH
+
+    classDef core fill:#1E4D40,stroke:#E07B4F,stroke-width:3px,color:#FFFFFF
+    classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
+    classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
+    classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
+    class C1,R1,E1 ext
+    class C2 ext
+    class K2,T2,Y2 core
+    class P2 live
