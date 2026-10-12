@@ -15,9 +15,8 @@ let BRAND_ID = null;
 DomiAreas.bind(() => (S && S.areas) || (META && META.areas));
 function applyBrand(b) {
   if (!b) return;
-  BRAND_ID = b.id === "domi" ? null : b.id;
-  prefs.set("domi-brand", BRAND_ID);
-  if (BRAND_ID) document.documentElement.dataset.brand = b.id; else delete document.documentElement.dataset.brand;
+  BRAND_ID = b.id;
+  if (b.theme) document.documentElement.dataset.brand = b.id; else delete document.documentElement.dataset.brand;
   const lock = document.querySelector(".lockup");
   if (lock && lock.dataset.brand !== b.id) {
     lock.dataset.brand = b.id;
@@ -285,8 +284,8 @@ function signInView() {
   const A = UI.auth;
   const brand = `<section class="signin-brand">
       <div>
-        <div class="caps" style="color:inherit;opacity:.7">${BRAND_ID && META.brand ? esc(META.brand.practice) : "Domiciliary eye care"}</div>
-        ${BRAND_ID && META.brand ? `<h1 style="margin-top:14px">Every home visit, <em>in one place.</em></h1>
+        <div class="caps" style="color:inherit;opacity:.7">${META.brand && META.brand.logo ? esc(META.brand.practice) : "Domiciliary eye care"}</div>
+        ${META.brand && META.brand.logo ? `<h1 style="margin-top:14px">Every home visit, <em>in one place.</em></h1>
         <p>Patients, referrals, diaries and each clinician's route, all here: no spreadsheets, no documents. When someone cancels, the next patient who can be seen is offered the slot by text.</p>`
         : `<h1 style="margin-top:14px">Eye care that <em>comes to you.</em></h1>
         <p>A diary for home-visit opticians. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>`}
@@ -715,16 +714,33 @@ function buildMap(el, r) {
     if (pts.length) L.polyline([pts[pts.length - 1], base], { color: col, weight: 3, opacity: 0.4, dashArray: "2 9", lineCap: "round" }).addTo(map);
   }
   const markers = [];
-  L.marker(base, { icon: L.divIcon({ className: "", html: `<span class="pin home" title="Home base"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg></span>`, iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: -100 })
+  const homeHtml = `<span class="pin home" title="Home base"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg></span>`;
+  const home = L.marker(base, { icon: L.divIcon({ className: "", html: homeHtml, iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: -100 })
     .bindPopup(`<b>Home base</b><br>${esc(r.clinician.first)} starts and ends here`).addTo(map);
+  home.pinHtml = homeHtml;
   r.stops.forEach((s, i) => {
     const cls = s.proposed ? "prop" : s.status === "done" ? "done" : s.status === "live" || s.status === "enroute" ? "is-live" : "";
     const m = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "", html: pinHtml(s.proposed ? "+" : i + 1, cls, col), iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: s.proposed ? 1000 : 100 + i, riseOnHover: true })
       .bindPopup(`<b>${hm(s.start)} · ${esc(s.name)}</b><br>${esc(s.addr || "")}${s.addr ? ", " : ""}${esc(s.pc)}${s.proposed ? "<br><i>Proposed new visit</i>" : s.status === "done" ? "<br>Done" : ""}`)
       .addTo(map);
+    m.pinHtml = pinHtml(s.proposed ? "+" : i + 1, cls, col);
     markers.push(m);
   });
-  map.fitBounds(L.latLngBounds([base, ...pts]), { padding: [36, 36], maxZoom: 15 });
+  // Two visits a few doors apart would hide one pin under the other: at each zoom, nudge any pin that would
+  // overlap one already placed, round in a small spiral. The pin's popup still points at the real address.
+  const spread = () => {
+    const placed = [];
+    [home, ...markers].forEach((m) => {
+      const p = map.latLngToLayerPoint(m.getLatLng());
+      let dx = 0, dy = 0, k = 0;
+      while (placed.some((q) => Math.hypot(q.x - p.x - dx, q.y - p.y - dy) < 27) && k < 12) { k++; const a = k * 2.4; dx = Math.cos(a) * 26; dy = Math.sin(a) * 26; }
+      placed.push({ x: p.x + dx, y: p.y + dy });
+      m.setIcon(L.divIcon({ className: "", html: m.pinHtml, iconSize: [30, 30], iconAnchor: [15 - dx, 15 - dy] }));
+    });
+  };
+  // Room on the left for the zoom buttons, so no pin hides under them.
+  map.fitBounds(L.latLngBounds([base, ...pts]), { paddingTopLeft: [56, 40], paddingBottomRight: [36, 36], maxZoom: 15 });
+  spread(); map.on("zoomend", spread);
   return { map, markers };
 }
 /** After each redraw: put the live map into every slot, reusing it when the route hasn't changed. */
@@ -1448,7 +1464,9 @@ $("#reset").onclick = async () => {
 (async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   const params = new URLSearchParams(location.search);
-  const wanted = params.has("brand") ? (params.get("brand") === "domi" ? null : params.get("brand").toLowerCase()) : undefined;
+  // ?brand=<id> picks a practice's look and is remembered on this device; without it, the server's default
+  // brand for this deployment is used (DEFAULT_BRAND, see server/brands.js).
+  const wanted = params.has("brand") ? params.get("brand").toLowerCase() : undefined;
   // A link for a different practice starts a fresh demo for it, rather than reopening the last one.
   if (wanted !== undefined && wanted !== prefs.get("domi-brand")) rememberDemo(null);
   if (wanted !== undefined) prefs.set("domi-brand", wanted);
@@ -1463,7 +1481,7 @@ $("#reset").onclick = async () => {
   try {
     if ((await api("GET", "/api/auth/session")).signedIn) {
       await load();
-      if (wanted === undefined || (S.brand.id === "domi" ? null : S.brand.id) === wanted) { connect(); return; }
+      if (wanted === undefined || S.brand.id === wanted) { connect(); return; }
       await api("POST", "/api/auth/logout").catch(() => {}); rememberDemo(null); S = null; BRAND_ID = wanted;
       META = await api("GET", "/api/meta" + (BRAND_ID ? "?brand=" + encodeURIComponent(BRAND_ID) : "")); applyBrand(META.brand);
     }

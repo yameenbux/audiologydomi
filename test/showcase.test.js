@@ -106,3 +106,15 @@ test("referral form: a referral waits for the office; accepting makes the patien
   const amira = await login("amira@homevisitingoptics.example", null, code);
   assert.strictEqual((await call("POST", `/api/referrals/rf1/accept`, amira.token, {})).status, 403);
 });
+
+test("a deployment can open in a practice's brand by default; ?brand=domi still gives the neutral demo", async () => {
+  process.env.DEFAULT_BRAND = "hvo";
+  try {
+    assert.strictEqual((await call("GET", "/api/meta")).data.brand.id, "hvo", "the plain address shows the practice");
+    assert.strictEqual((await call("GET", "/api/meta?brand=domi")).data.brand.id, "domi", "the marketing site's link stays neutral");
+    const sb = (await call("POST", "/api/demo/start", null, {})).data.sandbox;
+    const pw = await call("POST", "/api/auth/password", null, { sandbox: sb, email: HVO, password: require("../server/auth").DEMO_PASSWORD });
+    assert.strictEqual(pw.status, 200, "a demo started without a brand is the practice's");
+  } finally { delete process.env.DEFAULT_BRAND; }
+  assert.strictEqual((await call("GET", "/api/meta")).data.brand.id, "domi");
+});

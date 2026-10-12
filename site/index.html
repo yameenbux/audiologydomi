@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Domi · Home-visit diaries that refill themselves</title>
-<meta name="description" content="Diary software for domiciliary opticians. When a patient cancels, Domi texts the best-matched person on your waiting list, books the first yes and updates the clinician's phone.">
+<meta name="description" content="The diary for healthcare that comes to the patient's home: eye care, hearing, foot care, dental, physio, blood tests and nursing. Domi refills cancellations by text, plans each clinician's route and takes referrals without paperwork.">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0C1412">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -285,6 +285,19 @@
   .tag { display: inline-block; font: 600 12px/1 'Plus Jakarta Sans', sans-serif; letter-spacing: .04em; text-transform: uppercase;
     padding: 6px 10px; border-radius: 999px; margin-bottom: 12px; }
   .tag-now { color: var(--mint); background: var(--mint-bg); }
+  /* Who it's for */
+  .sect-lead { max-width: 720px; margin: 18px auto 0; text-align: center; color: var(--soft); }
+  .sectors { list-style: none; margin: 40px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .sector { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px 22px 20px; }
+  .sector.lead { grid-column: span 2; background: linear-gradient(170deg, rgba(30,77,64,.9), rgba(18,48,42,.9)); border-color: rgba(108,197,146,.35); }
+  .sector h3 { margin: 12px 0 2px; font-size: 21px; letter-spacing: -0.015em; }
+  .sector .who { margin: 0 0 10px; color: var(--amber); font-size: 14.5px; font-weight: 600; }
+  .sector p { margin: 0; font-size: 15.5px; }
+  .sector .gap { display: block; margin-top: 10px; color: var(--soft); font-size: 14px; }
+  .tag-set { color: var(--ink); background: rgba(234,244,239,.08); border: 1px solid var(--line); }
+  .sect-fine { max-width: 760px; margin: 22px auto 0; text-align: center; }
+  @media (max-width: 960px) { .sectors { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sector.lead { grid-column: 1 / -1; } }
+  @media (max-width: 620px) { .sectors { grid-template-columns: 1fr; } .sector.lead { grid-column: auto; } }
   .tag-soon { color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
   .extras-note { text-align: center; color: var(--soft); font-size: 15px; max-width: 720px; margin: 22px auto 0; }
 
@@ -304,6 +317,7 @@
       <a class="brand" href="#"><img src="logo.svg" alt="" width="40" height="40">Domi</a>
       <ul>
         <li><a href="#how">How it works</a></li>
+        <li><a href="#sectors">Who it's for</a></li>
         <li><a href="#inside">Inside Domi</a></li>
         <li><a href="#coming">What's coming</a></li>
         <li><a href="#support">Questions</a></li>
@@ -314,7 +328,7 @@
     <div class="hero">
       <div class="hero-copy">
         <h1 class="rise"><span>Cancellations that</span> <span class="calm">fill themselves.</span></h1>
-        <p class="lede rise">Domi is the diary for domiciliary opticians. When a patient cancels, it texts the best-matched person on your waiting list, books the first yes, and updates the clinician’s phone.</p>
+        <p class="lede rise">Domi is the diary for healthcare that comes to the patient’s home: eye care, hearing, foot care, dental, physio and nursing. When a patient cancels, it texts the best-matched person on your waiting list, books the first yes, and plans each clinician’s route.</p>
         <div class="ctas rise">
           <a class="btn btn-main" href="%%DEMO_URL%%" rel="noopener">Try the live demo</a>
           <a class="btn btn-line" href="mailto:%%EMAIL%%?subject=Domi%20walkthrough">Book a walkthrough</a>
@@ -331,14 +345,41 @@
 
       <ul class="points" id="how">
         <li><h2 class="h3">Refills on its own</h2><p>A cancelled visit is offered to the best-matched patient by text. The first yes is booked, and everyone else keeps their place.</p></li>
-        <li><h2 class="h3">Books by the road</h2><p>New visits go where they add the least driving, weighed against how soon the patient needs to be seen.</p></li>
-        <li><h2 class="h3">On every clinician’s phone</h2><p>Today’s round, records and prescriptions. Changes arrive in a second, and it keeps working without signal.</p></li>
+        <li><h2 class="h3">Routes planned for you</h2><p>Each clinician’s day in the order that drives least, from home and back. Patients are told any new time.</p></li>
+        <li><h2 class="h3">No more paperwork</h2><p>Referrals arrive through a form, patient lists import from a spreadsheet, and the round is on every clinician’s phone.</p></li>
       </ul>
     </div>
   </div>
 </header>
 
 <main id="main">
+  <section id="sectors">
+    <div class="wrap">
+      <p class="kicker">Who it's for</p>
+      <h2>For every service that visits patients at home.</h2>
+      <p class="sect-lead">Every home-visit service has the same hard part: a round of patients spread across towns, cancellations that leave a gap nobody can fill in time, and referrals arriving on paper. Domi does that part. Each service then gets its own visit types, rules and records.</p>
+      <ul class="sectors">
+        <li class="sector lead"><span class="tag tag-now">Built for it</span><h3>Domiciliary eye care</h3><p class="who">Mobile and domiciliary opticians · the live demo is set up as one</p>
+          <p>NHS sight tests only offered 48 hours or more ahead, so PCSE can be told, with a list of notifications to lodge or cancel. Eye tests go to optometrists, never dispensing opticians. Glasses deliveries and repairs fill same-day gaps. Prescriptions on the clinician's phone.</p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Hearing care</h3><p class="who">Audiologists and hearing aid dispensers</p>
+          <p>Hearing tests, fittings, wax removal and aid reviews as visit types, with cancellations refilled and routes planned. Audiogram records are set up with you. <span class="gap">Not built: Noah 4 integration.</span></p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Foot care</h3><p class="who">Podiatrists, chiropodists and foot health practitioners</p>
+          <p>Nail-care rounds fill whole days, so a cancellation is lost income and a lost slot. Domi refills it and keeps the round tight. <span class="gap">Coming next: repeating visits every 6 to 8 weeks. Until then each visit is booked on its own.</span></p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Dental care at home</h3><p class="who">Domiciliary dentists and hygienists</p>
+          <p>Visits to homes and care homes, with carers, access and capacity noted on the record, and each day's route planned for the least driving. <span class="gap">Not built: dental charting.</span></p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Physiotherapy and rehab</h3><p class="who">Home physios, including after a hospital discharge</p>
+          <p>Short-notice patients slot straight into cancelled visits, and the referral form takes discharges from family or ward staff. <span class="gap">Coming next: a course of sessions booked in one go.</span></p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Home blood tests</h3><p class="who">Mobile phlebotomists</p>
+          <p>Fasting patients marked mornings-only stay in the morning when routes are planned, and anyone who can't be texted is phoned. <span class="gap">Not built: a lab drop-off as a stop on the route.</span></p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Nursing at home</h3><p class="who">Private and community nurses: wound care, injections, catheters</p>
+          <p>Visit notes on the phone even without signal, the day's route on a street map, and every record anyone opens logged. <span class="gap">Not built: medicines and wound charts.</span></p></li>
+        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Therapy assessments</h3><p class="who">Occupational therapists and speech and language therapists</p>
+          <p>Referrals from families, GPs and social workers through one form, then assessments booked by drive time across the patch.</p></li>
+      </ul>
+      <p class="fine sect-fine">“Built for it” means the rules and records for that service are in the live demo today. “Ready to set up” means everything common to home visits works now (refills, routes, referrals, the phone app, sign-in), and that service's visit types are set up with you. Anything listed as not built isn't, until it is.</p>
+    </div>
+  </section>
+
   <!-- The tour film is off the page until it is re-recorded: the current cut still shows the old audiology demo.
   <section id="film">
     <div class="wrap">
@@ -364,7 +405,7 @@
         <div class="deck-pile">
           <figure class="deck-card tone-forest">
             <div class="deck-screen"><img src="shots/deck/refill.webp" width="600" height="975" alt="Refilling an 11:00 slot: three suitable patients ranked by priority, patch, days waiting and preferred clinician, all three asked at once, and an NHS sight test held back because PCSE needs 48 hours' notice." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>A cancellation, refilled</h3><p>Peter’s glasses delivery is cancelled at 10:20. Three people fit the gap, and because the visit is 40 minutes away all three are texted at once.</p></figcaption>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>A cancellation, refilled</h3><p>Peter’s visit is cancelled at 10:20. Three people fit the gap, and because the visit is 40 minutes away all three are texted at once.</p></figcaption>
           </figure>
           <figure class="deck-card tone-deep">
             <div class="deck-screen"><img src="shots/deck/yes.webp" width="600" height="975" alt="Slot refilled: Sylvia said no, Margaret said yes and is booked for 11:00 to have her new glasses fitted, and Geoffrey was told it's gone." loading="lazy" decoding="async" draggable="false"></div>
@@ -374,12 +415,20 @@
             <div class="deck-screen"><img src="shots/deck/changed.webp" width="600" height="975" alt="The clinician's phone: 'Your diary changed. Peter Dunn cancelled. Margaret Holt now booked today at 11:00, 14 Ash Grove.'" loading="lazy" decoding="async" draggable="false"></div>
             <figcaption><span class="tag tag-now">In the demo</span><h3>The phone updates itself</h3><p>Amira sees the new visit, the address and the notes within a second. Nobody had to ring her.</p></figcaption>
           </figure>
+          <figure class="deck-card tone-deep">
+            <div class="deck-screen"><img src="shots/deck/plans.webp" width="600" height="975" alt="Planning the rounds: every clinician's day checked for a shorter order. Tom's round can be done with 20 minutes less driving, and three patients would get a new time." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Routes planned for you</h3><p>Every clinician’s day put in the order that drives least, from home and back. Apply it, and anyone with a new time is texted.</p></figcaption>
+          </figure>
+          <figure class="deck-card tone-warm">
+            <div class="deck-screen"><img src="shots/deck/refer.webp" width="600" height="975" alt="The referral form on a phone: why a home visit is needed, with common conditions to tap, and NHS entitlement questions." loading="lazy" decoding="async" draggable="false"></div>
+            <figcaption><span class="tag tag-now">In the demo</span><h3>Referrals without paperwork</h3><p>Families, carers, care homes and GPs fill in one form. It lands with the office, and one click makes the patient record.</p></figcaption>
+          </figure>
           <figure class="deck-card tone-forest">
             <div class="deck-screen"><img src="shots/deck/slots.webp" width="600" height="975" alt="Booking a visit for Irene Battye: the best slots this week, each with the extra driving it adds and the visits it sits between." loading="lazy" decoding="async" draggable="false"></div>
             <figcaption><span class="tag tag-now">In the demo</span><h3>Booking by the drive</h3><p>Every gap this week, ranked by the extra driving it adds and weighed against how soon the patient needs to be seen.</p></figcaption>
           </figure>
           <figure class="deck-card tone-deep">
-            <div class="deck-screen"><img src="shots/deck/route.webp" width="600" height="975" alt="A clinician's day on a map on the phone: numbered stops, drive minutes for each leg and the drive home." loading="lazy" decoding="async" draggable="false"></div>
+            <div class="deck-screen"><img src="shots/deck/route.webp" width="600" height="975" alt="A clinician's day on a street map on the phone: numbered pins in visiting order along the roads, and the matching list with each drive." loading="lazy" decoding="async" draggable="false"></div>
             <figcaption><span class="tag tag-now">In the demo</span><h3>The day on a map</h3><p>Every stop, every drive and the drive home. It’s drawn on the phone without a map service, so it works offline too.</p></figcaption>
           </figure>
           <figure class="deck-card tone-warm">
@@ -425,7 +474,7 @@
           <button type="button" class="deck-btn" data-go="next" aria-label="Next card"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
         <div class="deck-foot">
-          <span class="deck-count" aria-hidden="true"><b>01</b> / 14</span>
+          <span class="deck-count" aria-hidden="true"><b>01</b> / 16</span>
           <button type="button" class="deck-play" aria-pressed="false">Pause</button>
         </div>
         <p class="deck-sr" aria-live="polite"></p>
@@ -446,9 +495,9 @@
             <label class="row"><input type="radio" name="plan" value="built" checked>
               <span class="row-text"><span class="row-name">In the demo <span class="badge">Working today</span></span><span class="row-price"><b>17</b> features you can try now</span></span><span class="dot" aria-hidden="true"></span></label>
             <label class="row"><input type="radio" name="plan" value="next">
-              <span class="row-text"><span class="row-name">Coming next <span class="badge soon">Not built yet</span></span><span class="row-price"><b>8</b> smaller pieces, first</span></span><span class="dot" aria-hidden="true"></span></label>
+              <span class="row-text"><span class="row-name">Coming next <span class="badge soon">Not built yet</span></span><span class="row-price"><b>10</b> smaller pieces, first</span></span><span class="dot" aria-hidden="true"></span></label>
             <label class="row"><input type="radio" name="plan" value="later">
-              <span class="row-text"><span class="row-name">Coming later <span class="badge soon">Not built yet</span></span><span class="row-price"><b>3</b> bigger pieces, with partners</span></span><span class="dot" aria-hidden="true"></span></label>
+              <span class="row-text"><span class="row-name">Coming later <span class="badge soon">Not built yet</span></span><span class="row-price"><b>4</b> bigger pieces, with partners</span></span><span class="dot" aria-hidden="true"></span></label>
           </fieldset>
           <p class="soon-line">No dates on purpose. Ask where any item stands and we’ll tell you straight.</p>
         </form>
@@ -484,6 +533,8 @@
               <li>Your data kept for good, hosted in the UK<small>A permanent database in a London data centre, encrypted, with daily backups.</small></li>
               <li>Bring visits and the waiting list across<small>Patients import today. Next, upcoming visits and the waiting list too.</small></li>
               <li>Recall texts sent automatically<small>When a sight test falls due, with the booking link.</small></li>
+              <li>Repeating visits and courses<small>Nail care every 6 to 8 weeks, a course of physio, booked in one go and refilled like any other visit.</small></li>
+              <li>Care-home sessions<small>Several residents on one visit, booked and notified together.</small></li>
               <li>Fundus photos and scans<small>Photos from a handheld fundus camera saved into the record from the phone.</small></li>
               <li>Card payments, Xero and care-home billing<small>Take payment on the doorstep, sync invoices, bill a care home for several residents at once.</small></li>
               <li>AI-drafted visit notes<small>A draft to check and save. Nothing is saved without the clinician approving it.</small></li>
@@ -497,6 +548,7 @@
             <ul>
               <li>PCSE Online<small>Lodge and cancel notifications and submit GOS 6 claims from Domi. This needs PCSE to accept Domi as a connected system, so we won’t promise a date.</small></li>
               <li>Lab orders and frames<small>Follow each pair of glasses to the lab and back, and book the delivery visit the day they arrive.</small></li>
+              <li>Records for each service<small>Audiograms, foot and dental charts, wound and medicines records, built with practices in each field.</small></li>
               <li>iPhone and Android apps<small>In the App Store and Google Play. Today the clinician app runs in the browser and works offline.</small></li>
             </ul>
           </div>
@@ -530,6 +582,18 @@
           <button class="faq-clear" type="button" aria-label="Clear search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/></svg></button>
         </div>
         <div class="faq-list" id="faq-list">
+          <details name="faq">
+            <summary><span>Which services is Domi for?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>Any healthcare service that visits patients at home or in care homes: eye care, hearing, foot care, dental, physiotherapy, blood tests, nursing and therapy assessments. Domiciliary eye care has its rules built in today, including PCSE's notice period for NHS sight tests. For the others, the parts every home-visit service needs work now, and your visit types and records are set up with you.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>We're not opticians. Will it work for us?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>The demo is set up as an eye-care practice, but most of what you'll see isn't specific to eyes: the waiting list, refilling cancellations by text, route planning, the referral form, the phone app and sign-in. Tell us how your visits work and we'll show you what's ready and what we'd set up, and be straight about anything that isn't built yet.</p></div>
+          </details>
+          <details name="faq">
+            <summary><span>Does it work with Noah?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="answer"><p>Not yet. For hearing practices, a Noah 4 integration needs a partnership with HIMSA, who make Noah. It's outside our control, so we won't give you a date we can't keep.</p></div>
+          </details>
           <details name="faq">
             <summary><span>Do we have to replace our current system?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
             <div class="answer"><p>No. You can run Domi for the diary, refills and routes and keep your clinical records where they are. Moving everything across is on the roadmap, and we’ll do the import with you when it’s ready.</p></div>
