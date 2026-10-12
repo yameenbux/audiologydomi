@@ -1,7 +1,7 @@
 # Render Blueprint: Dashboard → New → Blueprint → pick this repo. Everything below is applied automatically.
 services:
   - type: web
-    name: domi              # the service name in Render. The web address is set when a service is created and stays as it was
+    name: domi-bolton       # the service name in Render. The web address is set when a service is created and stays as it was
     runtime: node
     plan: free
     region: frankfurt          # closest Render region to the UK
