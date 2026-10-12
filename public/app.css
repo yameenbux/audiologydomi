@@ -650,3 +650,8 @@ button.rm-row:hover { background: var(--subtle) }
 .blk.missed { background: var(--subtle); box-shadow: none; opacity: .72 }
 .wk-cell.off { justify-content: center; align-items: center; background: repeating-linear-gradient(135deg, var(--subtle) 0 6px, transparent 6px 12px); cursor: default }
 .wk-cell.off:hover { box-shadow: inset 0 0 0 1px var(--line); transform: none }
+
+/* "Powered by Domi" at the foot of a practice's branded demo */
+.powered { text-align: center; font-size: 13px; color: var(--muted); padding: 28px 16px calc(28px + env(safe-area-inset-bottom, 0px)) }
+.powered a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px }
+.powered a:hover { color: var(--ink) }

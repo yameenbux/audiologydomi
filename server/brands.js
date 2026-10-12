@@ -25,8 +25,10 @@ const BRANDS = {
 
 // A deployment can open in a practice's brand by default (DEFAULT_BRAND=<id>), so the plain address shows it;
 // /?brand=domi still gives the neutral demo, which is what the marketing site links to.
+// Where "Powered by Domi" links to, at the foot of a practice's branded demo.
+const SITE = process.env.MARKETING_URL || "https://domi.ysbdesigns.uk/";
 const get = (id) => BRANDS[String(id || "").toLowerCase()] || BRANDS[String(process.env.DEFAULT_BRAND || "").toLowerCase()] || BRANDS.domi;
 /** What the browser may know about a brand (everything here is already public on the practice's website). */
-const pub = (b) => ({ id: b.id, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null });
+const pub = (b) => ({ id: b.id, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, site: SITE });
 
 module.exports = { BRANDS, get, pub };

@@ -9,6 +9,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/app.css">
+<script src="/powered.js"></script>
 <style>
   /* Opened by a patient or a relative from a text: large type, plain words, one decision. */
   body.cx { font-size: 18px; background: var(--bg) }
@@ -70,6 +71,7 @@ api("GET", `/api/public/${encodeURIComponent(code || "")}/visit/${encodeURICompo
   if (b && b.theme) document.documentElement.dataset.brand = b.id;
   if (b && b.logo) { top.innerHTML = `<img src="${esc(b.logo)}" alt="${esc(info.practice)}" referrerpolicy="no-referrer" style="height:52px;width:auto;display:block">`; top.querySelector("img").addEventListener("error", () => { top.textContent = info.practice; }, { once: true }); }
   else top.textContent = info.practice;
+  window.DomiPowered(b);
   document.title = "Cancel a home visit · " + info.practice;
   render();
 }).catch((e) => { root.innerHTML = `<h1>This link isn't working</h1><p class="muted">${esc(e.message)}</p>`; });
