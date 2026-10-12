@@ -157,7 +157,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "reset"];
+const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -257,9 +257,9 @@ function signInView() {
   const A = UI.auth;
   const brand = `<section class="signin-brand">
       <div>
-        <div class="caps" style="color:inherit;opacity:.7">Domiciliary audiology</div>
-        <h1 style="margin-top:14px">Hearing care that <em>comes to you.</em></h1>
-        <p>A diary for home-visit audiology. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>
+        <div class="caps" style="color:inherit;opacity:.7">Domiciliary eye care</div>
+        <h1 style="margin-top:14px">Eye care that <em>comes to you.</em></h1>
+        <p>A diary for home-visit opticians. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>
       </div>
       <ul class="features">
         <li><span class="ic">${icon("bolt")}</span><span><b>Cancellations refill themselves</b><em>Ranked by urgency, area, wait and travel time.</em></span></li>
@@ -352,6 +352,7 @@ function officeView() {
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
         </section>
+        ${pcsePanel()}
         ${recallsPanel()}
         ${remindersPanel()}
         <section class="panel" aria-label="Texts">
@@ -362,6 +363,19 @@ function officeView() {
       </aside>
     </div></div>`;
 }
+/** What the office must do in PCSE Online for NHS sight tests: lodge a notification for each new one, cancel it for each cancelled one. */
+function pcsePanel() {
+  const list = S.pcse || [], todo = list.filter((t) => t.status === "todo");
+  if (!list.length) return "";
+  return `<section class="panel" aria-label="PCSE notifications">
+    <div class="panel-h"><h2>PCSE notifications</h2><span class="sub">${todo.length ? `${todo.length} to do` : "All done"}</span></div>
+    <p class="panel-note">NHS sight tests at home need a notification to PCSE at least 48 hours before the visit. Domi only offers gaps that leave time for one, and lists what to lodge or cancel.</p>
+    <div class="soon-row" style="padding:0 18px 8px">${soon("pcse-online", "Send to PCSE automatically", "send")}</div>
+    <ul class="recalls">${list.map((t) => `<li>
+      <div style="min-width:0"><div class="nm">${t.action === "lodge" ? "Lodge" : "Cancel"}: ${esc(t.name)}</div><div class="meta"><span>NHS sight test, ${esc(dayName(t.day))} ${hm(t.start)}</span>${t.action === "lodge" && t.status === "todo" ? `<span class="late">Lodge by ${esc(t.lodgeBy)}</span>` : ""}</div></div>
+      <div class="ra">${t.status === "done" ? `<span class="badge b-ok">Done</span>` : `<button class="btn secondary sm" type="button" data-act="pcse-done" data-id="${t.id}">${icon("check")}Done</button>`}</div></li>`).join("")}</ul>
+  </section>`;
+}
 /** Recalls due: they're already in the refill pool; the office can also text them the booking page. */
 function recallsPanel() {
   const due = (S.recalls || []).filter((r) => r.status !== "dismissed");
@@ -369,7 +383,7 @@ function recallsPanel() {
   const when = (d) => d < 0 ? `${-d} day${d === -1 ? "" : "s"} overdue` : d === 0 ? "due today" : `due in ${d} day${d === 1 ? "" : "s"}`;
   return `<section class="panel" aria-label="Recalls">
     <div class="panel-h"><h2>Recalls</h2><span class="sub">In the refill pool</span></div>
-    <p class="panel-note">Patients due a review are offered cancelled visits near them automatically. You can also text them your booking page.</p>
+    <p class="panel-note">Patients due a sight test are offered cancelled visits near them, 48 hours or more ahead so PCSE can be told. You can also text them your booking page.</p>
     <div class="soon-row" style="padding:0 18px 8px">${soon("recall-auto", "Send recall texts automatically", "send")}</div>
     <ul class="recalls">${due.map((r) => { const p = pat(r.patientId); return `<li>
       <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${district(p.pc)}</span>` : ""}</div></div>
@@ -467,7 +481,7 @@ function clinView() {
       <p>What a clinician carries on the round, built for one hand between visits.</p>
       <ul>
         <li>${icon("cal")}<span>Today's visits in order, with drive times</span></li>
-        <li>${icon("note")}<span>Patient record, audiogram and one-tap notes</span></li>
+        <li>${icon("note")}<span>Patient record, prescription and one-tap notes</span></li>
         <li>${icon("car")}<span>"On my way" texts the patient automatically</span></li>
         <li>${icon("bolt")}<span>Diary changes from the office arrive live</span></li>
         <li>${icon("shield")}<span>Keeps working without signal</span></li>
@@ -539,19 +553,11 @@ function msgsTab() {
   return `<div class="ph-head"><div><div class="caps">From the office</div><h2 style="margin-top:6px">Messages</h2></div></div>
     ${S.messages.length ? `<div class="feed" style="padding:0;max-height:none">${S.messages.map(smsBubble).join("")}</div>` : `<div class="empty"><b>Nothing yet</b>Diary changes and texts sent on your behalf appear here.</div>`}`;
 }
-function audiogram(a) {
-  const FREQS = [250, 500, 1000, 2000, 4000, 8000], W = 320, H = 210, l = 36, r = 12, t = 14, b = 26, iw = W - l - r, ih = H - t - b;
-  const x = (i) => l + i * (iw / (FREQS.length - 1));
-  const y = (db) => t + (db + 10) / 130 * ih;
-  let g = `<rect x="${l}" y="${y(-10)}" width="${iw}" height="${y(20) - y(-10)}" fill="var(--ok-soft)"/>`;
-  for (let db = -10; db <= 120; db += 10) { g += `<line x1="${l}" x2="${W - r}" y1="${y(db)}" y2="${y(db)}" stroke="var(--line)" stroke-width="${db % 20 === 0 ? 1 : 0.5}"/>`; if (db % 20 === 0) g += `<text x="${l - 7}" y="${y(db) + 3}" text-anchor="end">${db}</text>`; }
-  FREQS.forEach((f, i) => { g += `<line x1="${x(i)}" x2="${x(i)}" y1="${t}" y2="${H - b}" stroke="var(--line)" stroke-width=".5"/><text x="${x(i)}" y="${H - b + 15}" text-anchor="middle">${f >= 1000 ? f / 1000 + "k" : f}</text>`; });
-  const line = (arr, col) => `<polyline fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" points="${arr.map((v, i) => x(i) + "," + y(v)).join(" ")}"/>`;
-  g += line(a.R, "var(--ear-r)") + line(a.L, "var(--ear-l)");
-  a.R.forEach((v, i) => { g += `<circle cx="${x(i)}" cy="${y(v)}" r="4.5" fill="var(--surface)" stroke="var(--ear-r)" stroke-width="1.8"/>`; });
-  a.L.forEach((v, i) => { const cx = x(i), cy = y(v); g += `<path d="M${cx - 4} ${cy - 4}L${cx + 4} ${cy + 4}M${cx + 4} ${cy - 4}L${cx - 4} ${cy + 4}" stroke="var(--ear-l)" stroke-width="2" stroke-linecap="round"/>`; });
-  return `<svg class="aud" viewBox="0 0 ${W} ${H}" role="img" aria-label="Audiogram: right ear circles, left ear crosses">${g}<text x="6" y="${t + ih / 2}" transform="rotate(-90 10 ${t + ih / 2})" text-anchor="middle">dB HL</text></svg>
-    <div class="aud-leg"><span><b style="color:var(--ear-r)">O</b> Right</span><span><b style="color:var(--ear-l)">X</b> Left</span><span>Green band: normal hearing</span></div>`;
+/** The last prescription, laid out the way it's written on a GOS form: right eye first. */
+function prescription(rx) {
+  const row = (eye, e) => `<tr><th scope="row">${eye}</th>${["sph", "cyl", "axis", "add", "va"].map((k) => `<td>${esc(e[k] || "–")}</td>`).join("")}</tr>`;
+  return `<table class="rx"><thead><tr><th></th><th scope="col">Sph</th><th scope="col">Cyl</th><th scope="col">Axis</th><th scope="col">Add</th><th scope="col">VA</th></tr></thead>
+    <tbody>${row("R", rx.R)}${row("L", rx.L)}</tbody></table><div class="rx-leg">Tested ${esc(rx.date)}</div>`;
 }
 function record(p) {
   const upcoming = S.appts.filter((x) => x.patientId === p.id && active(x) && x.status !== "done").sort((x, y) => (x.day || 0) - (y.day || 0) || x.start - y.start);
@@ -570,14 +576,14 @@ function record(p) {
     ${a && a.moved ? `<div class="banner">${icon("bolt")}<div><b>Moved forward today</b>${esc(a.note)}</div></div>` : ""}
     ${!a && later ? `<div class="callout forest" style="margin-top:12px">${icon("cal")}<div><b>Next visit: ${esc(dayName(later.day))} at ${hm(later.start)}</b><div style="margin-top:2px">${esc(T(later.type).name)}</div></div></div>` : ""}
     <div class="sec"><h3>Visit notes ${a && a.status === "live" ? `<span class="badge b-ok">In progress</span>` : ""}</h3>
-      <div class="chips">${["Otoscopy clear", "Wax removed R", "Wax removed L", "Aids cleaned & retubed", "Domes replaced", "Fine-tuned gain", "Advised on batteries", "Follow-up in 6 weeks"].map((c) => `<button type="button" data-act="chip">${c}</button>`).join("")}</div>
+      <div class="chips">${["Vision recorded", "Pressures checked", "Fundus photos taken", "Frames chosen", "GOS 6 signed", "Glasses fitted & adjusted", "Referred to GP", "Recall in 12 months"].map((c) => `<button type="button" data-act="chip">${c}</button>`).join("")}</div>
       <textarea class="note" id="note-${p.id}" data-keep placeholder="What did you do on this visit?"></textarea>
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px">${soon("ai-notes", "Draft with AI", "bolt")}<button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
     </div>
-    <div class="sec"><h3>Hearing</h3>${p.audio ? audiogram(p.audio) : `<p class="muted" style="margin:0;font-size:13.5px">No audiogram yet. Results are added after the assessment.</p>`}
-      <div class="soon-row" style="margin-top:10px">${soon("noah", "Import from Noah", "copy")}</div></div>
+    <div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
+      <div class="soon-row" style="margin-top:10px">${soon("pcse-online", "Claim GOS 6", "send")}${soon("images", "Add fundus photos", "copy")}</div></div>
     <div class="sec"><h3>Letters &amp; forms</h3><div class="soon-row">${soon("letters", "GP letter", "note")}${soon("letters", "Pre-visit form", "msg")}</div></div>
-    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Hearing aids</dt><dd>${esc(p.aids)}</dd><dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
+    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd><dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
 }
@@ -686,14 +692,15 @@ const ROADMAP = [
   { id: "persist", when: "next", area: "Platform", title: "Your data kept for good, hosted in the UK", body: "A permanent database (PostgreSQL) in a London data centre, encrypted, with daily backups and tested restores. This demo resets on purpose." },
   { id: "reset", when: "next", area: "Sign-in", title: "Password reset and your own authenticator", body: "Each person sets their own password and links their own authenticator app, with recovery codes and reset by email." },
   { id: "import", when: "next", area: "Getting started", title: "Bring your data across", body: "Import patients, the waiting list and upcoming visits from your current system or a spreadsheet, checked before anything goes live." },
-  { id: "recall-auto", when: "next", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a review falls due, with the booking link, instead of the office pressing Text link." },
+  { id: "recall-auto", when: "next", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a sight test falls due, with the booking link, instead of the office pressing Text link." },
   { id: "card", when: "next", area: "Payments", title: "Take card payments on the doorstep", body: "Take a card payment on the clinician's phone or a card reader at the end of the visit, marked paid on the invoice straight away." },
   { id: "xero", when: "next", area: "Payments", title: "Sync invoices to Xero or QuickBooks", body: "Invoices and payments flow into your accounts package, so nothing is typed in twice." },
   { id: "carehome", when: "next", area: "Payments", title: "Care-home billing", body: "Bill a care home for several residents seen on one visit, on one invoice." },
   { id: "ai-notes", when: "next", area: "Records", title: "Draft notes with AI", body: "Dictate or record the visit and get a draft note to check and save. Nothing is saved without the clinician approving it." },
   { id: "letters", when: "next", area: "Records", title: "Letters and pre-visit forms", body: "GP and referrer letters from templates, and forms patients or carers fill in before the visit (consent, history), saved to the record." },
-  { id: "noah", when: "later", area: "Records", title: "Noah 4 integration", body: "Audiograms and fitting sessions from Noah 4 saved into the patient's record automatically. Needs a partnership with HIMSA, who make Noah." },
-  { id: "stock", when: "later", area: "Practice", title: "Stock, orders and repairs", body: "Track hearing aids and parts, raise manufacturer orders and follow repairs from sent to returned." },
+  { id: "images", when: "next", area: "Records", title: "Fundus photos and scans", body: "Photos from a handheld fundus camera, and scan reports, saved into the patient's record from the clinician's phone." },
+  { id: "pcse-online", when: "later", area: "NHS claims", title: "PCSE Online: notifications and GOS claims", body: "Lodge and cancel pre-visit notifications, and submit GOS 6 claims, straight from Domi instead of typing them into PCSE Online. Needs PCSE to accept Domi as a connected practice system." },
+  { id: "stock", when: "later", area: "Practice", title: "Lab orders and frames", body: "Follow each pair of glasses from order to the lab and back, and book the delivery visit the day they arrive. Frame stock carried in the car, too." },
   { id: "apps", when: "later", area: "Clinicians", title: "iPhone and Android apps", body: "The clinician app in the App Store and Google Play. Today it runs in the phone's browser and works offline." },
 ];
 const RM = Object.fromEntries(ROADMAP.map((r) => [r.id, r]));
@@ -725,7 +732,7 @@ function apptDrawer(id) {
   return `<div class="drawer-h"><div><div class="caps">${a.day ? dayName(a.day) + " · " : ""}${hm(a.start)}–${hm(a.start + t.dur)} · ${esc(c.name)}</div><h2 style="margin-top:6px">${esc(p.name)}</h2>
       <div style="display:flex;gap:6px;margin-top:8px"><span class="badge ${status[0]}">${status[1]}</span>${a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved forward</span>` : ""}</div></div>${closeX}</div>
     <div class="drawer-b">
-      <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd><dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>Hearing aids</dt><dd>${esc(p.aids)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
+      <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd><dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
       ${canCancel ? `<div class="hr" style="margin:20px 0"></div>
         <div class="field"><label for="reason">Why is it cancelled?</label><select class="input" id="reason" data-keep>${META.reasons.map((r) => `<option>${r}</option>`).join("")}</select></div>
         <button class="btn danger block lg" type="button" data-act="do-cancel" data-id="${a.id}">${icon("x")}Cancel and refill this slot</button>
@@ -852,7 +859,7 @@ function invoicesDrawer(d) {
       <div class="soon-row">${soon("card", "Take card payment", "check")}${soon("xero", "Sync to Xero", "reset")}${soon("carehome", "Bill a care home", "users")}</div>
       <details class="prices"><summary>Prices per visit type</summary>
         <div class="price-grid">${Object.entries(META.types).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
-        <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised (for example fittings, when the aids are invoiced separately). No VAT is added: check your VAT treatment with your accountant.</p></details>
+        <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised: NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered. No VAT is added: check your VAT treatment with your accountant.</p></details>
       ${d.invoices.length ? `<ul class="invs">${d.invoices.map((i) => { const p = pat(i.patientId); return `<li>
         <div style="min-width:0"><div class="nm"><span class="mono">${esc(i.number)}</span> · ${esc(p ? p.name : "")}</div><div class="meta">${esc(i.items.map((x) => x.desc).join(", "))}</div></div>
         <div class="ia"><b>${pounds(i.totalPence)}</b>${badge(i)}</div>
@@ -993,6 +1000,7 @@ document.addEventListener("click", async (e) => {
       case "auth-back": UI.auth = { step: "password" }; render(); break;
       case "new-pair": UI.pair = null; renderDrawer(); break;
       case "close": closeDrawer(); break;
+      case "pcse-done": el.disabled = true; await api("POST", `/api/pcse/${el.dataset.id}/done`); await load(); toast("Ticked off"); break;
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
       case "recall-dismiss": await api("POST", `/api/recalls/${el.dataset.id}/dismiss`); await load(); toast("Removed from recalls and the refill pool"); break;
       case "soon": openDrawer({ kind: "soon", id: el.dataset.id }); break;

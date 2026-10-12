@@ -80,7 +80,7 @@ function AL(dir, o = {}) {
 const add = (p, c, fillW) => { p.appendChild(c); if (fillW) c.layoutSizingHorizontal = 'FILL'; return c; };
 
 // ---------- Logo (same geometry as public/logo.svg) ----------
-const MARK_SVG = '<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#1E4D40"/><path d="M13 31 L32 15 L51 31" stroke="#E07B4F" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21.4 39.4 A15 15 0 0 1 42.6 39.4" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/><path d="M26.3 44.3 A8 8 0 0 1 37.7 44.3" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/><circle cx="32" cy="49.5" r="2.8" fill="#FFFFFF"/></svg>';
+const MARK_SVG = '<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#1E4D40"/><path d="M13 31 L32 15 L51 31" stroke="#E07B4F" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 42 Q32 27 47 42 Q32 57 17 42 Z" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round"/><circle cx="32" cy="42" r="5" fill="#FFFFFF"/></svg>';
 function makeMark(size, pf = paint) {
   const m = figma.createNodeFromSvg(MARK_SVG); m.name = 'Domi mark'; m.fills = [];
   const kids = m.children;
@@ -96,7 +96,7 @@ function fillLockup(node, pf) {
   const words = AL('v', { gap: 2, p: pf });
   const wm = T('Domi', 'Display/M', 'text/primary', { name: 'Wordmark', p: pf }); wm.fontSize = 30; wm.lineHeight = { unit: 'PERCENT', value: 95 };
   words.appendChild(wm);
-  const tag = T('HEARING AT HOME', 'Label/Caps', 'brand/apricot', { name: 'Tagline', p: pf }); tag.fontSize = 9; tag.letterSpacing = { unit: 'PERCENT', value: 18 };
+  const tag = T('EYE CARE AT HOME', 'Label/Caps', 'brand/apricot', { name: 'Tagline', p: pf }); tag.fontSize = 9; tag.letterSpacing = { unit: 'PERCENT', value: 18 };
   words.appendChild(tag);
   node.appendChild(words);
 }
@@ -117,7 +117,7 @@ board.x = 0; board.y = 0;
 const head = AL('v', { gap: 8 });
 head.appendChild(T('BRAND & DESIGN TOKENS', 'Label/Caps', 'brand/apricot'));
 head.appendChild(T('Domi', 'Display/XL'));
-head.appendChild(T('Placeholder identity for the demo. The mark is a roof over sound waves: hearing care that comes to the patient’s home. Colours are variables in two matching collections, Light and Dark.', 'Body/M', 'text/muted', { w: 760 }));
+head.appendChild(T('Placeholder identity for the demo. The mark is an eye under a roof: eye care that comes to the patient’s home. Colours are variables in two matching collections, Light and Dark.', 'Body/M', 'text/muted', { w: 760 }));
 add(board, head);
 
 const logoRow = AL('h', { gap: 24, name: 'Logo row' });
@@ -153,8 +153,8 @@ typeSec.appendChild(T('Type', 'Display/M'));
 const typeCard = AL('v', { fill: 'bg/surface', r: 24, pad: 40, gap: 18, stroke: 'border/default', w: 1472 });
 const spec = [
   ['Display/XL', 'Today across the team'], ['Display/L', 'Morning, Amira'], ['Display/M', 'Filling the 11:00 slot'], ['Number/L', '£170'],
-  ['Heading/M', 'Margaret Holt · Hearing aid fitting'], ['Body/M', 'A home visit has opened up today at 11:00. The first person to reply YES gets it.'],
-  ['Body/S', '14 Ash Grove, LS6 · Hard of hearing: text, don’t call'], ['Label/Caps', 'WAITING LIST'], ['Mono/S', '10:20  11:00–12:15  07700 900533'],
+  ['Heading/M', 'Margaret Holt · Glasses delivery & fitting'], ['Body/M', 'A home visit has opened up today at 11:00. The first person to reply YES gets it.'],
+  ['Body/S', '14 Ash Grove, LS6 · Hard of hearing: text, don’t call'], ['Label/Caps', 'WAITING LIST'], ['Mono/S', '10:20  11:00–11:30  07700 900533'],
 ];
 for (const [style, sample] of spec) {
   const row = AL('h', { gap: 32, align: 'CENTER' });

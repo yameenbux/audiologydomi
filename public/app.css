@@ -5,7 +5,6 @@
   --forest: #1E4D40; --on-forest: #FFFFFF; --forest-soft: #DCEAE3;
   --apricot: #E07B4F; --apricot-soft: #FBE7DC; --apricot-ink: #8A3D1C;
   --ok: #2F7A4F; --ok-soft: #DDF0E4; --warn: #A86A12; --warn-soft: #F8ECD3; --crit: #B4443A; --crit-soft: #F7DEDA;
-  --ear-r: #C2413A; --ear-l: #2E5FA8;
   --hero: #1E4D40; --on-hero: #FFFFFF;
   --scrim: rgba(12, 22, 19, .42);
   --shadow-sm: 0 1px 2px rgba(21, 36, 31, .06);
@@ -20,7 +19,7 @@
   --forest: #7CC3A6; --on-forest: #0E1513; --forest-soft: #1D3A31;
   --apricot: #F09A72; --apricot-soft: #3A251A; --apricot-ink: #F6C1A6;
   --ok: #6CC592; --ok-soft: #1C3527; --warn: #E6B058; --warn-soft: #3A2E17; --crit: #EE7F74; --crit-soft: #3F2220;
-  --ear-r: #F07B72; --ear-l: #86AAF0; --scrim: rgba(0, 0, 0, .6); --hero: #17392F; --on-hero: #EAF4EF;
+  --scrim: rgba(0, 0, 0, .6); --hero: #17392F; --on-hero: #EAF4EF;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 16px 40px -12px rgba(0, 0, 0, .6);
   color-scheme: dark;
 } }
@@ -29,7 +28,7 @@
   --forest: #7CC3A6; --on-forest: #0E1513; --forest-soft: #1D3A31;
   --apricot: #F09A72; --apricot-soft: #3A251A; --apricot-ink: #F6C1A6;
   --ok: #6CC592; --ok-soft: #1C3527; --warn: #E6B058; --warn-soft: #3A2E17; --crit: #EE7F74; --crit-soft: #3F2220;
-  --ear-r: #F07B72; --ear-l: #86AAF0; --scrim: rgba(0, 0, 0, .6); --hero: #17392F; --on-hero: #EAF4EF;
+  --scrim: rgba(0, 0, 0, .6); --hero: #17392F; --on-hero: #EAF4EF;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 16px 40px -12px rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
@@ -371,10 +370,11 @@ textarea.note:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--forest)
 .hist .d { font-size: 12px; color: var(--muted) }
 .actionbar { position: sticky; bottom: -28px; margin: 18px -18px -28px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); display: flex; gap: 8px }
 .actionbar .btn { flex: 1; padding: 13px }
-.aud { width: 100%; height: auto; display: block }
-.aud text { font: 9px var(--f-mono); fill: var(--muted) }
-.aud-leg { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px }
-.aud-leg b { font-family: var(--f-mono) }
+.rx { width: 100%; border-collapse: collapse; font: 13px var(--f-mono) }
+.rx th, .rx td { padding: 7px 6px; text-align: right; border-bottom: 1px solid var(--line) }
+.rx thead th { font: 600 11px var(--f-ui); color: var(--muted); text-transform: uppercase; letter-spacing: .04em }
+.rx tbody th { text-align: left; font: 700 13px var(--f-ui) }
+.rx-leg { font-size: 12px; color: var(--muted); margin-top: 8px }
 .search { width: 100%; margin-bottom: 12px }
 .plist { display: flex; flex-direction: column; gap: 8px }
 .plist button { background: var(--surface); border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: 14px; padding: 12px 14px; text-align: left; display: flex; justify-content: space-between; gap: 10px; align-items: center }

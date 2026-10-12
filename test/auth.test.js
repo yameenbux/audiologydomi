@@ -17,7 +17,7 @@ async function call(method, path, cookie, body, headers = {}) {
 const newDemo = async () => (await call("POST", "/api/demo/start")).data.sandbox;
 const password = (sandbox, email, pw = DEMO_PASSWORD) => call("POST", "/api/auth/password", null, { sandbox, email, password: pw });
 const demoCode = async (challenge) => (await call("GET", "/api/auth/demo-code?challenge=" + encodeURIComponent(challenge))).data.code;
-async function signIn(sandbox, email = "sarah@airevalleyhearing.example") {
+async function signIn(sandbox, email = "sarah@airevalleyeyecare.example") {
   const pw = await password(sandbox, email);
   const code = await demoCode(pw.data.challenge);
   const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code });
@@ -27,7 +27,7 @@ async function signIn(sandbox, email = "sarah@airevalleyhearing.example") {
 test("signing in needs the password and then the code; the cookie is HttpOnly and SameSite", async () => {
   const sb = await newDemo();
   assert.strictEqual((await call("GET", "/api/state")).status, 401, "nothing without a session");
-  const pw = await password(sb, "sarah@airevalleyhearing.example");
+  const pw = await password(sb, "sarah@airevalleyeyecare.example");
   assert.ok(pw.data.challenge && !pw.setCookie, "a password alone doesn't sign you in");
   assert.strictEqual((await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: "000000" })).status, 401);
   const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: await demoCode(pw.data.challenge) });
@@ -38,29 +38,29 @@ test("signing in needs the password and then the code; the cookie is HttpOnly an
 
 test("behind HTTPS the cookie is Secure", async () => {
   const sb = await newDemo();
-  const pw = await password(sb, "sarah@airevalleyhearing.example");
+  const pw = await password(sb, "sarah@airevalleyeyecare.example");
   const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: await demoCode(pw.data.challenge) }, { "X-Forwarded-Proto": "https" });
   assert.match(r.setCookie, /; Secure/);
 });
 
 test("wrong passwords lock the account; unknown emails get the same answer", async () => {
   const sb = await newDemo();
-  const unknown = await password(sb, "nobody@airevalleyhearing.example");
-  const wrong = await password(sb, "amira@airevalleyhearing.example", "guess");
+  const unknown = await password(sb, "nobody@airevalleyeyecare.example");
+  const wrong = await password(sb, "amira@airevalleyeyecare.example", "guess");
   assert.strictEqual(unknown.status, 401); assert.strictEqual(wrong.status, 401);
   assert.strictEqual(unknown.data.error, wrong.data.error, "doesn't reveal which emails exist");
-  for (let i = 1; i < LOCK_AFTER; i++) await password(sb, "amira@airevalleyhearing.example", "guess" + i);
-  const locked = await password(sb, "amira@airevalleyhearing.example");
+  for (let i = 1; i < LOCK_AFTER; i++) await password(sb, "amira@airevalleyeyecare.example", "guess" + i);
+  const locked = await password(sb, "amira@airevalleyeyecare.example");
   assert.strictEqual(locked.status, 429, "even the right password is refused while locked");
   assert.match(locked.data.error, /locked/);
-  assert.strictEqual((await password(sb, "tom@airevalleyhearing.example")).status, 200, "other accounts are unaffected");
+  assert.strictEqual((await password(sb, "tom@airevalleyeyecare.example")).status, 200, "other accounts are unaffected");
 });
 
 test("a code can't be used twice", async () => {
   const sb = await newDemo();
   const first = await signIn(sb);
   await call("POST", "/api/auth/logout", first.cookie);
-  const pw = await password(sb, "sarah@airevalleyhearing.example");
+  const pw = await password(sb, "sarah@airevalleyeyecare.example");
   const replay = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: first.code });
   assert.strictEqual(replay.status, 401);
   const fresh = await demoCode(pw.data.challenge);
@@ -90,7 +90,7 @@ test("the office can view as a clinician; clinicians can't switch; office-only a
   assert.strictEqual((await call("POST", "/api/admin/reset", office.cookie)).status, 403, "while viewing as Amira");
   await call("POST", "/api/auth/view-as", office.cookie, { userId: "u-admin" });
   assert.strictEqual((await call("GET", "/api/state", office.cookie)).data.user.id, "u-admin");
-  const amira = await signIn(sb, "amira@airevalleyhearing.example");
+  const amira = await signIn(sb, "amira@airevalleyeyecare.example");
   assert.strictEqual((await call("POST", "/api/auth/view-as", amira.cookie, { userId: "u-admin" })).status, 403);
 });
 
@@ -135,5 +135,5 @@ test("lots of failed attempts from one connection are slowed down", async () => 
   let last;
   for (let i = 0; i < 32; i++) last = await call("POST", "/api/auth/code", null, { challenge: "made-up", code: "123456" });
   assert.strictEqual(last.status, 429);
-  assert.strictEqual((await password(sb, "sarah@airevalleyhearing.example")).status, 429, "applies to every sign-in step");
+  assert.strictEqual((await password(sb, "sarah@airevalleyeyecare.example")).status, 429, "applies to every sign-in step");
 });

@@ -42,14 +42,14 @@
   <header class="b-hero">
     <div class="caps" style="color:var(--apricot)">Brand & design tokens</div>
     <h1 style="margin-top:12px">Domi</h1>
-    <p>A placeholder identity for the demo. The mark is a roof over sound waves: hearing care that comes to the patient's home. Swap the wordmark for the practice's own name and the system still holds.</p>
+    <p>A placeholder identity for the demo. The mark is an eye under a roof: eye care that comes to the patient's home. Swap the wordmark for the practice's own name and the system still holds.</p>
   </header>
 
   <section class="b-sec">
     <h2>Logo</h2>
     <div class="logos">
-      <div class="logo-card"><span class="caps">Primary</span><div class="big-lockup"><img src="/logo.svg" alt=""><div><b>Domi</b><span>HEARING AT HOME</span></div></div></div>
-      <div class="logo-card forest"><span class="caps" style="color:inherit;opacity:.7">On brand colour</span><div class="big-lockup"><img src="/logo.svg" alt="" style="box-shadow:0 0 0 2px rgba(255,255,255,.25);border-radius:16px"><div><b>Domi</b><span>HEARING AT HOME</span></div></div></div>
+      <div class="logo-card"><span class="caps">Primary</span><div class="big-lockup"><img src="/logo.svg" alt=""><div><b>Domi</b><span>EYE CARE AT HOME</span></div></div></div>
+      <div class="logo-card forest"><span class="caps" style="color:inherit;opacity:.7">On brand colour</span><div class="big-lockup"><img src="/logo.svg" alt="" style="box-shadow:0 0 0 2px rgba(255,255,255,.25);border-radius:16px"><div><b>Domi</b><span>EYE CARE AT HOME</span></div></div></div>
       <div class="logo-card"><span class="caps">Mark sizes</span><div class="marks"><img src="/logo.svg" width="96" height="96" alt=""><img src="/logo.svg" width="48" height="48" alt=""><img src="/logo.svg" width="32" height="32" alt=""><img src="/logo.svg" width="20" height="20" alt=""></div></div>
     </div>
   </section>
@@ -65,7 +65,7 @@
     <div>
       <div class="type-row"><span class="mono muted">Display · Instrument Serif</span><span style="font:400 56px/1 var(--f-display)">Today across the team</span></div>
       <div class="type-row"><span class="mono muted">Numbers · Instrument Serif</span><span style="font:400 44px/1 var(--f-display)">£170 recovered</span></div>
-      <div class="type-row"><span class="mono muted">Heading · Jakarta 600</span><span style="font-weight:600;font-size:18px">Margaret Holt · Hearing aid fitting</span></div>
+      <div class="type-row"><span class="mono muted">Heading · Jakarta 600</span><span style="font-weight:600;font-size:18px">Margaret Holt · Glasses delivery &amp; fitting</span></div>
       <div class="type-row"><span class="mono muted">Body · Jakarta 400</span><span>A home visit has opened up today at 11:00. The first person to reply YES gets it.</span></div>
       <div class="type-row"><span class="mono muted">Label · Jakarta 700 caps</span><span class="caps">Waiting list</span></div>
       <div class="type-row"><span class="mono muted">Data · JetBrains Mono</span><span class="mono">10:20 · 11:00–12:15 · 07700 900533</span></div>
@@ -85,7 +85,7 @@
   const T = [
     ["Canvas","#F4F6F3","#0E1513"],["Surface","#FFFFFF","#151E1B"],["Subtle","#EBEFEA","#1C2723"],["Ink","#15241F","#E7EEEA"],["Muted","#5C6B65","#95A59F"],["Line","#DCE3DE","#26332E"],
     ["Forest","#1E4D40","#7CC3A6"],["Forest soft","#DCEAE3","#1D3A31"],["Apricot","#E07B4F","#F09A72"],["Apricot soft","#FBE7DC","#3A251A"],["Apricot ink","#8A3D1C","#F6C1A6"],
-    ["OK","#2F7A4F","#6CC592"],["Warning","#A86A12","#E6B058"],["Critical","#B4443A","#EE7F74"],["Right ear","#C2413A","#F07B72"],["Left ear","#2E5FA8","#86AAF0"],
+    ["OK","#2F7A4F","#6CC592"],["Warning","#A86A12","#E6B058"],["Critical","#B4443A","#EE7F74"],
   ];
   document.getElementById("swatches").innerHTML = T.map(([n, l, d]) =>
     `<div class="swatch"><div class="chip"><span style="background:${l}"></span><span style="background:${d}"></span></div><div class="meta"><b>${n}</b><span class="mono muted">${l} · ${d}</span></div></div>`).join("");

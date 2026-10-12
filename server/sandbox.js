@@ -15,10 +15,11 @@ const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I/L, so codes
 let openDb = null; // injected by db.js to avoid a require cycle
 // reminderAt: when the day-before reminders go out (minutes after midnight on the demo clock).
 // practice: the practice's name, as patients see it in texts, on the booking page and on invoices. The product is Domi.
-const SAMPLE_PRACTICE = "Aire Valley Hearing"; // invented for the demo
+const SAMPLE_PRACTICE = "Aire Valley Eyecare"; // invented for the demo
 const defaults = () => ({ practice: SAMPLE_PRACTICE, mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60,
-  // Price per visit type, in pounds. 0 = no invoice (fittings: the aids are invoiced separately).
-  prices: { assess: 95, fit: 0, wax: 60, review: 45, follow: 45 } });
+  // Price per visit type, in pounds. 0 = no invoice to the patient: NHS sight tests are claimed from the NHS
+  // on a GOS 6 form, and glasses are charged when they're ordered (or paid for with an NHS voucher).
+  prices: { sight: 0, exam: 65, dispense: 0, repair: 15, follow: 35 } });
 
 function newCode() {
   let c;

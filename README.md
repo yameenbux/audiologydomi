@@ -25,7 +25,7 @@ Made by YSB Ventures Ltd · [domi.ysbdesigns.uk](https://domi.ysbdesigns.uk)
 > [!NOTE]
 > **Reading this without a technical background?** Start at *The problem*, *What's
 > in it* and *One cancellation, end to end*. Those three explain what Domi is and
-> what it does for a home-visit hearing practice. Everything after *How the
+> what it does for a domiciliary optician. Everything after *How the
 > pieces fit* is for whoever maintains the code.
 
 ### How to read the diagrams
@@ -54,15 +54,26 @@ about it.
 
 Plenty of systems keep a diary. What Domi does differently is **act on the gap**:
 it works out who fits it (home at that time, close enough, the visit fits the
-time including the drive), asks them by text, and books the first yes without
-anyone in the office touching it. It also books new visits **by the road**,
+time including the drive, and the rules allow it), asks them by text, and books
+the first yes without anyone in the office touching it. It also books new visits **by the road**,
 putting them where they add the least driving, weighed against how soon the
 patient needs to be seen.
+
+> [!WARNING]
+> **NHS sight tests can't fill a same-day gap.** In England, an NHS sight test at
+> home needs a pre-visit notification (PVN) to PCSE at least 48 hours ahead
+> (weekends and bank holidays don't count), and swapping a patient in at shorter
+> notice needs the ICB's approval first. So Domi only offers an NHS sight test
+> for a gap 48 hours or more away. A gap today goes to a glasses delivery, a repair,
+> a follow-up or a private exam, none of which need a notification. Each NHS test
+> booked or cancelled goes on a *PCSE notifications* list with its deadline; the
+> office still lodges it in PCSE Online by hand. Scotland, Wales and Northern
+> Ireland have their own rules, which Domi doesn't model yet.
 
 > [!TIP]
 > **The practice keeps its own name.** Patients see the practice's name in every
 > text, on the booking page and on invoices, never "Domi". In the demo the sample
-> practice is the invented *Aire Valley Hearing*, and the office can change it
+> practice is the invented *Aire Valley Eyecare*, and the office can change it
 > (Waiting list → *Texts are signed*), so a prospect can see the demo with their
 > own name.
 
@@ -83,18 +94,19 @@ patient needs to be seen.
 | | |
 | :--- | :--- |
 | **Office view** | Every clinician's diary for any day this week, a week grid showing how full each round is, the waiting list, and every text sent. Cancel any visit, today or later in the week, to start a refill. Fits a laptop or a tablet |
-| **Clinician view** | Phone-first. Today's round with drive times, patient records (alerts, audiogram, aids, history), quick note chips, *On my way* (texts the patient), *Arrived*, *Complete visit* |
-| **Refill engine** | Hard rules: same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons |
+| **Clinician view** | Phone-first. Today's round with drive times, patient records (alerts, last prescription, glasses, history), quick note chips, *On my way* (texts the patient), *Arrived*, *Complete visit* |
+| **Refill engine** | Hard rules: only an optometrist for eye examinations (not a dispensing optician), NHS sight tests only with 48 hours for PCSE, texts only to patients who take them (not those who asked for calls), same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons |
 | **Offers that respect the clock** | Days or hours away: one person at a time (patients who need 24 hours' notice qualify for later days), with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready |
 | **Patients cancel by text** | A patient texting CANCEL cancels the visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone |
 | **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. Domi searches the whole week for every gap where the visit fits, including the drive in and on to the next patient, and ranks them by the extra driving, weighed against how soon it is. Booking texts the patient and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, from the office's own fee per visit |
 | **Day-before reminders** | Every visit tomorrow gets a reminder text at the practice's reminder time (17:00 by default). A CANCEL reply refills that slot a day ahead |
 | **Route map** | Each clinician's day on a map: numbered stops, drive minutes per leg, the drive home, and totals. Drawn from coordinates, so it needs no map service and works offline |
-| **Patient booking page** | `/book/<practice code>`: large text, one question at a time. Only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Fittings stay with the office |
-| **Recalls** | Patients due a review join the refill pool, so a cancellation near them goes to someone due anyway. The office can text them the booking page |
+| **Patient booking page** | `/book/<practice code>`: large text, one question at a time. Only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. NHS sight tests start two days out, for the PCSE notice. Glasses deliveries stay with the office, because they wait for the lab |
+| **PCSE notifications** | Every NHS sight test booked adds *Lodge* with the latest time it can go in; every one cancelled adds *Cancel*, so the notification and the GOS 6 claim still match. The office ticks them off. Sending them to PCSE automatically is on the roadmap |
+| **Recalls** | Patients due a sight test (yearly from 70) or a pressures recheck join the refill pool, so a cancellation near them goes to someone due anyway. The office can text them the booking page |
 | **Mileage & utilisation** | Per clinician and day: time booked, driving time, estimated miles and their value at HMRC's 45p rate. Downloads as CSV |
-| **Invoicing** | Completing a visit raises an invoice at the practice's price for that visit type (£0 = none). Mark paid by card, cash or transfer, void, or print. No VAT is added |
+| **Invoicing** | Completing a visit raises an invoice at the practice's price for that visit type (£0 = none: NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered). Mark paid by card, cash or transfer, void, or print. No VAT is added |
 | **Offline clinician app** | A service worker keeps the app on the phone. Today's round and records are saved on the device; notes and visit updates made without signal sync in order when it returns. Signing out wipes the copy |
 | **Sign-in** | Password (scrypt) then a six-digit authenticator code (TOTP). Codes can't be reused; accounts lock after 5 wrong passwords; sessions end after 2 hours idle or 12 hours. The office can see every signed-in device and sign a lost phone out |
 | **Live updates** | Server-Sent Events. A change on the laptop reaches the phone within a second |
@@ -252,6 +264,7 @@ encoded with `+faststart` so it starts before it has fully downloaded.
 | Passwords, codes, sessions, phone pairing | `server/auth.js` |
 | The sample practice, its patients and diary | `server/db.js` |
 | Demo defaults: practice name, fee, prices, reminder time | `server/sandbox.js` |
+| Visit types, who can do them, and the PCSE 48-hour rule | `server/domain.js` |
 | The office and clinician screens | `public/app.js`, `public/app.css` |
 | What's marked *Soon*, and the roadmap | `ROADMAP` in `public/app.js` |
 | The patient booking page | `public/book.html` |
@@ -308,11 +321,11 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 
 1. On the laptop, click **Sarah Lane (office)**, then **Fill in the current code** and **Verify**. Click **Open on phone** and scan the QR code: your phone signs in as Amira in the same demo.
 2. Optional: under Waiting list, type the prospect's practice name into **Texts are signed**.
-3. Click **Peter Dunn, 11:00** → *Cancel and refill this slot*. The visit is 40 minutes away, so the top three are asked at once. Irene is ruled out: she's only free in the afternoons.
-4. Reply **NO** as Gerald, then **YES** as Margaret. Sylvia is told it's gone and keeps her place.
+3. Click **Peter Dunn, 11:00** (a glasses delivery) → *Cancel and refill this slot*. The visit is 40 minutes away, so the top three are asked at once. Gerald is urgent but ruled out: his is an NHS sight test, and PCSE needs 48 hours' notice. Irene is ruled out too: she's only free in the afternoons.
+4. Reply **NO** as Sylvia, then **YES** as Margaret: her new varifocals get fitted today. Geoffrey is told it's gone and keeps his place.
 5. Hold up the phone: the banner, the new visit and the text are already there. The income panel shows the visit recovered.
-6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. It refills with nobody in the office touching it, one patient at a time because there's more time.
-7. Click **Book a visit**, choose **Irene Battye** (afternoons only), and find slots. It offers 12:35 today with Amira, between Peter and Ken. Book it and show the phone.
+6. Click **Ken Ollerton, 13:30** → *Text CANCEL as Ken*. It refills with nobody in the office touching it, one patient at a time because there's more time. Ken's was an NHS sight test, so **PCSE notifications** now says to cancel his notification.
+7. Click **Book a visit**, choose **Irene Battye** (afternoons only, a repair), and find slots: every gap this week, ranked by the extra driving. Book the top one and show the phone. Then try **NHS sight test** for anyone: nothing before Wednesday, and Tom (a dispensing optician) never appears.
 8. Click **Week** to show how full each round is. Cancel a Thursday visit: with days to spare, it asks one person at a time.
 9. Click the pin on Amira's column for her route map. In **Reminders**, click *Send now*, then reply CANCEL as one of tomorrow's patients: the slot refills a day ahead.
 10. Click **Patient booking page**, open it on the phone and book as a patient. The office sees it arrive.
@@ -367,7 +380,7 @@ The contact address is `yameen@ysbdesigns.uk`, set as the website's `EMAIL` vari
 Three more that catch people out:
 
 - **Patients see the practice, not Domi.** Every patient text, the booking page and invoices use the practice's name (`settings.practice`). Domi's own name belongs on the staff screens.
-- **The demo practice is invented.** *Aire Valley Hearing* was checked against real UK practices before use. Don't swap in a real practice's name, staff or patients.
+- **The demo practice is invented.** *Aire Valley Eyecare* turned up no UK practice of that name in a web search before use; check again before showing it widely. Don't swap in a real practice's name, staff or patients.
 - **Patient texts are service messages, not marketing.** Keep them about the visit. Anything promotional sent to patients needs their consent under PECR.
 
 British English throughout: *colour*, *programme*, *licence* (the noun).

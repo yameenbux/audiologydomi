@@ -9,7 +9,7 @@ let base;
 test.before(async () => { const s = await start(0); base = `http://127.0.0.1:${s.address().port}`; });
 test.after(() => server.close());
 
-const EMAIL = { "u-admin": "sarah@airevalleyhearing.example", "u-c1": "amira@airevalleyhearing.example", "u-c2": "tom@airevalleyhearing.example", "u-c3": "priya@airevalleyhearing.example" };
+const EMAIL = { "u-admin": "sarah@airevalleyeyecare.example", "u-c1": "amira@airevalleyeyecare.example", "u-c2": "tom@airevalleyeyecare.example", "u-c3": "priya@airevalleyeyecare.example" };
 const PASSWORD = require("../server/auth").DEMO_PASSWORD;
 
 async function call(method, path, cookie, body, headers = {}) {
@@ -33,10 +33,12 @@ test("a cancellation 40 minutes out offers the top three at once; first YES wins
   const r = (await call("POST", "/api/appointments/a3/cancel", office.token, { reason: "Patient unwell" })).data;
   assert.strictEqual(r.outcome, "offered");
   assert.strictEqual(r.plan.mode, "parallel");
-  assert.deepStrictEqual(r.offers.map((o) => o.name), ["Gerald Wray", "Margaret Holt", "Sylvia Moon"]);
+  assert.deepStrictEqual(r.offers.map((o) => o.name), ["Margaret Holt", "Sylvia Moon", "Geoffrey Lumb"]);
+  const gerald = r.candidates.find((c) => c.patientId === "p16");
+  assert.ok(gerald && !gerald.ok && /needs 48h notice/.test(gerald.reason), "an urgent NHS sight test can't go in today: PCSE needs 48 hours");
   assert.match(r.offers[0].body, /first person to reply YES/);
 
-  const no = (await call("POST", "/api/demo/sms", office.token, { patientId: "p16", body: "No thanks" })).data;
+  const no = (await call("POST", "/api/demo/sms", office.token, { patientId: "p41", body: "No thanks" })).data;
   assert.strictEqual(no.action, "declined");
   assert.strictEqual(no.remaining, 2, "the others are still being asked");
 
@@ -105,45 +107,51 @@ test("opening a record is audited; background refreshes are not", async () => {
 
 test("booking a new visit: ranked slots, booked into the round, can't be double-booked", async () => {
   const office = await login("u-admin");
-  const found = (await call("POST", "/api/slots", office.token, { patientId: "p9", type: "review", avail: "pm" })).data;
+  const found = (await call("POST", "/api/slots", office.token, { patientId: "p9", type: "repair", avail: "pm" })).data;
   assert.ok(found.slots.length > 0, "Irene (LS17, afternoons) gets options");
   const pick = found.slots[0];
   assert.ok(pick.start >= 720);
   assert.strictEqual(pick.route, "road", "the sample patients' full postcodes are routed by road");
-  const booked = await call("POST", "/api/bookings", office.token, { patientId: "p9", type: "review", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
+  const booked = await call("POST", "/api/bookings", office.token, { patientId: "p9", type: "repair", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
   assert.strictEqual(booked.status, 200);
   const s = await state(office.token);
   const v = s.appts.find((a) => a.id === booked.data.appointmentId);
   assert.strictEqual(v.start, pick.start);
   assert.strictEqual(s.waitlist.find((w) => w.patientId === "p9").status, "booked", "taken off the waiting list");
   assert.ok(s.messages.some((m) => m.name === "Irene Battye" && /is booked (today|tomorrow|on \w+day)/.test(m.body)));
-  const again = await call("POST", "/api/bookings", office.token, { patientId: "p4", type: "review", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
+  const again = await call("POST", "/api/bookings", office.token, { patientId: "p4", type: "repair", avail: "pm", clinicianId: pick.clinicianId, day: pick.day, start: pick.start });
   assert.strictEqual(again.status, 409, "the same gap can't be booked twice");
 });
 
 test("booking a brand-new patient needs a postcode we can route to", async () => {
   const office = await login("u-admin");
-  const bad = await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "M1", type: "wax" });
+  const bad = await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "M1", type: "repair" });
   assert.strictEqual(bad.status, 400);
-  const full = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "ls167sn", type: "wax" })).data;
+  const full = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "ls167sn", type: "repair" })).data;
   assert.strictEqual(full.patient.pc, "LS16 7SN", "postcodes are tidied up");
-  const ok = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax" })).data;
+  const ok = (await call("POST", "/api/slots", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "repair" })).data;
   const pick = ok.slots[0];
-  const b = (await call("POST", "/api/bookings", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "wax", clinicianId: pick.clinicianId, day: pick.day, start: pick.start })).data;
+  const b = (await call("POST", "/api/bookings", office.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "repair", clinicianId: pick.clinicianId, day: pick.day, start: pick.start })).data;
   assert.ok(b.patientId);
   assert.ok((await state(office.token)).patients.some((p) => p.name === "Ruth Ingham"));
   const amira = await login("u-c1", office.sandbox);
-  assert.strictEqual((await call("POST", "/api/slots", amira.token, { patientId: "p9", type: "review" })).status, 403, "office only");
+  assert.strictEqual((await call("POST", "/api/slots", amira.token, { patientId: "p9", type: "repair" })).status, 403, "office only");
 });
 
 test("the week: future visits exist, can be booked into, and can't be started early", async () => {
   const office = await login("u-admin");
   const s = await state(office.token);
   for (let d = 1; d <= 4; d++) assert.ok(s.appts.some((a) => a.day === d), `visits on day ${d}`);
-  const slots = (await call("POST", "/api/slots", office.token, { patientId: "p13", type: "review" })).data.slots;
+  const slots = (await call("POST", "/api/slots", office.token, { patientId: "p13", type: "sight" })).data.slots;
+  assert.ok(slots.length && slots.every((x) => x.day * 1440 + x.start >= s.now + 48 * 60), "NHS sight tests only from 48 hours ahead");
   const later = slots.find((x) => x.day >= 2);
   assert.ok(later, "offers a slot later in the week");
-  const r = (await call("POST", "/api/bookings", office.token, { patientId: "p13", type: "review", clinicianId: later.clinicianId, day: later.day, start: later.start })).data;
+  const r = (await call("POST", "/api/bookings", office.token, { patientId: "p13", type: "sight", clinicianId: later.clinicianId, day: later.day, start: later.start })).data;
+  const task = (await state(office.token)).pcse.find((t) => t.appointmentId === r.appointmentId);
+  assert.ok(task && task.action === "lodge" && task.status === "todo", "the office is told to lodge the PCSE notification");
+  assert.match(task.lodgeBy, /^(Mon|Tue|Wed) \d/);
+  assert.strictEqual((await call("POST", `/api/pcse/${task.id}/done`, office.token)).status, 200);
+  assert.strictEqual((await state(office.token)).pcse.find((t) => t.id === task.id).status, "done");
   const msg = (await state(office.token)).messages.find((m) => m.name === "Sylvia Moon" && /is booked/.test(m.body));
   assert.match(msg.body, /on (Wednesday|Thursday|Friday) 1\d Oct/, "the text names the day");
   const amira = await login("u-" + later.clinicianId, office.sandbox);
@@ -157,8 +165,8 @@ test("cancelling a visit later in the week refills it one at a time, and 24h-not
   const future = s.appts.find((a) => a.day === 3 && a.clinicianId === "c3");
   const r = (await call("POST", `/api/appointments/${future.id}/cancel`, office.token, { reason: "Patient asked to rebook" })).data;
   assert.strictEqual(r.plan.mode, "single", "days away, so one person at a time");
-  const edna = r.candidates.find((c) => c.patientId === "p11");
-  assert.ok(!edna || edna.reason !== "Needs 24h notice", "needing 24h notice doesn't rule anyone out for Thursday");
+  const ken = r.candidates.find((c) => c.patientId === "p31");
+  assert.ok(ken && ken.reason !== "Needs 24h notice", "needing 24h notice doesn't rule anyone out for Thursday");
   assert.match(r.offers[0].body, /on Thursday 15 Oct/);
 });
 
@@ -189,7 +197,7 @@ test("route map data: stops with coordinates, legs, the drive home, and a propos
   assert.ok(r.stops.every((s) => s.lat && s.lon && s.leg.min > 0), "every stop placed, every leg timed");
   assert.ok(r.totals.miles > 0 && r.totals.driveMin >= r.stops.reduce((t, s) => t + s.leg.min, 0));
   assert.ok(r.districts.some((d) => d.name === "LS6"));
-  const p = (await call("GET", "/api/route?clinician=c1&day=0&pc=LS17%207LQ&start=755&type=review&name=Irene", office.token)).data;
+  const p = (await call("GET", "/api/route?clinician=c1&day=0&pc=LS17%207LQ&start=755&type=repair&name=Irene", office.token)).data;
   const i = p.stops.findIndex((s) => s.proposed);
   assert.ok(i > 0 && p.stops[i - 1].start < 755 && p.stops[i + 1].start > 755, "in time order");
   const amira = await login("u-c1", office.sandbox);
@@ -202,15 +210,15 @@ test("patients book online: only efficient slots from tomorrow, nothing about ot
   const code = office.sandbox;
   assert.strictEqual((await call("GET", "/api/public/NOPE99")).status, 404);
   const info = (await call("GET", `/api/public/${code}`)).data;
-  assert.ok(!info.types.some((t) => t.key === "fit"), "fittings are booked by the office");
-  assert.strictEqual((await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "fit" })).status, 400);
-  const res = await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "review", avail: "any" });
+  assert.ok(!info.types.some((t) => t.key === "dispense"), "glasses deliveries are booked by the office");
+  assert.strictEqual((await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "dispense" })).status, 400);
+  const res = await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "repair", avail: "any" });
   const slots = res.data.slots;
   assert.ok(slots.length > 0 && slots.length <= 4);
   assert.ok(slots.every((s) => s.day >= 1), "not today");
   const names = (await state(office.token)).patients.map((p) => p.name);
   assert.ok(!names.some((n) => JSON.stringify(res.data).includes(n)), "never another patient's name");
-  const form = { pc: "LS16 7SN", type: "review", avail: "any", ref: slots[0].ref, name: "Margery Hollis", phone: "07700 900777", addr: "8 Holt Park Crescent", consent: true };
+  const form = { pc: "LS16 7SN", type: "repair", avail: "any", ref: slots[0].ref, name: "Margery Hollis", phone: "07700 900777", addr: "8 Holt Park Crescent", consent: true };
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, phone: "0113 496 0000" })).status, 400, "needs a mobile to text");
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, consent: false })).status, 400);
   const ok = await call("POST", `/api/public/${code}/bookings`, null, form);
@@ -223,16 +231,19 @@ test("patients book online: only efficient slots from tomorrow, nothing about ot
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, name: "Someone Else", phone: "07700 900778" })).status, 409, "that time has gone");
 });
 
-test("recalls join the refill pool: a cancellation can go to someone due a review; texting and removing recalls", async () => {
+test("recalls join the refill pool: a cancellation can go to someone due a sight test; texting and removing recalls", async () => {
   const office = await login("u-admin");
   const s = await state(office.token);
   assert.strictEqual(s.recalls.length, 4);
   const brenda = s.recalls.find((r) => r.patientId === "p40");
   // Cancel a later-week visit in Amira's patch: recall patients are candidates, with the reason shown.
-  const visit = s.appts.find((a) => a.day === 2 && a.clinicianId === "c1" && a.type !== "assess");
+  // Thursday is more than 48 hours away, so her NHS sight test can be notified to PCSE in time.
+  const visit = s.appts.find((a) => a.day === 3 && a.clinicianId === "c1" && a.type === "sight");
   const r = (await call("POST", `/api/appointments/${visit.id}/cancel`, office.token, { reason: "Patient asked to rebook" })).data;
   const cand = r.candidates.find((c) => c.patientId === "p40");
   assert.ok(cand && cand.ok && cand.why.some((w) => /Recall 12 days overdue/.test(w)), "Brenda is in the pool");
+  const cancelTask = (await state(office.token)).pcse.find((t) => t.appointmentId === visit.id);
+  assert.strictEqual(cancelTask.action, "cancel", "the cancelled NHS visit's notification has to be withdrawn");
   // Text a recall: link to the practice's booking page.
   const t = (await call("POST", `/api/recalls/${s.recalls.find((x) => x.patientId === "p43").id}/text`, office.token)).data;
   assert.strictEqual(t.status, "texted");
@@ -244,8 +255,8 @@ test("recalls join the refill pool: a cancellation can go to someone due a revie
   assert.ok(!after.waitlist.some((w) => w.patientId === "p42"));
   assert.strictEqual(after.recalls.find((x) => x.patientId === "p42").status, "dismissed");
   // Booking a recall patient closes the recall.
-  const slot = (await call("POST", "/api/slots", office.token, { patientId: "p40", type: "review" })).data.slots[0];
-  await call("POST", "/api/bookings", office.token, { patientId: "p40", type: "review", clinicianId: slot.clinicianId, day: slot.day, start: slot.start });
+  const slot = (await call("POST", "/api/slots", office.token, { patientId: "p40", type: "sight" })).data.slots[0];
+  await call("POST", "/api/bookings", office.token, { patientId: "p40", type: "sight", clinicianId: slot.clinicianId, day: slot.day, start: slot.start });
   assert.strictEqual((await state(office.token)).recalls.find((x) => x.id === brenda.id).status, "booked");
 });
 
@@ -265,46 +276,46 @@ test("week report: utilisation, driving, miles and mileage value per clinician a
   assert.strictEqual((await call("GET", "/api/reports/week", tom.token)).status, 403);
 });
 
-test("invoicing: completing a visit raises an invoice at the practice's price; pay, void, and no invoice for fittings", async () => {
+test("invoicing: completing a visit raises an invoice at the practice's price; pay, void, and no invoice for glasses deliveries", async () => {
   const office = await login("u-admin");
   const amira = await login("u-c1", office.sandbox);
-  const done = (await call("POST", "/api/appointments/a2/status", amira.token, { status: "done" })).data; // Hilda, wax, live
+  const done = (await call("POST", "/api/appointments/a2/status", amira.token, { status: "done" })).data; // Hilda, repair, live
   assert.strictEqual(done.invoice.number, "INV-0001");
-  assert.strictEqual(done.invoice.totalPence, 6000);
+  assert.strictEqual(done.invoice.totalPence, 1500);
   let list = (await call("GET", "/api/invoices", office.token)).data;
-  assert.strictEqual(list.totals.unpaidPence, 6000);
+  assert.strictEqual(list.totals.unpaidPence, 1500);
   const one = (await call("GET", `/api/invoices/${done.invoice.id}`, office.token)).data;
   assert.strictEqual(one.patient.name, "Hilda Marsh");
   assert.strictEqual((await call("POST", `/api/invoices/${done.invoice.id}/pay`, office.token, { method: "iou" })).status, 400);
   assert.strictEqual((await call("POST", `/api/invoices/${done.invoice.id}/pay`, office.token, { method: "card" })).data.status, "paid");
   assert.strictEqual((await call("POST", `/api/invoices/${done.invoice.id}/void`, office.token)).status, 409, "paid invoices can't be voided");
   list = (await call("GET", "/api/invoices", office.token)).data;
-  assert.strictEqual(list.totals.paidPence, 6000);
+  assert.strictEqual(list.totals.paidPence, 1500);
   assert.strictEqual((await call("GET", "/api/invoices", amira.token)).status, 403, "office only");
-  // Peter's fitting: price 0 by default (aids invoiced separately), so no invoice.
+  // Peter's glasses delivery: price 0 by default (the glasses were charged when ordered), so no invoice.
   for (const st of ["enroute", "live", "done"]) await call("POST", "/api/appointments/a3/status", amira.token, { status: st });
   assert.strictEqual((await call("GET", "/api/invoices", office.token)).data.totals.count, 1);
   // Prices are the practice's own.
-  const st = (await call("PUT", "/api/settings", office.token, { prices: { fit: 120 } })).data;
-  assert.strictEqual(st.prices.fit, 120);
+  const st = (await call("PUT", "/api/settings", office.token, { prices: { dispense: 120 } })).data;
+  assert.strictEqual(st.prices.dispense, 120);
 });
 
 test("texts are signed with the practice's name, which the office can change; the product stays Domi", async () => {
   const office = await login("u-admin");
   const st = await state(office.token);
-  assert.strictEqual(st.settings.practice, "Aire Valley Hearing");
+  assert.strictEqual(st.settings.practice, "Aire Valley Eyecare");
   const first = (await call("POST", "/api/appointments/a3/cancel", office.token, { reason: "Patient unwell" })).data;
-  assert.match(first.offers[0].body, /it's Aire Valley Hearing\./);
+  assert.match(first.offers[0].body, /it's Aire Valley Eyecare\./);
   assert.doesNotMatch(first.offers[0].body, /Domi/);
   // The office renames the practice: new texts and the booking page use the new name
-  assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: "  Kirkby   Hearing\u0007 " })).status, 200);
-  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Hearing");
+  assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: "  Kirkby   Eyecare\u0007 " })).status, 200);
+  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Eyecare");
   assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: " " })).status, 200);
-  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Hearing", "a blank name is ignored");
+  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Eyecare", "a blank name is ignored");
   const pub = (await call("GET", "/api/public/" + st.sandbox)).data;
-  assert.strictEqual(pub.practice, "Kirkby Hearing");
+  assert.strictEqual(pub.practice, "Kirkby Eyecare");
   const ken = (await call("POST", "/api/demo/sms", office.token, { patientId: "p4", body: "CANCEL" })).data;
   const texts = JSON.stringify((await state(office.token)).messages);
-  assert.match(texts, /Kirkby Hearing/);
+  assert.match(texts, /Kirkby Eyecare/);
   assert.ok(ken);
 });

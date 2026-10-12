@@ -243,9 +243,10 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const waitlist = isAdmin ? db.prepare("SELECT * FROM waitlist ORDER BY added_seq").all().map(map.wait) : [];
   const recalls = isAdmin ? db.prepare("SELECT * FROM recalls ORDER BY due_day").all().map(map.recall) : [];
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
+  const pcse = isAdmin ? svc.pcseList() : [];
   const sb = sandbox.current();
   return {
-    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers,
+    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse,
     metrics: isAdmin ? svc.metrics() : null, settings: sb.settings,
   };
 });
@@ -337,6 +338,7 @@ route("GET", "/api/reports/week", {}, (req, body, user) => { needAdmin(user); re
 // Recalls: text the patient a booking link, or take them off the list.
 const publicBase = (req) => process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${req.headers.host}`;
 route("POST", "/api/recalls/:id/text", {}, (req, body, user, { id }) => { needAdmin(user); return svc.textRecall(id, `${publicBase(req)}/book/${sandbox.current().id}`, user); });
+route("POST", "/api/pcse/:id/done", {}, (req, body, user, { id }) => { needAdmin(user); return svc.completePcse(id, user); });
 route("POST", "/api/recalls/:id/dismiss", {}, (req, body, user, { id }) => { needAdmin(user); return svc.dismissRecall(id, user); });
 
 // A clinician's day as a map: office for anyone, a clinician for their own round. Optional proposed visit.

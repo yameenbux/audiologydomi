@@ -1,17 +1,19 @@
 flowchart TB
     X["<b>A visit is cancelled</b><br/>by the office, or the<br/>patient texts CANCEL"]
     F["<b>Slot freed</b><br/>its time, place<br/>and drive either side"]
-    RK["<b>Rank</b> · server/refill.js<br/>hard rules first: home then,<br/>fits the gap, near the patch"]
+    RK["<b>Rank</b> · server/refill.js<br/>hard rules first: home then,<br/>fits the gap, near the patch,<br/>NHS tests 48h out for PCSE"]
     PL["<b>Plan the offer</b><br/>days away: one at a time<br/>under an hour: top three"]
     TX["<b>Text them</b> · server/notify.js<br/>Twilio, or the demo outbox"]
     YES["<b>First YES</b><br/>booked in one transaction;<br/>no double-booking"]
     LIVE["<b>Clinician's phone</b><br/>updates within a second<br/>server/bus.js · SSE"]
     OTH["<b>Everyone else</b><br/>told it's gone,<br/>keeps their place"]
     NOR["<b>No reply in time</b><br/>the next people<br/>are asked"]
+    PV["<b>PCSE list</b><br/>NHS test booked: lodge;<br/>cancelled: cancel"]
     TOO["<b>Too close to confirm</b><br/>left open, not offered<br/>to someone who can't make it"]
 
     X --> F --> RK --> PL --> TX --> YES --> LIVE
     YES --> OTH
+    YES -.-> PV
     TX -.->|"window closes"| NOR -.-> TX
     PL -.->|"no time left"| TOO
 
@@ -21,5 +23,5 @@ flowchart TB
     classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
     class X ext
     class F,RK,PL,TX,YES core
-    class LIVE,OTH live
+    class LIVE,OTH,PV live
     class NOR,TOO ext
