@@ -653,5 +653,20 @@ button.rm-row:hover { background: var(--subtle) }
 
 /* "Powered by Domi" at the foot of a practice's branded demo */
 .powered { text-align: center; font-size: 13px; color: var(--muted); padding: 28px 16px calc(28px + env(safe-area-inset-bottom, 0px)) }
+.powered p { margin: 0 }
+.powered p + p { margin-top: 6px }
+.powered .legal a { font-weight: 500 }
 .powered a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px }
 .powered a:hover { color: var(--ink) }
+
+/* Breadcrumbs on the patient-facing pages */
+.crumbs { margin: 16px auto 0; padding: 0 20px; font-size: 14px; color: var(--muted) }
+.crumbs ol { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0 }
+.crumbs li + li::before { content: "›"; margin-right: 6px }
+.crumbs a { color: inherit }
+.crumbs [aria-current] { color: var(--ink); font-weight: 600 }
+
+/* Form mistakes, shown under the field they belong to; and the spam trap people never see */
+.ferr { color: var(--danger, #B3261E); font-size: 15px; font-weight: 600; margin: 6px 0 0 }
+[aria-invalid="true"] { box-shadow: inset 0 0 0 2px var(--danger, #B3261E) !important }
+.trap { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden }

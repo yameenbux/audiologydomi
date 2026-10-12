@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex">
 <title>Book a home visit</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/app.css">
 <script src="/powered.js"></script>
@@ -37,6 +39,8 @@
   .bk-steps i { height: 6px; flex: 1; border-radius: 99px; background: var(--subtle) }
   .bk-steps i.on { background: var(--forest) }
 </style>
+<meta name="description" content="Book a home visit at a time that suits you. Choose what the visit is for and see the times free near you.">
+<!--ANALYTICS-->
 </head>
 <body class="bk">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -48,6 +52,7 @@
 <script>
 (function () {
 "use strict";
+const STARTED = Date.now(); // how long it took: people take more than a few seconds, bots don't
 const code = (location.pathname.split("/")[2] || "").toUpperCase();
 const root = document.getElementById("root");
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -86,15 +91,17 @@ function view(e) {
     <button class="linkish bk-back" type="button" data-back="1">Change postcode or visit type</button>`;
   if (S.step === 3) return `${steps(3)}<div class="caps">Your details</div><h1>Nearly done</h1>
     <p class="bk-lead">${esc(longDay(f.choice.dayLabel))}, ${esc(f.choice.time.replace("–", " to "))}, with ${esc(f.choice.clinician)}.</p>
-    <form id="f3">
+    <form id="f3" novalidate>
       <label class="bk-q" for="nm">Your full name</label><input class="input" id="nm" autocomplete="name" value="${esc(f.name || "")}" required>
       <label class="bk-q" for="ph">Mobile number</label><input class="input" id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="07700 900000" value="${esc(f.phone || "")}" required>
       <label class="bk-q" for="ad">First line of your address</label><input class="input" id="ad" autocomplete="address-line1" value="${esc(f.addr || "")}" required>
       <p class="muted" style="margin:8px 0 0;font-size:16px">Postcode ${esc(f.pc)}</p>
       <label class="bk-choice" style="margin-top:20px"><input type="checkbox" id="ok" ${f.consent ? "checked" : ""}><span>Text me about this visit<small>A confirmation, a reminder the day before, and when the clinician is on the way.</small></span></label>
+      <label class="trap" aria-hidden="true">Leave this empty<input id="website" name="website" tabindex="-1" autocomplete="off"></label>
       ${err(e)}<button class="btn lg" type="submit">Book this visit</button>
     </form><button class="linkish bk-back" type="button" data-back="2">Choose another time</button>`;
-  return `<div class="bk-done"><div class="caps">You're booked</div><b>${esc(longDay(S.done.dayLabel))} at ${esc(S.done.time.slice(0, 5))}</b>
+  document.title = "You're booked · " + S.info.practice;
+  return `<div class="bk-done"><div class="caps">Thank you, you're booked</div><b>${esc(longDay(S.done.dayLabel))} at ${esc(S.done.time.slice(0, 5))}</b>
     <p style="margin:0">${esc(S.done.clinician)} will visit you at home. We've sent a text to confirm, and we'll remind you the day before.</p></div>
     <p class="bk-note"><svg><use href="#i-msg"/></svg><span>Can't make it? Reply CANCEL to our text and we'll offer the time to someone else who is waiting.</span></p>`;
 }
@@ -118,7 +125,15 @@ root.addEventListener("submit", async (ev) => {
       f.choice = S.slots.find((s) => s.ref === val("slot")); S.step = 3;
     } else if (ev.target.id === "f3") {
       Object.assign(f, { name: document.getElementById("nm").value, phone: document.getElementById("ph").value, addr: document.getElementById("ad").value, consent: document.getElementById("ok").checked });
-      S.done = await api("POST", `/api/public/${code}/bookings`, { pc: f.pc, type: f.type, avail: f.avail, ref: f.choice.ref, name: f.name, phone: f.phone, addr: f.addr, consent: f.consent });
+      // Each mistake shows next to its field; the server checks everything again.
+      const errors = [];
+      if (f.name.trim().length < 2) errors.push([document.getElementById("nm"), "Please enter your full name."]);
+      if (!/^(\+44|0)7\d{9}$/.test(f.phone.replace(/[\s()-]/g, ""))) errors.push([document.getElementById("ph"), "Please enter a UK mobile number, starting 07, so we can text you about the visit."]);
+      if (f.addr.trim().length < 4) errors.push([document.getElementById("ad"), "Please enter the first line of your address."]);
+      if (!f.consent) errors.push([document.getElementById("ok"), "Please agree to us texting you about this visit."]);
+      if (!window.DomiFieldErrors(ev.target, errors)) { btn.disabled = false; return; }
+      S.done = await api("POST", `/api/public/${code}/bookings`, { pc: f.pc, type: f.type, avail: f.avail, ref: f.choice.ref, name: f.name, phone: f.phone, addr: f.addr, consent: f.consent,
+        website: document.getElementById("website").value, formMs: Date.now() - STARTED });
       S.step = 4;
     }
     render();
@@ -136,6 +151,7 @@ api("GET", `/api/public/${code}`).then((info) => {
   if (b && b.logo) { top.innerHTML = `<img src="${esc(b.logo)}" alt="${esc(info.practice)}" referrerpolicy="no-referrer" style="height:52px;width:auto;display:block">`; top.querySelector("img").addEventListener("error", () => { top.textContent = info.practice; }, { once: true }); }
   else top.textContent = info.practice;
   window.DomiPowered(b);
+  window.DomiCrumbs(b, info.practice, "Book a visit", 620);
   document.title = "Book a home visit · " + info.practice; render();
 })
   .catch((e) => { root.innerHTML = `<h1>Booking link not found</h1><p class="bk-lead">${esc(e.message)}</p>`; });

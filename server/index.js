@@ -72,8 +72,12 @@ const route = (method, pattern, opts, handler) => {
 };
 
 const send = (res, status, data, cookies = []) => {
-  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...(cookies.length ? { "Set-Cookie": cookies } : {}) });
-  res.end(JSON.stringify(data));
+  let body = Buffer.from(JSON.stringify(data));
+  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store", Vary: "Accept-Encoding", ...(cookies.length ? { "Set-Cookie": cookies } : {}) };
+  // The office's state is tens of kilobytes; gzip makes it a fraction of that on a phone connection.
+  if (body.length > 2048 && /\bgzip\b/.test((res.req && res.req.headers["accept-encoding"]) || "")) { body = require("node:zlib").gzipSync(body); headers["Content-Encoding"] = "gzip"; }
+  res.writeHead(status, headers);
+  res.end(body);
 };
 async function readBody(req, max = 1e5) {
   // Collect bytes, then decode once, so a name like Siân split across two chunks isn't mangled.
@@ -364,13 +368,28 @@ route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) 
   return { practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() };
 });
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
-route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user, { code }) => { limitPublic(req, "refer", 10); return sandbox.run(practice(code), () => svc.submitReferral(body)); });
+/**
+ * Spam protection for the public forms, on top of the per-connection limits: a hidden "website" box that people never
+ * see (bots fill every field), and a minimum time on the form (people take longer than a few seconds; scripts posting
+ * straight here don't send it at all). A bot gets an ordinary-looking success and nothing is saved, so it can't learn
+ * what tripped it.
+ */
+const looksLikeBot = (body) => !!String(body.website || "").trim() || !(Number(body.formMs) >= 3000);
+route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user, { code }) => {
+  limitPublic(req, "refer", 10);
+  if (looksLikeBot(body)) return { ok: true };
+  return sandbox.run(practice(code), () => svc.submitReferral(body));
+});
 route("POST", "/api/referrals/:id/accept", {}, (req, body, user, { id }) => { needAdmin(user); return svc.acceptReferral(id, body, user); });
 route("POST", "/api/referrals/:id/decline", {}, (req, body, user, { id }) => { needAdmin(user); return svc.declineReferral(id, body.reason, user); });
 // The cancellation link a patient's family can use instead of texting: /cancel/<practice code>/<token>.
 route("GET", "/api/public/:code/visit/:token", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "visit", 30); const sb = practice(code); return sandbox.run(sb, () => ({ practice: sb.settings.practice, brand: brands.pub(sb.brand), ...svc.publicVisit(token) })); });
 route("POST", "/api/public/:code/visit/:token/cancel", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "cancel", 10); return sandbox.run(practice(code), () => svc.publicCancel(token, body)); });
-route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
+route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => {
+  limitPublic(req, "book", 10);
+  if (looksLikeBot(body)) return { ok: true, dayLabel: "", time: "", clinician: "", when: "" };
+  return sandbox.run(practice(code), () => svc.publicBook(body));
+});
 
 // Invoices: raised automatically when a visit is completed.
 route("GET", "/api/invoices", {}, (req, body, user) => { needAdmin(user); return svc.invoiceList(); });
@@ -474,9 +493,21 @@ route("GET", "/api/debug/table/:name", {}, (req, body, user, { name }) => {
 });
 
 /* ---------- Static files ---------- */
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".png": "image/png", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2" };
+const zlib = require("node:zlib");
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8" };
+const TEXT = new Set([".html", ".js", ".css", ".svg", ".json", ".webmanifest", ".txt"]);
+// The Domi website: the demo's privacy policy and terms live there, so there's only ever one version of each.
+const SITE = (process.env.MARKETING_URL || "https://domi.ysbdesigns.uk/").replace(/\/?$/, "/");
+// Cloudflare Web Analytics (cookieless), when a token is set. Never on the cancellation page: its address holds the
+// private token that cancels a visit, and analytics records page addresses.
+const BEACON = /^[0-9a-f]{32}$/i.test(process.env.CF_BEACON_TOKEN || "") ? process.env.CF_BEACON_TOKEN : null;
+const beaconTag = BEACON ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${BEACON}"}'></script>` : "";
+const gzipped = new Map(); // etag -> compressed bytes, so each file is compressed once
 function serveStatic(req, res) {
-  let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
+  let p;
+  try { p = decodeURIComponent(new URL(req.url, "http://x").pathname); } catch { res.writeHead(400, { "Content-Type": "text/plain" }); return res.end("Bad request"); }
+  if (p === "/privacy" || p === "/privacy/") { res.writeHead(301, { Location: SITE + "privacy/" }); return res.end(); }
+  if (p === "/terms" || p === "/terms/") { res.writeHead(301, { Location: SITE + "terms/" }); return res.end(); }
   if (p === "/") p = "/index.html";
   if (p === "/under-the-hood") p = "/under-the-hood.html";
   if (p === "/brand") p = "/brand.html";
@@ -488,11 +519,27 @@ function serveStatic(req, res) {
   // HTML, CSS and JS revalidate on every load (cheap 304s via ETag) so a redeploy shows up immediately;
   // fonts and images rarely change and can be cached for a day.
   fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found"); }
+    let status = 200, ext = path.extname(file);
+    if (err) {
+      // Anything that isn't a page gets a plain 404; a page address gets the friendly one.
+      if (ext && ext !== ".html") { res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found"); }
+      status = 404; ext = ".html"; data = fs.readFileSync(path.join(PUBLIC, "404.html"));
+    }
+    if (ext === ".html") {
+      data = Buffer.from(data.toString("utf8")
+        .replace("<!--ANALYTICS-->", p === "/cancel.html" ? "" : beaconTag)
+        .split("%%ORIGIN%%").join(publicBase(req).replace(/"/g, ""))
+        .split("%%SITE%%").join(SITE));
+    }
     const etag = '"' + crypto.createHash("sha1").update(data).digest("base64url").slice(0, 16) + '"';
-    if (req.headers["if-none-match"] === etag) { res.writeHead(304, { ETag: etag }); return res.end(); }
-    res.setHeader("ETag", etag);
-    res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": [".woff2", ".svg", ".png"].includes(path.extname(file)) ? "public, max-age=86400" : "no-cache" });
+    if (status === 200 && req.headers["if-none-match"] === etag) { res.writeHead(304, { ETag: etag }); return res.end(); }
+    const headers = { "Content-Type": MIME[ext] || "application/octet-stream", "Cache-Control": status === 404 ? "no-store" : [".woff2", ".svg", ".png", ".jpg"].includes(ext) ? "public, max-age=86400" : "no-cache", ETag: etag, Vary: "Accept-Encoding" };
+    // Text files are sent gzipped (often 70-80% smaller), which matters most on a clinician's phone signal.
+    if (TEXT.has(ext) && data.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+      if (!gzipped.has(etag)) { if (gzipped.size > 200) gzipped.clear(); gzipped.set(etag, zlib.gzipSync(data, { level: 9 })); }
+      data = gzipped.get(etag); headers["Content-Encoding"] = "gzip";
+    }
+    res.writeHead(status, headers);
     res.end(data);
   });
 }
@@ -509,7 +556,14 @@ auth.onRevoke((s, why) => {
 const sameOrigin = (req) => { const o = req.headers.origin; if (!o) return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
+  // Always HTTPS: behind Render's proxy a plain-HTTP request is sent to the HTTPS address, and browsers are told to
+  // use HTTPS from then on (HSTS). Local development (localhost) is left alone.
+  const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.host || "");
+  if (proto === "http" && !local) { res.writeHead(301, { Location: `https://${req.headers.host}${req.url}` }); return res.end(); }
+  if (proto === "https") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY"); // the app can't be framed by another site (clickjacking)
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("X-Robots-Tag", "noindex, nofollow"); // a demo with sample patients should never show up in search
   if (!url.pathname.startsWith("/api/")) return serveStatic(req, res);

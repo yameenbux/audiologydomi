@@ -7,11 +7,13 @@
 <meta name="description" content="The diary for healthcare that comes to the patient's home: eye care, hearing, foot care, dental, physio, blood tests and nursing. Domi refills cancellations by text, plans each clinician's route and takes referrals without paperwork.">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0C1412">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<!--ICONS-->
 <!--SOCIAL-->
+<!--ANALYTICS-->
 <script>document.documentElement.classList.add('js')</script>
 <style>
-  /* Everything on this page is served from this site: no font services, no analytics, no cookies. */
+  /* Everything on this page is served from this site: no font services, no cookies. Visits are counted by Cloudflare's
+     cookieless analytics, added at build time only when a token is set (scripts/build-site.js). */
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-400-normal.woff2) format('woff2'); }
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 500; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-500-normal.woff2) format('woff2'); }
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 600; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-600-normal.woff2) format('woff2'); }
@@ -301,6 +303,23 @@
   .tag-soon { color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
   .extras-note { text-align: center; color: var(--soft); font-size: 15px; max-width: 720px; margin: 22px auto 0; }
 
+  /* Contact form */
+  .contact-lede { text-align: center; color: var(--soft); max-width: 60ch; margin: 14px auto 0; }
+  .enquiry { max-width: 760px; margin: 32px auto 0; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; }
+  .f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  @media (max-width: 640px) { .f-row { grid-template-columns: 1fr; } .enquiry { padding: 20px; } }
+  .f { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; min-width: 0; }
+  .f label { font-weight: 600; font-size: 15px; }
+  .f label span { color: var(--soft); font-weight: 400; }
+  .f input, .f select, .f textarea { font: inherit; font-size: 16px; color: var(--ink); background: rgba(12,20,18,.55); border: 1px solid rgba(234,244,239,.18); border-radius: 12px; padding: 12px 14px; width: 100%; }
+  .f textarea { resize: vertical; min-height: 120px; }
+  .f input:focus, .f select:focus, .f textarea:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(244,162,125,.25); }
+  .f [aria-invalid="true"] { border-color: #F08A8A; }
+  .f-err { color: #F5A3A3; font-size: 14px; margin: 0; }
+  .f-form { margin: 0 0 14px; }
+  .f-note { color: var(--soft); font-size: 14px; margin: 0 0 16px; }
+  .trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+  .enquiry .btn[disabled] { opacity: .6; cursor: progress; }
   footer { background: rgba(12,20,18,.6); border-top: 1px solid var(--line); color: var(--on-forest-soft); padding: 40px 0; font-size: 15px; }
   footer .wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
   footer a { color: var(--on-forest); }
@@ -314,14 +333,14 @@
 <header class="top">
   <div class="wrap">
     <nav aria-label="Main">
-      <a class="brand" href="#"><img src="logo.svg" alt="" width="40" height="40">Domi</a>
+      <a class="brand" href="/"><img src="logo.svg" alt="" width="40" height="40">Domi</a>
       <ul>
         <li><a href="#how">How it works</a></li>
         <li><a href="#sectors">Who it's for</a></li>
         <li><a href="#inside">Inside Domi</a></li>
         <li><a href="#coming">What's coming</a></li>
         <li><a href="#support">Questions</a></li>
-        <li><a href="#privacy">Privacy</a></li>
+        <li><a href="#contact">Contact</a></li>
       </ul>
     </nav>
 
@@ -331,7 +350,7 @@
         <p class="lede rise">Domi is the diary for healthcare that comes to the patient’s home: eye care, hearing, foot care, dental, physio and nursing. When a patient cancels, it texts the best-matched person on your waiting list, books the first yes, and plans each clinician’s route.</p>
         <div class="ctas rise">
           <a class="btn btn-main" href="%%DEMO_URL%%" rel="noopener">Try the live demo</a>
-          <a class="btn btn-line" href="mailto:%%EMAIL%%?subject=Domi%20walkthrough">Book a walkthrough</a>
+          <a class="btn btn-line" href="#contact">Book a walkthrough</a>
         </div>
         <p class="proof rise">Laptop, tablet and phone · Nothing to install · Built for home visits</p>
         <p class="wake rise">The demo uses invented patients. If nobody has opened it for a while, it takes about a minute to wake.</p>
@@ -631,34 +650,38 @@
       </div>
       <div class="contact">
         <h3>Still have a question?</h3>
-        <p>Email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. You’ll hear back from the person who builds Domi.</p>
+        <p><a href="#contact">Send us a message</a> or email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. You’ll hear back from the person who builds Domi.</p>
       </div>
     </div>
   </section>
 
-  <section id="privacy" class="policy-section">
-    <div class="wrap policy">
-      <p class="kicker">Privacy policy</p>
-      <div class="policy-card">
-        <div class="policy-head">
-          <h2>This website’s privacy policy</h2>
-          <p class="muted">Last updated 11 October 2026.</p>
-          <div class="box">No cookies, no analytics, no tracking. If you email us, we use your email only to reply.</div>
+  <section id="contact" class="contact-section">
+    <div class="wrap">
+      <p class="kicker">Contact</p>
+      <h2>Book a walkthrough, or ask us anything.</h2>
+      <p class="contact-lede">Tell us a little about your service and we’ll show you Domi with your own visit types and towns. You’ll hear back from the person who builds it.</p>
+      <form class="enquiry" id="enquiry" action="https://api.web3forms.com/submit" method="POST" novalidate data-key="%%WEB3FORMS_KEY%%" data-email="%%EMAIL%%">
+        <input type="hidden" name="access_key" value="%%WEB3FORMS_KEY%%">
+        <input type="hidden" name="subject" value="Domi enquiry from the website">
+        <input type="hidden" name="from_name" value="Domi website">
+        <input type="hidden" name="redirect" value="%%SITE_URL%%/thanks/">
+        <!-- Spam trap: people never see or fill this box; bots that fill every field are dropped. -->
+        <input type="checkbox" name="botcheck" class="trap" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <div class="f-row">
+          <div class="f"><label for="e-name">Your name</label><input id="e-name" name="name" autocomplete="name" required maxlength="80"><p class="f-err" id="e-name-err" hidden></p></div>
+          <div class="f"><label for="e-email">Email</label><input id="e-email" name="email" type="email" autocomplete="email" required maxlength="120"><p class="f-err" id="e-email-err" hidden></p></div>
         </div>
-        <details name="policy"><summary><span>Who we are</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="policy-panel"><p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339. We’re responsible for this website and for anything you send us.</p></div></details>
-        <details name="policy"><summary><span>What this website collects</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="policy-panel"><p>Nothing about you. There are no cookies, analytics, adverts or tracking, and the page loads nothing from other companies: its fonts, pictures and film are served from this site.</p>
-          <p>The site is hosted on GitHub Pages. Like any web host, GitHub records visitors’ IP addresses in its server logs for security. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub’s privacy statement</a>.</p></div></details>
-        <details name="policy"><summary><span>If you email us</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="policy-panel"><p>We use your name, email address and what you write only to reply to you, and keep it only for as long as the conversation needs. We don’t add you to a mailing list or share your details with anyone.</p></div></details>
-        <details name="policy"><summary><span>The live demo</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="policy-panel"><p>The demo is a separate service that holds only invented patients. Each visitor gets a private copy, which is deleted after three hours without use or when the server restarts. Please don’t type real patients’ details into it.</p></div></details>
-        <details name="policy"><summary><span>Your rights</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="policy-panel"><p>You can ask us what we hold about you, and to correct or delete it, at any time. If you’re unhappy with how we’ve handled your information, you can complain to the <a href="https://ico.org.uk/make-a-complaint/">Information Commissioner’s Office</a>.</p></div></details>
-        <details name="policy"><summary><span>Contact</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="policy-panel"><p>Email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>.</p></div></details>
-      </div>
+        <div class="f-row">
+          <div class="f"><label for="e-org">Practice or organisation <span>(optional)</span></label><input id="e-org" name="organisation" autocomplete="organization" maxlength="120"></div>
+          <div class="f"><label for="e-phone">Phone <span>(optional)</span></label><input id="e-phone" name="phone" type="tel" autocomplete="tel" maxlength="20" inputmode="tel"><p class="f-err" id="e-phone-err" hidden></p></div>
+        </div>
+        <div class="f"><label for="e-sector">What do you provide? <span>(optional)</span></label>
+          <select id="e-sector" name="sector"><option value="">Choose…</option><option>Domiciliary eye care</option><option>Hearing care</option><option>Foot care</option><option>Dental care at home</option><option>Physiotherapy and rehab</option><option>Home blood tests</option><option>Nursing at home</option><option>Therapy assessments</option><option>Something else</option></select></div>
+        <div class="f"><label for="e-msg">How can we help?</label><textarea id="e-msg" name="message" rows="5" required minlength="10" maxlength="3000" placeholder="For example: we're three optometrists in Bolton and spend hours on rounds and cancellations."></textarea><p class="f-err" id="e-msg-err" hidden></p></div>
+        <p class="f-note">We’ll use your details only to reply. See our <a href="/privacy/">privacy policy</a>.</p>
+        <p class="f-err f-form" id="e-form-err" role="alert" hidden></p>
+        <button class="btn btn-main" type="submit">Send message</button>
+      </form>
     </div>
   </section>
 </main>
@@ -666,10 +689,59 @@
 <footer>
   <div class="wrap">
     <p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p>
-    <p><a href="#privacy">Privacy policy</a> · <a href="mailto:%%EMAIL%%">Contact</a></p>
+    <p><a href="/privacy/">Privacy policy</a> · <a href="/terms/">Terms and conditions</a> · <a href="#contact">Contact</a></p>
   </div>
 </footer>
 
+<script>
+  // Contact form: checks each field as people go, drops bots (a hidden box and a minimum time on the page), sends to
+  // Web3Forms, then goes to the thank-you page. Without a Web3Forms key it opens an email to us instead. Without
+  // JavaScript the form posts straight to Web3Forms, which redirects to the same thank-you page.
+  (function () {
+    var form = document.getElementById('enquiry'); if (!form) return;
+    var started = Date.now(), key = form.getAttribute('data-key'), to = form.getAttribute('data-email');
+    var checks = {
+      'e-name': function (v) { return v.trim().length < 2 ? 'Please enter your name.' : ''; },
+      'e-email': function (v) { return !v.trim() ? 'Please enter your email address.' : /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v.trim()) ? '' : 'That email address doesn’t look right. Check it for typos.'; },
+      'e-phone': function (v) { var d = v.replace(/[\s()+-]/g, ''); return !d || /^\d{10,13}$/.test(d) ? '' : 'Please enter a phone number with 10 to 13 digits, or leave it blank.'; },
+      'e-msg': function (v) { return v.trim().length < 10 ? 'Please tell us a little more (at least 10 characters).' : ''; }
+    };
+    function check(id) {
+      var el = document.getElementById(id), msg = checks[id](el.value), err = document.getElementById(id + '-err');
+      el.setAttribute('aria-invalid', msg ? 'true' : 'false');
+      if (msg) el.setAttribute('aria-describedby', id + '-err'); else el.removeAttribute('aria-describedby');
+      err.textContent = msg; err.hidden = !msg;
+      return !msg;
+    }
+    Object.keys(checks).forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('blur', function () { if (el.value) check(id); });
+      el.addEventListener('input', function () { if (el.getAttribute('aria-invalid') === 'true') check(id); });
+    });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var formErr = document.getElementById('e-form-err'); formErr.hidden = true;
+      var bad = Object.keys(checks).filter(function (id) { return !check(id); });
+      if (bad.length) { document.getElementById(bad[0]).focus(); return; }
+      // A person takes more than a few seconds to fill this in; a bot doesn't. Bots see a thank-you and nothing is sent.
+      if (form.botcheck.checked || Date.now() - started < 4000) { location.href = '/thanks/'; return; }
+      var data = new FormData(form);
+      if (!key) {
+        var body = 'Name: ' + data.get('name') + '\nEmail: ' + data.get('email') + '\nOrganisation: ' + (data.get('organisation') || '') + '\nPhone: ' + (data.get('phone') || '') + '\nService: ' + (data.get('sector') || '') + '\n\n' + data.get('message');
+        location.href = 'mailto:' + to + '?subject=' + encodeURIComponent('Domi enquiry') + '&body=' + encodeURIComponent(body);
+        return;
+      }
+      var btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Sending…';
+      fetch(form.action, { method: 'POST', headers: { Accept: 'application/json' }, body: data })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || 'failed'); }); })
+        .then(function () { location.href = '/thanks/'; })
+        .catch(function () {
+          btn.disabled = false; btn.textContent = 'Send message';
+          formErr.innerHTML = 'Sorry, that didn’t send. Please try again, or email <a href="mailto:' + to + '">' + to + '</a>.'; formErr.hidden = false;
+        });
+    });
+  })();
+</script>
 <script>
   // Open the intro once the first frame has painted, so its rise and spread are seen
   requestAnimationFrame(function () { requestAnimationFrame(function () { document.querySelector('.hero').classList.add('opened'); }); });

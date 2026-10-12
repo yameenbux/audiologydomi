@@ -1,0 +1,46 @@
+/* The website's own pages (privacy, terms, thank you, not found): the homepage's palette and type, nothing
+   loaded from anywhere else. */
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 600; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 700; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-700-normal.woff2) format('woff2'); }
+:root { color-scheme: dark; --paper: #0C1412; --card: rgba(21,31,28,.78); --line: rgba(234,244,239,.10); --ink: #EDF4F0; --soft: #A9BCB4;
+  --forest: #1E4D40; --on-forest: #F7FBF9; --on-forest-soft: #BFD3CA; --amber: #F4A27D; --link: #F4A27D; --mint-bg: rgba(22,46,35,.85); }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; color: var(--ink); font: 17px/1.65 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+  background: radial-gradient(120% 60% at 0% 0%, #1A3B31 0%, var(--paper) 60%) fixed, var(--paper); overflow-x: hidden; }
+a { color: var(--link); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; border-radius: 6px; }
+.skip { position: absolute; left: -9999px; }
+.skip:focus { left: 16px; top: 16px; background: var(--card); padding: 8px 14px; z-index: 10; }
+.wrap { width: 100%; max-width: 800px; margin: 0 auto; padding: 0 20px; }
+nav.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 0; }
+.brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; }
+.brand img { width: 40px; height: 40px; border-radius: 10px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 22px; border-radius: 999px; font-weight: 600; font-size: 16px; text-decoration: none; border: 0; cursor: pointer; font-family: inherit; }
+.btn-main { background: var(--on-forest); color: var(--forest); }
+.btn-main:hover { background: #fff; }
+.btn-line { color: var(--on-forest); box-shadow: inset 0 0 0 1.5px rgba(247,251,249,.32); background: none; }
+.btn-line:hover { background: rgba(247,251,249,.08); }
+main { flex: 1; padding: 8px 0 72px; }
+.crumbs ol { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 22px; padding: 0; font-size: 14px; color: var(--soft); }
+.crumbs li + li::before { content: "›"; margin-right: 6px; color: var(--soft); }
+.crumbs a { color: var(--on-forest-soft); }
+.crumbs [aria-current] { color: var(--ink); }
+h1 { font-size: clamp(32px, 6vw, 48px); letter-spacing: -0.035em; line-height: 1.08; margin: 0 0 10px; text-wrap: balance; }
+h2 { font-size: 22px; letter-spacing: -0.015em; line-height: 1.25; margin: 36px 0 10px; }
+.updated { color: var(--soft); margin: 0 0 22px; font-size: 15px; }
+.summary { background: var(--mint-bg); border-radius: 16px; padding: 16px 18px; margin: 0 0 8px; }
+.doc p, .doc li { color: var(--on-forest-soft); }
+.doc ul { padding-left: 22px; }
+.doc li + li { margin-top: 6px; }
+.doc strong { color: var(--ink); }
+.table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 12px 0; }
+.table th, .table td { text-align: left; vertical-align: top; padding: 10px 12px; border-top: 1px solid var(--line); }
+.table th { color: var(--ink); font-weight: 600; }
+.table td { color: var(--on-forest-soft); }
+@media (max-width: 600px) { .table, .table tbody, .table tr, .table td, .table th { display: block; } .table thead { display: none; } .table td { border: 0; padding: 2px 0; } .table tr { border-top: 1px solid var(--line); padding: 10px 0; } .table td:first-child { color: var(--ink); font-weight: 600; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 28px; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 24px; }
+footer { border-top: 1px solid var(--line); color: var(--on-forest-soft); padding: 32px 0; font-size: 15px; text-align: center; }
+footer p { margin: 4px 0; }
+footer a { color: var(--on-forest); }

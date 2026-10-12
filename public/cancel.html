@@ -7,6 +7,8 @@
 <meta name="referrer" content="no-referrer">
 <title>Cancel a home visit</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/app.css">
 <script src="/powered.js"></script>
@@ -26,6 +28,8 @@
   .cx .q { display: grid; gap: 6px; margin-top: 18px; font-weight: 600 }
   .cx .done { box-shadow: inset 0 0 0 2px var(--ok) }
 </style>
+<meta name="description" content="Cancel a booked home visit, so the time can go to someone who's waiting.">
+<!--ANALYTICS-->
 </head>
 <body class="cx">
 <header class="cx-top"><b id="practice"></b></header>
@@ -72,6 +76,7 @@ api("GET", `/api/public/${encodeURIComponent(code || "")}/visit/${encodeURICompo
   if (b && b.logo) { top.innerHTML = `<img src="${esc(b.logo)}" alt="${esc(info.practice)}" referrerpolicy="no-referrer" style="height:52px;width:auto;display:block">`; top.querySelector("img").addEventListener("error", () => { top.textContent = info.practice; }, { once: true }); }
   else top.textContent = info.practice;
   window.DomiPowered(b);
+  window.DomiCrumbs(b, info.practice, "Cancel a visit", 560);
   document.title = "Cancel a home visit · " + info.practice;
   render();
 }).catch((e) => { root.innerHTML = `<h1>This link isn't working</h1><p class="muted">${esc(e.message)}</p>`; });

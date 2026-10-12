@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex">
 <title>Refer someone for a home eye test</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/app.css">
 <script src="/powered.js"></script>
@@ -37,6 +39,8 @@
   .rf .err { margin-top: 18px }
   .pc-pick { margin-top: 6px }
 </style>
+<meta name="description" content="Refer someone for a home visit: for people who can't get out without help. Takes about three minutes, and the practice will call to arrange a time.">
+<!--ANALYTICS-->
 </head>
 <body class="rf">
 <header class="rf-top"><b id="practice"></b></header>
@@ -48,6 +52,9 @@ const code = (location.pathname.split("/")[2] || "").toUpperCase();
 const root = document.getElementById("root");
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let INFO = null, sent = false;
+const STARTED = Date.now(); // how long the form took to fill in: people take more than a few seconds, bots don't
+const GENERIC = /^(house ?bound|bed ?bound|immobile|elderly|frail|can'?t get out|wheelchair)\.?$/i;
+const ukPhone = (v) => /^0\d{9,10}$/.test(String(v || "").replace(/[\s()-]/g, "").replace(/^\+44/, "0"));
 const CONDITIONS = ["Dementia", "Severe arthritis", "After a stroke", "Parkinson's disease", "COPD or on oxygen", "Heart failure", "Agoraphobia", "Registered blind or partially sighted"];
 
 async function api(method, url, body) {
@@ -92,6 +99,7 @@ function form(err, pc = "") {
       <label class="q">Anything else we should know?<small>Access, the best person to call, the room number in a care home.</small><textarea class="input" id="notes" maxlength="1000"></textarea></label>
     </fieldset>
     <label class="opt" style="margin-top:22px"><input type="checkbox" id="consent"><span>The patient agrees to us contacting them about this, or I can act on their behalf.</span></label>
+    <label class="trap" aria-hidden="true">Leave this empty<input id="website" name="website" tabindex="-1" autocomplete="off"></label>
     ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
     <button class="btn lg" type="submit">Send the referral</button>
     <p class="muted" style="font-size:15px;margin-top:14px">We use these details only to arrange and carry out the eye care visit. ${INFO.brand && INFO.brand.phone ? `Rather talk? Call us on ${esc(INFO.brand.phone)}.` : ""}</p>
@@ -99,8 +107,12 @@ function form(err, pc = "") {
 }
 function render(err) {
   const keep = sent ? null : snapshot(), pc = DomiAreas.read(root, "pc");
-  root.innerHTML = sent ? `<div class="done"><div class="caps">Referral sent</div><h1 style="margin-top:8px">Thank you</h1>
-    <p class="rf-lead" style="margin:0">We've got the details and will call ${sent.self ? "you" : "you or the patient"} to arrange a time, usually within two working days.</p></div>` : form(err, pc);
+  root.innerHTML = sent ? `<div class="done"><div class="caps">Referral sent</div><h1 style="margin-top:8px" tabindex="-1">Thank you</h1>
+    <p class="rf-lead" style="margin:0 0 14px">We've got the details and will call ${sent.self ? "you" : "you or the patient"} to arrange a time, usually within two working days.</p>
+    <p style="margin:0 0 6px;font-weight:700">What happens next</p>
+    <ol style="margin:0;padding-left:22px;color:var(--muted)"><li>We check the details and that a home visit is right.</li><li>We phone to agree a day and time.</li><li>We text a reminder the day before, and when we're on the way.</li></ol>
+    ${INFO.brand && INFO.brand.phone ? `<p class="muted" style="font-size:15px;margin:14px 0 0">Need us sooner? Call ${esc(INFO.brand.phone)}.</p>` : ""}</div>` : form(err, pc);
+  if (sent) { document.title = "Thank you · " + INFO.practice; const h = root.querySelector("h1"); if (h) h.focus({ preventScroll: true }); }
   if (keep) restore(keep);
   if (err) root.querySelector(".err").scrollIntoView({ block: "center" });
 }
@@ -123,7 +135,22 @@ root.addEventListener("submit", async (e) => {
   const pick = (n) => (root.querySelector(`[name=${n}]:checked`) || {}).value;
   const body = { fromKind: pick("fromKind"), fromName: v("fromName"), fromPhone: v("fromPhone"), name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(root, "pc"),
     phone: v("phone"), eligibility: v("elig"), entitlement: [...root.querySelectorAll("[name=ent]:checked")].map((x) => x.value), need: pick("need"), avail: pick("avail"),
-    urgent: root.querySelector("#urgent").checked, notes: v("notes"), consent: root.querySelector("#consent").checked };
+    urgent: root.querySelector("#urgent").checked, notes: v("notes"), consent: root.querySelector("#consent").checked,
+    website: v("website"), formMs: Date.now() - STARTED };
+  // Check the form here first, so each mistake shows next to its field. The server checks everything again.
+  const el = (id) => root.querySelector("#" + id), someone = body.fromKind !== "self";
+  const errors = [];
+  if (someone && body.fromName.trim().length < 2) errors.push([el("fromName"), "Please give your name, so we know who to call back."]);
+  if (someone && body.fromPhone.trim() && !ukPhone(body.fromPhone)) errors.push([el("fromPhone"), "That doesn't look like a UK phone number."]);
+  if (body.name.trim().length < 2) errors.push([el("name"), "Please enter the patient's full name."]);
+  if (body.addr.trim().length < 4) errors.push([el("addr"), "Please enter the first line of the address."]);
+  if (!/^[A-Z]{1,2}\d/.test(body.pc)) errors.push([el("pc-town"), "Please choose the town and postcode area."]);
+  if (body.phone.trim() && !ukPhone(body.phone)) errors.push([el("phone"), "That doesn't look like a UK phone number."]);
+  if (!ukPhone(body.phone) && !(someone && ukPhone(body.fromPhone))) errors.push([someone ? el("fromPhone") : el("phone"), "Please give a phone number we can call about the visit."]);
+  if (body.eligibility.trim().length < 3) errors.push([el("elig"), "Please tell us why the patient can't get to an optician's without help."]);
+  else if (GENERIC.test(body.eligibility.trim())) errors.push([el("elig"), `Please tell us the illness or condition behind "${body.eligibility.trim()}". The NHS asks us to record it.`]);
+  if (!body.consent) errors.push([el("consent"), "Please confirm the patient agrees to us contacting them, or that you can act for them."]);
+  if (!window.DomiFieldErrors(root, errors.filter((x, i) => errors.findIndex((y) => y[0] === x[0]) === i))) return;
   const btn = root.querySelector("[type=submit]"); btn.disabled = true;
   try { await api("POST", `/api/public/${code}/referrals`, body); sent = { self: body.fromKind === "self" }; render(); window.scrollTo(0, 0); }
   catch (err) { render(err.message); }
@@ -136,6 +163,7 @@ api("GET", `/api/public/${code}`).then((info) => {
   if (b && b.logo) { top.innerHTML = `<img src="${esc(b.logo)}" alt="${esc(info.practice)}" referrerpolicy="no-referrer" style="height:52px;width:auto;display:block">`; top.querySelector("img").addEventListener("error", () => { top.textContent = info.practice; }, { once: true }); }
   else top.textContent = info.practice;
   window.DomiPowered(b);
+  window.DomiCrumbs(b, info.practice, "Refer someone", 680);
   document.title = "Refer someone for a home eye test · " + info.practice; render();
 }).catch((e) => { root.innerHTML = `<h1>Referral form not found</h1><p class="rf-lead">${esc(e.message)}</p>`; });
 })();

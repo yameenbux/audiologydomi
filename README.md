@@ -358,6 +358,13 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 | `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
 | `DEFAULT_BRAND` | none (`domi`) | The brand the plain address opens in (`server/brands.js`). `/?brand=<id>` always overrides it |
+| `MARKETING_URL` | `https://domi.ysbdesigns.uk/` | The website: "Powered by Domi" links here, and the demo's privacy policy and terms (`/privacy`, `/terms`) are the website's |
+| `CF_BEACON_TOKEN` | none | Cloudflare Web Analytics (cookieless, so no consent banner). Never added to the cancellation page, whose address holds a private token |
+| `PUBLIC_URL` | the address in use | The address cancellation links in texts point to |
+
+The website's build takes the same kind of settings from the repository's Actions variables: `DEMO_URL`, `EMAIL`, `SITE_URL`, `WEB3FORMS_KEY` (the contact form; without it the form opens an email instead) and `CF_BEACON_TOKEN`.
+
+**Web basics, both sites.** Privacy policy and terms (`site/privacy/`, `site/terms/`), a contact form with a thank-you page (`site/thanks/`), breadcrumbs on every inner page, a sitemap and robots.txt (built by `scripts/build-site.js`), PNG icons for phones (`public/*.png`), link previews, and a custom 404 on each site. The demo redirects HTTP to HTTPS and sends HSTS, gzips text, and can't be framed by other sites. Its public forms (referral, booking) check each field as people fill them in and drop bots silently: a hidden box people never see, and a minimum time on the form.
 
 ### Security in the demo
 

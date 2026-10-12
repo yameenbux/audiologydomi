@@ -3,11 +3,13 @@ name: Deploy website to Pages
 # Publishes the marketing website (site/) to GitHub Pages. The app itself needs a server, so it isn't here:
 # "Try the demo" links to wherever the app runs (Render or Fly.io, see README).
 # Settings → Pages → Source: GitHub Actions. Optional repository variables (Settings → Secrets and variables →
-# Actions → Variables): DEMO_URL, EMAIL, SITE_URL (the custom domain, for link previews).
+# Actions → Variables): DEMO_URL, EMAIL, SITE_URL (the custom domain, for link previews), WEB3FORMS_KEY (the contact
+# form's public access key) and CF_BEACON_TOKEN (Cloudflare Web Analytics). Without the last two, the form opens an
+# email instead and no analytics is added.
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'public/fonts/**', 'public/logo.svg', 'public/favicon.svg', 'scripts/build-site.js', '.github/workflows/pages.yml']
+    paths: ['site/**', 'public/fonts/**', 'public/logo.svg', 'public/favicon.svg', 'public/*.png', 'scripts/build-site.js', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -31,6 +33,8 @@ jobs:
           DEMO_URL: ${{ vars.DEMO_URL }}
           EMAIL: ${{ vars.EMAIL }}
           SITE_URL: ${{ vars.SITE_URL }}
+          WEB3FORMS_KEY: ${{ vars.WEB3FORMS_KEY }}
+          CF_BEACON_TOKEN: ${{ vars.CF_BEACON_TOKEN }}
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: _site
