@@ -351,7 +351,7 @@ function addToWaitlist(input, user) {
  * A clinician's round for one day, ready to draw: stops with coordinates, each leg's minutes and miles,
  * and the drive home. `insert` adds a proposed visit, to show where a new booking would fit.
  */
-async function routeFor(cid, day, insert) {
+async function routeFor(cid, day, insert, { withPath = true } = {}) {
   const c = getClinician(String(cid || ""));
   if (!c) throw new HttpError(404, "No such clinician.");
   if (!(day >= 0 && day < DAYS.length)) throw new HttpError(400, "Choose a day this week.");
@@ -377,7 +377,9 @@ async function routeFor(cid, day, insert) {
   const pts = [travel.locate(c.base), ...stops].filter(Boolean);
   const box = { n: Math.max(...pts.map((p) => p.lat)) + 0.01, s: Math.min(...pts.map((p) => p.lat)) - 0.01, e: Math.max(...pts.map((p) => p.lon)) + 0.015, w: Math.min(...pts.map((p) => p.lon)) - 0.015 };
   const districts = Object.entries(travel.CENTRES).filter(([, [lat, lon]]) => lat < box.n && lat > box.s && lon < box.e && lon > box.w).map(([name, [lat, lon]]) => ({ name, lat, lon }));
-  return { clinician: { id: c.id, name: c.name, first: c.first, color: c.color }, day, base: { pc: c.base, ...travel.locate(c.base) }, stops, home, totals, districts };
+  // The roads between the stops, for the map. Without it (offline routing, router down) the map draws straight lines.
+  const path = withPath && stops.length ? await travel.roadPath([c.base, ...stops.map((s) => s.pc), c.base]) : null;
+  return { clinician: { id: c.id, name: c.name, first: c.first, color: c.color }, day, base: { pc: c.base, ...travel.locate(c.base) }, stops, home, totals, districts, path };
 }
 
 /* ---------- Route planning ---------- */
@@ -474,7 +476,7 @@ async function weekReport() {
   for (const c of clinicians) {
     const days = [];
     for (let d = 0; d < DAYS.length; d++) {
-      const r = await routeFor(c.id, d);
+      const r = await routeFor(c.id, d, null, { withPath: false });
       const booked = r.stops.reduce((t, s) => t + (s.end - s.start), 0);
       days.push({ day: d, dayLabel: DAYS[d], visits: r.totals.visits, bookedMin: booked, workingMin: working, utilisation: Math.round((booked / working) * 100),
         driveMin: r.totals.driveMin, miles: r.totals.miles, mileagePence: Math.round(r.totals.miles * HMRC_PENCE_PER_MILE) });

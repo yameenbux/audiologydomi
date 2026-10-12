@@ -1,5 +1,5 @@
 {
-  "name": "domi-hearing-demo",
+  "name": "domi",
   "version": "0.1.0",
   "private": true,
   "description": "Domiciliary optician diary with automatic cancellation refill. Demo build.",
