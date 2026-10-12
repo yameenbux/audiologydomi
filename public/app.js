@@ -29,6 +29,7 @@ function applyBrand(b) {
     if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm"><b>${esc(b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
   }
   document.title = b.logo ? `${b.practice} · Diary` : "Domi";
+  window.DomiPowered(b);
 }
 const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null };
 let DEMO_SB = null;
