@@ -8,6 +8,7 @@ const { rankCandidates, parseReply, planOffer, suggestSlots } = require("./refil
 const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
 const sandbox = require("./sandbox");
+const importer = require("./importer");
 const bus = require("./bus");
 
 const settings = () => sandbox.current().settings;
@@ -588,6 +589,54 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
   return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, label: slot.label, dayLabel: DAYS[day], extraDrive: slot.extraDrive };
 }
 
+/* ---------- Importing patients from a spreadsheet ---------- */
+const existingPatients = () => all("SELECT name, pc, phone, dob FROM patients");
+function checkImport(input) {
+  try { return importer.check(input.csv, input.mapping, existingPatients()); }
+  catch (e) { throw new HttpError(400, e.message); }
+}
+
+/** What the office sees before anything is saved: the column mapping, counts, and every row with its problems. */
+function previewImport(input) {
+  const r = checkImport(input);
+  return { fields: importer.FIELDS, headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
+    rows: r.rows.map((x) => ({ line: x.line, status: x.status, name: x.patient.name, pc: x.patient.pc, phone: x.patient.phone, age: x.patient.age,
+      errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null })) };
+}
+
+/**
+ * Save the rows that passed. The file is checked again here, so what's saved is exactly what the checks allow,
+ * even if the preview was edited or is out of date. Patients due a sight test within a fortnight (or overdue)
+ * also join the recall list and the refill pool, the same as any other recall.
+ */
+function commitImport(input, user) {
+  return tx(() => {
+    const r = checkImport(input);
+    if (r.missing.length) throw new HttpError(400, `Choose which column holds ${r.missing.join(" and ")}.`);
+    const ready = r.rows.filter((x) => x.status === "ready");
+    if (!ready.length) throw new HttpError(400, "There's nothing to import: every row has a problem or is already on Domi.");
+    let recalls = 0;
+    const seq = one("SELECT COALESCE(MAX(added_seq), 0) AS s FROM waitlist").s;
+    for (const row of ready) {
+      const p = row.patient, id = newId("p");
+      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest);
+      run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", id, "Imported", p.notes ? `Imported from spreadsheet. ${p.notes}` : "Imported from spreadsheet.", user.name, sandbox.stamp());
+      if (row.recall && row.recall.dueDay <= 14) {
+        const rid = newId("r"), wid = newId("w");
+        run("INSERT INTO waitlist (id, patient_id, type, prio, days, avail, short_notice, added_seq, source, note) VALUES (?, ?, 'sight', 'routine', ?, 'any', 1, ?, 'recall', ?)",
+          wid, id, Math.max(0, -row.recall.dueDay), seq + 1 + recalls, row.recall.reason);
+        run("INSERT INTO recalls (id, patient_id, type, reason, due_day, waitlist_id) VALUES (?, ?, 'sight', ?, ?, ?)", rid, id, row.recall.reason, row.recall.dueDay, wid);
+        recalls++;
+      }
+    }
+    // Counts only: patient details never go into the audit log or the event stream.
+    audit(user.name, "patients.import", "patients", `${ready.length} imported, ${r.counts.duplicate} duplicates and ${r.counts.error} with errors skipped, ${recalls} recalls`);
+    bus.emit({ type: "patients.imported", count: ready.length });
+    return { imported: ready.length, duplicates: r.counts.duplicate, errors: r.counts.error, recalls };
+  });
+}
+
 /* ---------- Online booking by patients ---------- */
 // Glasses deliveries wait for the lab, so the office books those.
 const ONLINE_TYPES = ["sight", "exam", "repair", "follow"];
@@ -632,4 +681,4 @@ async function publicBook(input) {
 }
 const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur, nhs: !!TYPES[k].pvn }));
 
-module.exports = { pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

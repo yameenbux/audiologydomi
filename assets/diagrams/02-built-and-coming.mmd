@@ -7,13 +7,14 @@ flowchart TB
         A4["<b>Patient booking page</b><br/>only travel-efficient times"]
         A5["<b>Reminders and recalls</b><br/>CANCEL replies refill;<br/>recalls join the pool"]
         A8["<b>PCSE rules</b><br/>NHS tests 48h out;<br/>notifications to lodge"]
+        A9["<b>Patient import</b><br/>from a spreadsheet,<br/>every row checked"]
         A6["<b>Mileage and invoices</b><br/>HMRC 45p report, CSV;<br/>invoice on completion"]
         A7["<b>Sign-in and audit</b><br/>password + authenticator,<br/>every change logged"]
     end
     subgraph NEXT["Coming next: not built yet"]
         direction LR
         B1["<b>UK database</b><br/>London, backed up daily"]
-        B2["<b>Data import</b><br/>from your current system"]
+        B2["<b>Visits and waiting list</b><br/>imported too"]
         B3["<b>Automatic recall texts</b>"]
         B4["<b>Card payments, Xero,</b><br/><b>care-home billing</b>"]
         B5["<b>AI-drafted notes</b><br/>the clinician approves"]
@@ -33,5 +34,5 @@ flowchart TB
     classDef live fill:#DDF0E4,stroke:#2F7A4F,stroke-width:2px,color:#15241F
     classDef dev fill:#F8ECD3,stroke:#A86A12,stroke-width:2px,stroke-dasharray:6 4,color:#15241F
     classDef ext fill:#EBEFEA,stroke:#8A968F,stroke-width:1.5px,color:#15241F
-    class A1,A2,A3,A4,A5,A6,A7,A8 live
+    class A1,A2,A3,A4,A5,A6,A7,A8,A9 live
     class B1,B2,B3,B4,B5,B6,B7,B8,L1,L2,L3 dev
