@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { freeWindow, rankCandidates, parseReply } = require("../server/refill");
 
-const clinician = { id: "c1", first: "Amira", patch: ["LS6", "LS16"], near: ["LS7"] };
+const clinician = { id: "c1", first: "Amira", optom: true, patch: ["LS6", "LS16"], near: ["LS7"] };
 const patientsById = {
   p1: { id: "p1", name: "Urgent Far", pc: "LS27" },
   p2: { id: "p2", name: "Soon Local", pc: "LS6" },
@@ -11,15 +11,19 @@ const patientsById = {
   p4: { id: "p4", name: "Needs Notice", pc: "LS6" },
   p5: { id: "p5", name: "Too Long", pc: "LS16" },
   p6: { id: "p6", name: "Afternoons", pc: "LS16" },
+  p7: { id: "p7", name: "NHS Test", pc: "LS6" },
+  p8: { id: "p8", name: "Calls Only", pc: "LS6", contact: "Call" },
 };
-const W = (id, patientId, o) => Object.assign({ id, patientId, type: "wax", prio: "routine", days: 0, avail: "any", shortNotice: true, prefClinicianId: null, status: "waiting" }, o);
+const W = (id, patientId, o) => Object.assign({ id, patientId, type: "repair", prio: "routine", days: 0, avail: "any", shortNotice: true, prefClinicianId: null, status: "waiting" }, o);
 const waitlist = [
   W("w1", "p1", { prio: "urgent" }),
   W("w2", "p2", { prio: "soon", days: 10 }),
   W("w3", "p3", { days: 30 }),
   W("w4", "p4", { prio: "urgent", shortNotice: false }),
-  W("w5", "p5", { type: "fit" }),
+  W("w5", "p5", { type: "sight" }),
   W("w6", "p6", { avail: "pm" }),
+  W("w7", "p7", { type: "follow", prio: "urgent" }),
+  W("w8", "p8", { prio: "urgent" }),
 ];
 const slot = { id: "a1", start: 11 * 60, drive: 10 };
 const dayAppts = [slot, { id: "a2", start: 12 * 60, drive: 10 }];
@@ -34,20 +38,40 @@ test("hard rules exclude unsuitable patients with a reason", () => {
   const byId = Object.fromEntries(candidates.map((c) => [c.waitlistId, c]));
   assert.match(byId.w1.reason, /outside/);
   assert.match(byId.w4.reason, /24h/);
-  assert.match(byId.w5.reason, /Needs 75 min/);
+  assert.match(byId.w5.reason, /Needs 60 min/);
   assert.match(byId.w6.reason, /Afternoons/);
+  assert.match(byId.w8.reason, /calls, not texts/);
+});
+
+test("an NHS sight test is only offered with 48 hours' notice for PCSE", () => {
+  const roomy = [slot];
+  const nhs = [W("n1", "p7", { type: "sight", prio: "urgent" })];
+  const today = rankCandidates({ slot, clinician, dayAppts: roomy, waitlist: nhs, patientsById, leadMin: 40 }).candidates[0];
+  assert.ok(!today.ok);
+  assert.match(today.reason, /needs 48h notice/);
+  const wed = rankCandidates({ slot, clinician, dayAppts: roomy, waitlist: nhs, patientsById, leadMin: 49 * 60, sameDay: false }).candidates[0];
+  assert.ok(wed.ok);
+  assert.ok(wed.why.includes("PCSE notice to lodge if booked"));
+});
+
+test("a dispensing optician isn't offered eye examinations", () => {
+  const tom = { ...clinician, id: "c2", first: "Tom", optom: false };
+  const { candidates } = rankCandidates({ slot, clinician: tom, dayAppts, waitlist, patientsById });
+  assert.match(candidates.find((c) => c.waitlistId === "w7").reason, /Needs an optometrist/);
+  assert.ok(candidates.find((c) => c.waitlistId === "w2").ok, "repairs are fine");
 });
 
 test("eligible patients are ranked by priority, locality and wait", () => {
   const { candidates } = rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById });
   const ok = candidates.filter((c) => c.ok).map((c) => c.waitlistId);
-  assert.deepStrictEqual(ok, ["w2", "w3"]);
+  assert.deepStrictEqual(ok, ["w7", "w2", "w3"]);
   assert.ok(candidates[0].ok, "eligible candidates sort first");
 });
 
 test("declined and booked entries are skipped", () => {
   const { candidates } = rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, declined: ["w2"] });
-  assert.strictEqual(candidates.filter((c) => c.ok)[0].waitlistId, "w3");
+  assert.strictEqual(candidates.filter((c) => c.ok)[0].waitlistId, "w7");
+  assert.ok(!candidates.some((c) => c.waitlistId === "w2"));
 });
 
 test("reply parsing", () => {

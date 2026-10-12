@@ -2,7 +2,7 @@
   "name": "domi-hearing-demo",
   "version": "0.1.0",
   "private": true,
-  "description": "Domiciliary audiology diary with automatic cancellation refill. Demo build.",
+  "description": "Domiciliary optician diary with automatic cancellation refill. Demo build.",
   "main": "server/index.js",
   "engines": {
     "node": ">=22.5"

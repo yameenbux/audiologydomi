@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, hm, first, dayPhrase, DAYS, DAY_START, DAY_END } = require("./domain");
+const { TYPES, PVN_NOTICE_MIN, hm, first, dayPhrase, DAYS, DAY_START, DAY_END } = require("./domain");
 const { rankCandidates, parseReply, planOffer, suggestSlots } = require("./refill");
 const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
@@ -53,7 +53,44 @@ function rank(slot, declined) {
   const clinician = getClinician(slot.clinicianId);
   const waitlist = all("SELECT * FROM waitlist WHERE status = 'waiting'").map(map.wait);
   const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => [r.id, map.patient(r)]));
-  return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0 }) };
+  const leadMin = slot.day * 1440 + slot.start - sandbox.nowMin();
+  return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0, leadMin }) };
+}
+
+/* ---------- PCSE pre-visit notifications ---------- */
+/**
+ * Note what the office must do in PCSE Online for an NHS sight test: lodge a notification for a new visit,
+ * or cancel the one for a visit that won't happen. Domi can't do it for them yet (that needs PCSE to accept
+ * Domi as a practice system), so these are a checklist with the deadline worked out.
+ */
+function pcseTask(action, appt, patient) {
+  if (!TYPES[appt.type].pvn) return;
+  run("INSERT INTO pcse (action, patient_id, appointment_id, day, start_min, created_at) VALUES (?, ?, ?, ?, ?, ?)", action, patient.id, appt.id, appt.day, appt.start, sandbox.stamp());
+  audit("system", "pcse." + action, appt.id, `${patient.name}, ${DAYS[appt.day]} ${hm(appt.start)}`);
+}
+
+/** The office's PCSE to-do list, oldest first, with the latest time each notification can be lodged. */
+function pcseList() {
+  return all("SELECT x.*, p.name FROM pcse x JOIN patients p ON p.id = x.patient_id ORDER BY x.status = 'done', x.id").map((r) => {
+    const t = { ...map.pcse(r), name: r.name };
+    if (t.action === "lodge") {
+      const by = t.day * 1440 + t.start - PVN_NOTICE_MIN; // demo-clock minutes since Monday 00:00
+      t.lodgeBy = `${DAYS[Math.floor(by / 1440)] || "Before today"} ${hm(((by % 1440) + 1440) % 1440)}`;
+    }
+    return t;
+  });
+}
+
+function completePcse(id, user) {
+  return tx(() => {
+    const r = one("SELECT * FROM pcse WHERE id = ?", Number(id));
+    if (!r) throw new HttpError(404, "That PCSE task no longer exists.");
+    if (r.status === "done") throw new HttpError(409, "That's already ticked off.");
+    run("UPDATE pcse SET status = 'done', done_by = ? WHERE id = ?", user.name, r.id);
+    audit(user.name, "pcse.done", String(r.id), `${r.action === "lodge" ? "Notification lodged" : "Notification cancelled"} for ${getPatient(r.patient_id).name}`);
+    bus.emit({ type: "pcse.updated", pcseId: r.id });
+    return { ok: true };
+  });
 }
 
 const declinedFor = (slotId) => all("SELECT waitlist_id FROM offers WHERE slot_id = ? AND status IN ('declined','expired')", slotId).map((r) => r.waitlist_id);
@@ -69,6 +106,7 @@ function cancelAppointment(id, reason, actor, { byText = false } = {}) {
     const c = getClinician(a.clinicianId);
     run("UPDATE appointments SET status = 'cancelled', reason = ?, cancelled_min = ? WHERE id = ?", reason, sandbox.nowMin(), id);
     audit(actor, "appointment.cancel", id, `${p.name} at ${hm(a.start)}: ${reason}`);
+    pcseTask("cancel", a, p); // PCSE must be told an NHS visit won't happen, or the claim won't match
     sendSms({ to: p.phone, name: p.name, kind: "cancellation", body: byText
       ? `Thanks ${first(p.name)}, we've cancelled your visit ${when(a.day, a.start)}. We'll be in touch to rebook. ${practice()}`
       : `Hi ${first(p.name)}, your visit ${when(a.day, a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${practice()}` });
@@ -140,6 +178,7 @@ function book(slot, waitlistId, offerId, actor) {
   run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, moved, note, booked_min, filled_from) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', 1, ?, ?, ?)",
     id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id);
   run("UPDATE appointments SET gap = 0 WHERE id = ?", slot.id);
+  pcseTask("lodge", getAppt(id), p);
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
   run("UPDATE recalls SET status = 'booked' WHERE waitlist_id = ?", waitlistId);
   if (offerId) {
@@ -316,7 +355,7 @@ async function routeFor(cid, day, insert) {
   let stops = all("SELECT a.*, p.name, p.pc, p.addr FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", c.id, day)
     .map((r) => ({ id: r.id, name: r.name, pc: r.pc, addr: r.addr, type: r.type, start: r.start_min, end: r.start_min + TYPES[r.type].dur, status: r.status, moved: !!r.moved }));
   if (insert) {
-    const pc = travel.normalise(insert.pc), type = TYPES[insert.type] ? insert.type : "review", start = Number(insert.start);
+    const pc = travel.normalise(insert.pc), type = TYPES[insert.type] ? insert.type : "follow", start = Number(insert.start);
     await travel.prepare([pc, c.base, ...stops.map((s) => s.pc)]);
     if (!travel.known(pc)) throw new HttpError(400, "We can't place that postcode.");
     stops.push({ id: "proposed", name: String(insert.name || "New visit").slice(0, 80), pc, addr: "", type, start, end: start + TYPES[type].dur, status: "proposed", proposed: true });
@@ -538,6 +577,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
   // The visit after this one is now reached from the new patient's house.
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
   if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
+  pcseTask("lodge", getAppt(id), p);
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
   run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
   addNote(p.id, `Booked by ${by} for ${DAYS[day]} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
@@ -549,8 +589,8 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
 }
 
 /* ---------- Online booking by patients ---------- */
-// Fittings need hearing aids ordered first, so the office books those.
-const ONLINE_TYPES = ["assess", "review", "wax", "follow"];
+// Glasses deliveries wait for the lab, so the office books those.
+const ONLINE_TYPES = ["sight", "exam", "repair", "follow"];
 // A self-booked visit may add at most this much driving, so online bookings can't scatter a round.
 const ONLINE_MAX_EXTRA = 20;
 
@@ -590,6 +630,6 @@ async function publicBook(input) {
     return { dayLabel: r.dayLabel, time: r.label, clinician: choice.clinician, when: when(r.day, r.start) };
   });
 }
-const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur }));
+const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur, nhs: !!TYPES[k].pvn }));
 
-module.exports = { invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

@@ -1,6 +1,6 @@
 "use strict";
 // The refill engine. Pure functions with no database access, so the rules are easy to test and to tune.
-const { DAY_START, DAY_END, TYPES, PRIO, district, hm } = require("./domain");
+const { DAY_START, DAY_END, TYPES, PRIO, PVN_NOTICE_MIN, canDo, district, hm } = require("./domain");
 const { driveMinutes, driveInfo } = require("./travel");
 
 /**
@@ -20,8 +20,9 @@ function freeWindow(slot, dayAppts) {
  * Rank everyone on the waiting list for a freed slot.
  * Hard rules decide who is eligible; soft rules decide the order.
  * Returns every entry with `ok`, `score`, `why` (reasons for) and `reason` (why not).
+ * @param {number} [leadMin] minutes from now until the slot starts; NHS sight tests need PVN_NOTICE_MIN of it
  */
-function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, declined = [], sameDay = true }) {
+function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, declined = [], sameDay = true, leadMin = Infinity }) {
   const win = freeWindow(slot, dayAppts);
   const out = [];
   for (const w of waitlist) {
@@ -34,7 +35,10 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
     let reason = "";
     let score = PRIO[w.prio].pts;
 
-    if (!w.shortNotice && sameDay) { ok = false; reason = "Needs 24h notice"; }
+    if (!canDo(clinician, w.type)) { ok = false; reason = `Needs an optometrist; ${clinician.first} dispenses`; }
+    else if (t.pvn && leadMin < PVN_NOTICE_MIN) { ok = false; reason = "NHS test: PCSE needs 48h notice"; }
+    else if (p.contact === "Call") { ok = false; reason = "Asked for calls, not texts: the office rings them"; }
+    else if (!w.shortNotice && sameDay) { ok = false; reason = "Needs 24h notice"; }
     else if (t.dur > win) { ok = false; reason = `Needs ${t.dur} min, slot is ${win}`; }
     else if (w.avail === "am" && slot.start >= 720) { ok = false; reason = "Mornings only"; }
     else if (w.avail === "pm" && slot.start < 720) { ok = false; reason = "Afternoons only"; }
@@ -48,6 +52,7 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
       why.push(w.source === "recall" ? (w.days ? `Recall ${w.days} days overdue` : `Recall due: ${(w.note || "review").toLowerCase()}`) : `Waiting ${w.days} days`);
       if (w.prefClinicianId === clinician.id) { score += 10; why.push(`Prefers ${clinician.first}`); }
       why.push(`Fits ${t.dur} of ${win} min`);
+      if (t.pvn) why.push("PCSE notice to lodge if booked");
     }
     out.push({ waitlistId: w.id, patientId: p.id, name: p.name, type: w.type, ok, score: ok ? score : 0, why, reason });
   }
@@ -107,11 +112,14 @@ const DAY_PENALTY = { urgent: 25, soon: 14, routine: 6 };
 function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30, days = 5, prio = "routine" }) {
   const perDay = DAY_PENALTY[prio] || DAY_PENALTY.routine;
   const dur = TYPES[type].dur;
+  // An NHS sight test can't start until PCSE has had 48 hours' notice of it.
+  const pvnFrom = TYPES[type].pvn ? now + PVN_NOTICE_MIN : -Infinity;
   const d = district(pc);
   const out = [];
   for (let day = 0; day < days; day++) {
-  const earliestAllowed = day === 0 ? ROUND5(Math.max(DAY_START, now + noticeMin)) : DAY_START;
+  const earliestAllowed = ROUND5(Math.max(day === 0 ? Math.max(DAY_START, now + noticeMin) : DAY_START, pvnFrom - day * 1440));
   for (const c of clinicians) {
+    if (!canDo(c, type)) continue;
     const area = c.patch.includes(d) ? "patch" : c.near.includes(d) ? "near" : "outside";
     if (area === "outside") continue; // too far to be worth fitting in
     const round = appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === day).sort((x, y) => x.start - y.start);

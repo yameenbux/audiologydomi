@@ -64,13 +64,13 @@ const err = (m) => m ? `<div class="err bk-err" role="alert">${esc(m)}</div>` : 
 
 function view(e) {
   const f = S.form;
-  if (S.step === 1) return `${steps(1)}<div class="caps">Home visits</div><h1>Book a hearing visit at home</h1>
+  if (S.step === 1) return `${steps(1)}<div class="caps">Home visits</div><h1>Book an eye care visit at home</h1>
     <p class="bk-lead">Tell us where you live and what you need, and we'll show you the times when one of our team is nearby.</p>
     <form id="f1">
       <label class="bk-q" for="pc">Your postcode</label>
       <input class="input" id="pc" autocomplete="postal-code" autocapitalize="characters" placeholder="For example LS16 7SN" value="${esc(f.pc || "")}" required>
       <p class="bk-q">What is the visit for?</p>
-      <div class="bk-choices">${S.info.types.map((t, i) => `<label class="bk-choice"><input type="radio" name="type" value="${t.key}" ${(f.type || S.info.types[0].key) === t.key ? "checked" : ""}><span>${esc(t.name)}<small>About ${t.dur} minutes</small></span></label>`).join("")}</div>
+      <div class="bk-choices">${S.info.types.map((t, i) => `<label class="bk-choice"><input type="radio" name="type" value="${t.key}" ${(f.type || S.info.types[0].key) === t.key ? "checked" : ""}><span>${esc(t.name)}<small>About ${t.dur} minutes${t.nhs ? ". Free at home if you can't get to an optician's without help. From two days ahead, so we can tell the NHS" : ""}</small></span></label>`).join("")}</div>
       <p class="bk-q">When are you usually at home?</p>
       <div class="bk-choices">${Object.entries(S.info.avail).map(([k, v]) => `<label class="bk-choice"><input type="radio" name="avail" value="${k}" ${(f.avail || "any") === k ? "checked" : ""}><span>${esc(v)}</span></label>`).join("")}</div>
       ${err(e)}
