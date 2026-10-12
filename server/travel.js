@@ -162,6 +162,27 @@ async function prepare(pcs) {
   } catch (err) { failed(err); }
 }
 
+/**
+ * The road a car would take through these postcodes, in order, as [[lat, lon], ...], for drawing the route
+ * on a map. From OSRM, cached; null when routing is off, paused or fails, and the map draws straight lines.
+ */
+const paths = new Map();
+async function roadPath(pcs) {
+  if (cfg.provider !== "osrm" || pcs.length < 2) return null;
+  await geocode(pcs);
+  const pts = pcs.map(point);
+  if (pts.some((p) => !p)) return null;
+  const key = pts.map(([a, b]) => `${a.toFixed(5)},${b.toFixed(5)}`).join(";");
+  if (paths.has(key)) return paths.get(key);
+  if (paused()) return null;
+  try {
+    const body = await getJson(`${cfg.osrmUrl}/route/v1/driving/${pts.map(([lat, lon]) => `${lon},${lat}`).join(";")}?overview=full&geometries=geojson`);
+    const line = body.routes && body.routes[0] ? body.routes[0].geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]) : null;
+    if (line) { paths.set(key, line); if (paths.size > 500) paths.delete(paths.keys().next().value); }
+    return line;
+  } catch (err) { failed(err); return null; }
+}
+
 /** For the technical view: how drive times are being worked out right now. */
 function routingStatus() {
   return {
@@ -201,4 +222,4 @@ function miles(from, to) {
   return Math.round((km(a, b) * ROAD_FACTOR / 1.609) * 10) / 10;
 }
 
-module.exports = { place, driveMinutes, driveInfo, known, normalise, isFull, prepare, geocode, configure, routingStatus, locate, miles, CENTRES, KNOWN, _reset };
+module.exports = { roadPath, place, driveMinutes, driveInfo, known, normalise, isFull, prepare, geocode, configure, routingStatus, locate, miles, CENTRES, KNOWN, _reset };

@@ -455,8 +455,6 @@ textarea.note:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--forest)
 .icon-btn.sm { width: 30px; height: 30px; flex: none }
 .icon-btn.sm svg { width: 15px; height: 15px }
 .route-card { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 2px }
-.route-card .rm-legs li { grid-template-columns: 44px minmax(0, 1fr); }
-.route-card .rm-legs li .muted { grid-column: 2 }
 .slot-map { margin: 6px 0 10px }
 .offer .oa { gap: 8px }
 .rm-label.quiet { fill: var(--muted) }
@@ -594,3 +592,31 @@ a.btn { text-decoration: none }
 .plan-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap }
 .plan-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line) }
 .plan-row .btn { flex: none }
+
+/* Route maps (Leaflet over OpenStreetMap; see routeMap in app.js) */
+.lmap-slot { position: relative; border-radius: 14px; overflow: hidden; background: var(--subtle); box-shadow: inset 0 0 0 1px var(--line) }
+.lmap-slot > .routemap { height: 100%; width: 100% }
+.lmap { position: absolute; inset: 0; z-index: 0 }
+.lmap .leaflet-control-attribution { font: 10px var(--f-ui); background: rgba(255, 255, 255, .8) }
+/* Streets faded back so the round is what you see first */
+.lmap-tiles { filter: grayscale(.85) contrast(.9) brightness(1.06) }
+.lmap .leaflet-popup-content { font: 13px/1.45 var(--f-ui); margin: 10px 14px }
+.lmap .leaflet-popup-content-wrapper { border-radius: 12px }
+.lmap .leaflet-control-zoom a { color: var(--ink) }
+.pin { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--pin, var(--forest)); color: #fff;
+  font: 700 13px/1 var(--f-ui); box-shadow: 0 0 0 3px #fff, 0 3px 10px rgba(0, 0, 0, .25); flex: none }
+.pin.done { background: #9AA5A0 }
+.pin.is-live { box-shadow: 0 0 0 3px #fff, 0 0 0 7px color-mix(in srgb, var(--pin) 30%, transparent), 0 3px 10px rgba(0, 0, 0, .25) }
+.pin.prop { background: var(--apricot); outline: 2px dashed var(--apricot); outline-offset: 4px }
+.pin.home { background: var(--ink); border-radius: 9px }
+.pin.home svg { width: 16px; height: 16px; fill: #fff }
+.pin.sm { width: 26px; height: 26px; box-shadow: none } .pin.sm svg { width: 14px; height: 14px }
+.rm-legs li { display: block; padding: 0; border-top: 1px solid var(--line) }
+.rm-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 9px 4px; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; border-radius: 10px }
+button.rm-row:hover { background: var(--subtle) }
+.rm-row .pin { width: 26px; height: 26px; font-size: 12px; box-shadow: none }
+.rm-what { display: grid; min-width: 0 } .rm-what b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .rm-what .muted { font-size: 12px }
+.rm-drive { display: grid; grid-template-columns: auto auto; column-gap: 5px; align-items: center; font-size: 12.5px; font-weight: 600; text-align: right; justify-items: end }
+.rm-drive svg { width: 14px; height: 14px; color: var(--muted); grid-row: span 2 } .rm-drive small { grid-column: 2; color: var(--muted); font-weight: 400; font-size: 11px }
+.rm-legs li.done .rm-what b { color: var(--muted) }
+.route-card .rm-legs li { display: block }

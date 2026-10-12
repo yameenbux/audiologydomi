@@ -276,6 +276,7 @@ function render() {
   $("#role-clin").setAttribute("aria-pressed", !isAdmin());
   $("#open-phone").hidden = !isAdmin();
   paint($("#app"), isAdmin() ? officeView() : clinView());
+  mountMaps($("#app"));
   tick();
 }
 
@@ -678,11 +679,74 @@ function renderDrawer() {
     : `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true">${inner}</aside>`;
   const fresh = !root.firstChild;
   paint(root, html);
+  mountMaps(root);
   if (fresh) { const f = root.querySelector("select, button:not(.x), input"); if (f) f.focus({ preventScroll: true }); }
 }
 /* ---------- Route map: drawn here from coordinates, so it needs no map service and works offline ---------- */
 const mins = (m) => m >= 60 ? `${Math.floor(m / 60)} h ${m % 60 ? (m % 60) + " min" : ""}`.trim() : `${m} min`;
+/* ---------- Route maps ----------
+   On a real street map (OpenStreetMap, faded so the route stands out), with the route along the roads when
+   road routing is available and dashed straight lines when it isn't. Pins are numbered in visiting order and
+   match the numbered list underneath. Offline, or before the map library loads, the simple drawing below
+   (svgRouteMap) is shown instead, so the clinician's phone never loses its route. */
+const MAPS = new Map();      // key -> { el, map, sig }: Leaflet maps kept between redraws
+const MAP_DATA = new Map();  // key -> the route it shows
+let tileFailures = 0;
+const tilesOk = () => !!window.L && navigator.onLine !== false && !UI.offline && tileFailures < 6;
 function routeMap(r, { height = 300 } = {}) {
+  const key = `${r.clinician.id}-${r.day}${r.stops.some((s) => s.proposed) ? "-p" : ""}-${height}`;
+  MAP_DATA.set(key, r);
+  return `<div class="lmap-slot" data-map="${esc(key)}" style="height:${height}px">${tilesOk() ? "" : svgRouteMap(r, { height })}</div>`;
+}
+const pinHtml = (label, cls, color) => `<span class="pin ${cls}" style="--pin:${color}">${label}</span>`;
+function buildMap(el, r) {
+  const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.25, attributionControl: true });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' })
+    .on("tileerror", () => { tileFailures++; }).addTo(map);
+  map.attributionControl.setPrefix(false);
+  const col = r.clinician.color, base = [r.base.lat, r.base.lon], pts = r.stops.map((s) => [s.lat, s.lon]);
+  if (r.path && r.path.length > 1) {
+    L.polyline(r.path, { color: "#fff", weight: 9, opacity: 0.9 }).addTo(map); // a white casing so the line reads on any street
+    L.polyline(r.path, { color: col, weight: 5, opacity: 0.95 }).addTo(map);
+  } else {
+    L.polyline([base, ...pts], { color: col, weight: 4, opacity: 0.9, dashArray: "2 9", lineCap: "round" }).addTo(map);
+    if (pts.length) L.polyline([pts[pts.length - 1], base], { color: col, weight: 3, opacity: 0.4, dashArray: "2 9", lineCap: "round" }).addTo(map);
+  }
+  const markers = [];
+  L.marker(base, { icon: L.divIcon({ className: "", html: `<span class="pin home" title="Home base"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg></span>`, iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: -100 })
+    .bindPopup(`<b>Home base</b><br>${esc(r.clinician.first)} starts and ends here`).addTo(map);
+  r.stops.forEach((s, i) => {
+    const cls = s.proposed ? "prop" : s.status === "done" ? "done" : s.status === "live" || s.status === "enroute" ? "is-live" : "";
+    const m = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "", html: pinHtml(s.proposed ? "+" : i + 1, cls, col), iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: s.proposed ? 1000 : 100 + i, riseOnHover: true })
+      .bindPopup(`<b>${hm(s.start)} · ${esc(s.name)}</b><br>${esc(s.addr || "")}${s.addr ? ", " : ""}${esc(s.pc)}${s.proposed ? "<br><i>Proposed new visit</i>" : s.status === "done" ? "<br>Done" : ""}`)
+      .addTo(map);
+    markers.push(m);
+  });
+  map.fitBounds(L.latLngBounds([base, ...pts]), { padding: [36, 36], maxZoom: 15 });
+  return { map, markers };
+}
+/** After each redraw: put the live map into every slot, reusing it when the route hasn't changed. */
+function mountMaps(root) {
+  if (!tilesOk()) return;
+  root.querySelectorAll(".lmap-slot[data-map]").forEach((slot) => {
+    const key = slot.dataset.map, r = MAP_DATA.get(key);
+    if (!r) return;
+    const sig = JSON.stringify([r.stops.map((s) => [s.id, s.start, s.status, s.lat, s.lon]), r.path ? r.path.length : 0]);
+    let m = MAPS.get(key);
+    if (m && m.sig !== sig) { m.map.remove(); MAPS.delete(key); m = null; }
+    if (!m) { const el = document.createElement("div"); el.className = "lmap"; slot.appendChild(el); m = { el, sig, ...buildMap(el, r) }; MAPS.set(key, m); }
+    else if (m.el.parentNode !== slot) slot.appendChild(m.el);
+    requestAnimationFrame(() => m.map.invalidateSize());
+  });
+}
+/** Tapping a stop in the list opens its pin on the map. */
+function focusStop(key, i) {
+  const m = MAPS.get(key);
+  if (!m || !m.markers[i]) return;
+  m.map.flyTo(m.markers[i].getLatLng(), Math.max(m.map.getZoom(), 14), { duration: 0.6 });
+  m.markers[i].openPopup();
+}
+function svgRouteMap(r, { height = 300 } = {}) {
   const W = 480, H = height, pad = 42;
   const pts = [r.base, ...r.stops];
   const lat0 = pts.reduce((t, p) => t + p.lat, 0) / pts.length, cos = Math.cos(lat0 * Math.PI / 180);
@@ -720,11 +784,11 @@ function routeMap(r, { height = 300 } = {}) {
     lines.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${proposed ? prop : isHome ? "var(--muted)" : col}" stroke-width="${proposed ? 2.5 : 2}" ${proposed || isHome ? 'stroke-dasharray="6 5"' : ""} marker-end="url(#rm-${proposed ? "p" : isHome ? "h" : "c"})" opacity="${isHome ? 0.55 : 0.9}"/>`);
     if (leg && leg.min && Math.hypot(x2 - x1, y2 - y1) > 90) legLabels.push([(x1 + x2) / 2, (y1 + y2) / 2, `${leg.min} min`]);
   });
-  const district = (r.districts || []).map((d) => { const [x, y] = raw(d); return x > 30 && x < W - 30 && y > 24 && y < H - 10 ? `<text x="${x}" y="${y}" class="rm-district" text-anchor="middle">${esc(d.name)}</text>` : ""; }).join("");
+  const district = ""; // the numbered list under the map names every stop; the drawing stays uncluttered
   const [bx, by] = P(r.base);
-  const stopLabels = r.stops.map((st) => { const [x, y] = P(st); return label(x, y, `${hm(st.start)} ${st.proposed ? "New: " + first(st.name) : first(st.name)}`, "rm-label" + (st.proposed ? " prop" : "")); });
+  const stopLabels = r.stops.map((st) => { const [x, y] = P(st); return label(x, y, hm(st.start), "rm-label" + (st.proposed ? " prop" : "")); });
   const baseLabel = label(bx, by, "Home base", "rm-label quiet");
-  const legText = legLabels.map(([x, y, t]) => { const b = [x - 22, y - 10, x + 22, y + 4]; if (hit(b)) return ""; boxes.push(b); return `<text x="${x}" y="${y}" text-anchor="middle" class="rm-leg">${t}</text>`; }).join("");
+  const legText = ""; // drive minutes are in the list under the map, not on the lines
   const stops = r.stops.map((st, i) => {
     const [x, y] = P(st), fill = st.proposed ? prop : st.status === "done" ? "var(--muted)" : col;
     return `<g class="rm-stop"><circle cx="${x}" cy="${y}" r="11" fill="${fill}" stroke="var(--surface)" stroke-width="2.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" class="rm-num">${st.proposed ? "+" : i + 1}</text>${stopLabels.at(i)}</g>`;
@@ -737,11 +801,15 @@ function routeMap(r, { height = 300 } = {}) {
     ${stops}
   </svg>`;
 }
-function routeSummary(r) {
-  const seq = [{ name: "Home base" }, ...r.stops];
+function routeSummary(r, { height = 300 } = {}) {
+  const key = [...MAP_DATA.keys()].reverse().find((k) => MAP_DATA.get(k) === r) || "";
+  const col = r.clinician.color;
   return `<div class="rm-totals"><span><b>${r.totals.visits}</b> visits</span><span><b>${mins(r.totals.driveMin)}</b> driving</span><span><b>${r.totals.miles}</b> miles (est.)</span></div>
-    <ol class="rm-legs">${r.stops.map((st, i) => `<li class="${st.proposed ? "prop" : ""}"><span class="mono">${hm(st.start)}</span><span>${esc(seq.at(i).name.split(" ")[0])} → <b>${esc(st.name)}</b>${st.proposed ? " (proposed)" : ""}</span><span class="muted">${st.leg.min ?? "?"} min · ${st.leg.miles} mi${st.leg.source === "road" ? "" : " · est."}</span></li>`).join("")}
-      ${r.stops.length ? `<li><span class="mono">${hm(r.stops.at(-1).end)}</span><span>${esc(r.stops.at(-1).name.split(" ")[0])} → home base</span><span class="muted">${r.home.min} min · ${r.home.miles} mi</span></li>` : ""}</ol>`;
+    <ol class="rm-legs">${r.stops.map((st, i) => `<li class="${st.proposed ? "prop" : ""} ${st.status === "done" ? "done" : ""}"><button type="button" class="rm-row" data-act="map-focus" data-map="${esc(key)}" data-i="${i}">
+        ${pinHtml(st.proposed ? "+" : i + 1, st.proposed ? "prop" : st.status === "done" ? "done" : st.status === "live" || st.status === "enroute" ? "is-live" : "", col)}
+        <span class="rm-what"><b>${esc(st.name)}</b><span class="muted">${hm(st.start)}${st.proposed ? " · proposed" : st.status === "done" ? " · done" : ""} · ${esc(st.pc)}</span></span>
+        <span class="rm-drive">${icon("car")}${st.leg.min ?? "?"} min<small>${st.leg.miles} mi${st.leg.source === "road" ? "" : " est."}</small></span></button></li>`).join("")}
+      ${r.stops.length ? `<li class="home"><div class="rm-row"><span class="pin home sm"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg></span><span class="rm-what"><b>Back to base</b><span class="muted">from ${hm(r.stops.at(-1).end)}</span></span><span class="rm-drive">${icon("car")}${r.home.min} min<small>${r.home.miles} mi</small></span></div></li>` : ""}</ol>`;
 }
 async function openRoute(cid, day) {
   const data = await api("GET", `/api/route?clinician=${encodeURIComponent(cid)}&day=${day}`);
@@ -1197,6 +1265,7 @@ document.addEventListener("click", async (e) => {
       case "ref-decline": el.disabled = true; await api("POST", `/api/referrals/${el.dataset.id}/decline`, { reason: ($("#rf-why") || {}).value }); await load(); closeDrawer(); toast("Referral declined"); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, el.dataset.d != null ? Number(el.dataset.d) : UI.view === "week" ? 0 : UI.day); break;
+      case "map-focus": focusStop(el.dataset.map, Number(el.dataset.i)); break;
       case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); renderDrawer(); break;
       case "plan-cancel": UI.drawer.plan = null; renderDrawer(); break;
       case "plan-apply": {

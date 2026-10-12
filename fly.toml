@@ -1,6 +1,6 @@
 # Fly.io, London. Deploy with: fly launch --copy-config --no-deploy, then fly deploy.
 # The demo keeps its data in memory, so run exactly one machine: fly scale count 1
-app = "domi-hearing-demo"
+app = "domi"
 primary_region = "lhr"
 
 [build]
