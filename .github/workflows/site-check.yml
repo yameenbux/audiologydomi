@@ -17,7 +17,7 @@ jobs:
       - name: Pages respond and show the right content
         env:
           SITE: ${{ vars.SITE_URL || 'https://domi.ysbdesigns.uk' }}
-          DEMO: ${{ vars.DEMO_URL || 'https://domi-hearing-demo.onrender.com' }}
+          DEMO: ${{ vars.DEMO_URL || 'https://app.domi.ysbdesigns.uk' }}
         run: |
           fail=0
           check() {   # url, text the page must contain

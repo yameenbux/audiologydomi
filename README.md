@@ -6,10 +6,13 @@
 
 **Home-visit diaries that refill themselves.**
 
-When a patient cancels, Domi texts the best-matched person on the waiting list,
-books the first yes, and updates the clinician's phone. Nobody in the office has to ring round.
+The diary for healthcare that comes to the patient's home: eye care, hearing,
+foot care, dental, physio, blood tests, nursing and therapy assessments. When a
+patient cancels, Domi texts the best-matched person on the waiting list and books
+the first yes. It plans each clinician's route and takes referrals without
+paperwork. Nobody in the office has to ring round.
 
-Made by YSB Ventures Ltd · [domi.ysbdesigns.uk](https://domi.ysbdesigns.uk)
+Made by YSB Ventures Ltd · [domi.ysbdesigns.uk](https://domi.ysbdesigns.uk) · demo at [app.domi.ysbdesigns.uk](https://app.domi.ysbdesigns.uk/?brand=domi)
 
 ![Node](https://img.shields.io/badge/Node-22-1E4D40?style=flat-square&labelColor=15241F&color=1E4D40)
 ![Dependencies](https://img.shields.io/badge/npm%20dependencies-none-E07B4F?style=flat-square&labelColor=15241F)
@@ -25,7 +28,7 @@ Made by YSB Ventures Ltd · [domi.ysbdesigns.uk](https://domi.ysbdesigns.uk)
 > [!NOTE]
 > **Reading this without a technical background?** Start at *The problem*, *What's
 > in it* and *One cancellation, end to end*. Those three explain what Domi is and
-> what it does for a domiciliary optician. Everything after *How the
+> what it does for a home-visit service. Everything after *How the
 > pieces fit* is for whoever maintains the code.
 
 ### How to read the diagrams
@@ -76,6 +79,33 @@ patient needs to be seen.
 > practice is the invented *Aire Valley Eyecare*, and the office can change it
 > (Waiting list → *Texts are signed*), so a prospect can see the demo with their
 > own name.
+
+---
+
+## Who it's for
+
+Every home-visit service has the same hard part: a round of patients spread
+across towns, cancellations that leave a gap nobody can fill in time, and
+referrals arriving on paper. Domi does that part. Each service then gets its own
+visit types, rules and records. The website's *Who it's for* section says the
+same, with the same honesty about what isn't built.
+
+| Service | Status | What's specific to it |
+| :--- | :--- | :--- |
+| **Domiciliary eye care** | Built for it: the demo is an eye-care practice | PCSE's 48-hour notice for NHS sight tests; eye tests only to optometrists; glasses deliveries fill same-day gaps; prescriptions on the phone |
+| **Hearing care** | Ready to set up | Hearing tests, fittings, wax removal and aid reviews as visit types; audiogram records set up with the practice. *Not built:* Noah 4 |
+| **Foot care** (podiatry, chiropody, foot health) | Ready to set up | Nail-care rounds refilled and planned. *Coming next:* repeating visits every 6–8 weeks |
+| **Dental care at home** | Ready to set up | Homes and care homes, carers and capacity noted. *Not built:* dental charting |
+| **Physiotherapy and rehab** | Ready to set up | Short-notice discharges slot into cancellations. *Coming next:* a course of sessions booked at once |
+| **Home blood tests** | Ready to set up | Mornings-only patients stay in the morning when routes are planned. *Not built:* a lab drop-off stop |
+| **Nursing at home** | Ready to set up | Offline notes, the route on a street map, every record view logged. *Not built:* medicines and wound charts |
+| **Therapy assessments** (OT, speech and language) | Ready to set up | Referrals from families, GPs and social workers through one form |
+
+*Ready to set up* means everything common to home visits works today (refills,
+route planning, booking by drive time, the referral form, patient import, the
+offline phone app, two-factor sign-in, the audit log), and that service's visit
+types are configured with the practice (`server/domain.js`). Don't let anyone
+describe a *Ready to set up* service as built for it.
 
 ---
 
@@ -219,7 +249,15 @@ is a Blueprint, so Render reads the settings from the repo:
 
 1. Sign in at [dashboard.render.com](https://dashboard.render.com) with GitHub and give Render access to this repo.
 2. **New → Blueprint**, choose this repo and `main`, then **Apply**.
-3. About two minutes later it's at `https://domi-hearing-demo.onrender.com`. The build runs the tests, so a failing test stops a bad deploy.
+3. About two minutes later it's at its `onrender.com` address. The build runs the tests, so a failing test stops a bad deploy.
+
+The live service is **domi-bolton**, at **`https://app.domi.ysbdesigns.uk`** (a
+custom domain: a CNAME `app.domi` → `domi-hearing-demo.onrender.com` at one.com),
+and it still answers at `https://domi-hearing-demo.onrender.com`. It deploys
+from `main`. It sets `DEFAULT_BRAND=hvo`, so the plain address opens in a
+practice's own branding for a showcase. `/?brand=domi` gives the neutral demo,
+which is what the website links to. Remove the variable in Render (Environment)
+when the showcase is over.
 
 On the free plan it **sleeps after 15 minutes without visits** and takes about
 30–60 seconds to wake. Open it a few minutes before a meeting. Every wake
@@ -238,7 +276,7 @@ and publishes:
 
 **Settings → Pages → Source** must be **GitHub Actions**, not a branch. Optional
 repository variables (**Settings → Secrets and variables → Actions → Variables**):
-`DEMO_URL` (default `https://domi-hearing-demo.onrender.com`), `EMAIL` (default
+`DEMO_URL` (default `https://app.domi.ysbdesigns.uk/?brand=domi` for the website's button; the 6-hourly check uses the bare domain), `EMAIL` (default
 `yameen@ysbdesigns.uk`) and `SITE_URL` (default `https://domi.ysbdesigns.uk`).
 `site-check.yml` loads the website and the demo every 6 hours and fails, which
 makes GitHub email you, if one is down.
@@ -312,6 +350,7 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 | `MAX_SANDBOXES` | 100 | Private demos kept in memory at once |
 | `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
+| `DEFAULT_BRAND` | none (`domi`) | The brand the plain address opens in (`server/brands.js`). `/?brand=<id>` always overrides it |
 
 ### Security in the demo
 

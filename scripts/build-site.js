@@ -11,7 +11,7 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const out = path.resolve(root, process.argv[2] || "_site");
 const cfg = {
-  DEMO_URL: process.env.DEMO_URL || "https://domi-hearing-demo.onrender.com",
+  DEMO_URL: process.env.DEMO_URL || "https://app.domi.ysbdesigns.uk/?brand=domi", // the neutral demo, whatever brand the deployment defaults to
   EMAIL: process.env.EMAIL || "yameen@ysbdesigns.uk",
   SITE_URL: (process.env.SITE_URL || "https://domi.ysbdesigns.uk").replace(/\/$/, ""),
 };
