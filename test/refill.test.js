@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert");
-const { freeWindow, rankCandidates, parseReply } = require("../server/refill");
+const { freeWindow, rankCandidates, parseReply, suggestSlots } = require("../server/refill");
 
 const clinician = { id: "c1", first: "Amira", optom: true, patch: ["LS6", "LS16"], near: ["LS7"] };
 const patientsById = {
@@ -40,7 +40,14 @@ test("hard rules exclude unsuitable patients with a reason", () => {
   assert.match(byId.w4.reason, /24h/);
   assert.match(byId.w5.reason, /Needs 60 min/);
   assert.match(byId.w6.reason, /Afternoons/);
-  assert.match(byId.w8.reason, /calls, not texts/);
+});
+
+test("patients who asked to be phoned stay suitable, flagged for the office to ring rather than text", () => {
+  const { candidates } = rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById });
+  const w8 = candidates.find((c) => c.waitlistId === "w8");
+  assert.ok(w8.ok && w8.byPhone);
+  assert.ok(w8.why.some((w) => /phone them/.test(w)));
+  assert.ok(!candidates.find((c) => c.waitlistId === "w2").byPhone);
 });
 
 test("an NHS sight test is only offered with 48 hours' notice for PCSE", () => {
@@ -63,8 +70,8 @@ test("a dispensing optician isn't offered eye examinations", () => {
 
 test("eligible patients are ranked by priority, locality and wait", () => {
   const { candidates } = rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById });
-  const ok = candidates.filter((c) => c.ok).map((c) => c.waitlistId);
-  assert.deepStrictEqual(ok, ["w7", "w2", "w3"]);
+  const texted = candidates.filter((c) => c.ok && !c.byPhone).map((c) => c.waitlistId);
+  assert.deepStrictEqual(texted, ["w7", "w2", "w3"]);
   assert.ok(candidates[0].ok, "eligible candidates sort first");
 });
 
@@ -105,4 +112,18 @@ test("cancellation texts are recognised", () => {
   assert.strictEqual(parseReply("CANCEL"), "cancel");
   assert.strictEqual(parseReply("Please cancel my visit"), "cancel");
   assert.strictEqual(parseReply("can't make it today"), "no");
+});
+
+test("working hours: the free window stops at the end of the clinician's day, and a day off gets no slots", () => {
+  const late = { id: "a9", start: 14 * 60, drive: 0, day: 1 };
+  assert.strictEqual(freeWindow(late, [late], 15 * 60), 60);
+  const short = { ...clinician, hours: [[540, 1020], [540, 900], null, [540, 1020], [540, 1020]] };
+  const early = { ...clinician, hours: [[540, 1020], [540, 885], [540, 1020], [540, 1020], [540, 1020]] }; // finishes 14:45 on Tuesday
+  const { candidates } = rankCandidates({ slot: late, clinician: early, dayAppts: [late], waitlist: [W("x", "p5", { type: "sight" })], patientsById });
+  assert.match(candidates[0].reason, /Needs 60 min, slot is 45/);
+  const slots = suggestSlots({ pc: "LS6 4AA", type: "repair", clinicians: [{ ...short, base: "LS6 4AA" }], appts: [], now: 600 });
+  assert.ok(!slots.some((s) => s.day === 2), "nothing on their day off");
+  assert.ok(slots.filter((s) => s.day === 1).every((s) => s.end <= 900), "nothing after they finish on Tuesday");
+  assert.ok(slots.some((s) => s.day === 1), "but Tuesday morning is offered");
+  assert.ok(!suggestSlots({ pc: "LS6 4AA", type: "repair", clinicians: [{ ...short, base: "LS6 4AA", active: false }], appts: [], now: 600 }).length, "nobody who has left");
 });

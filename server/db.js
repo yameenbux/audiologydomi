@@ -7,6 +7,7 @@ const { driveMinutes } = require("./travel");
 const auth = require("./auth");
 const travel = require("./travel");
 const { northWest } = require("./seed-nw");
+const { DAY_START, DAY_END } = require("./domain");
 const brands = require("./brands");
 
 // `db` always points at the database of the sandbox handling the current request.
@@ -14,17 +15,24 @@ const db = new Proxy({}, {
   get(_, key) { const real = sandbox.current().db; const v = real[key]; return typeof v === "function" ? v.bind(real) : v; },
 });
 
+// A full working day, Monday to Friday. A clinician's own hours can be shorter, or a day off (null).
+const DEFAULT_HOURS = [0, 1, 2, 3, 4].map(() => [DAY_START, DAY_END]);
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS clinicians (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, first TEXT NOT NULL, role TEXT NOT NULL, color TEXT NOT NULL,
-  area_name TEXT NOT NULL, patch TEXT NOT NULL, near TEXT NOT NULL, base TEXT NOT NULL
+  area_name TEXT NOT NULL, patch TEXT NOT NULL, near TEXT NOT NULL, base TEXT NOT NULL,
+  hours TEXT NOT NULL DEFAULT '${JSON.stringify(DEFAULT_HOURS)}', -- per weekday Mon–Fri: [start, end] in minutes, or null for a day off
+  active INTEGER NOT NULL DEFAULT 1                -- 0 once they've left: kept for history, never offered work
 );
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('admin','clinician')),
   clinician_id TEXT REFERENCES clinicians(id),
   email TEXT NOT NULL UNIQUE, pass_hash TEXT NOT NULL, totp_secret TEXT NOT NULL,
   totp_step INTEGER NOT NULL DEFAULT -1,            -- last code step used, so a code can't be replayed
-  failed INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0
+  failed INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0,
+  title TEXT, color TEXT,
+  active INTEGER NOT NULL DEFAULT 1                -- 0 = can't sign in (left the practice); kept for the audit trail
 );
 CREATE TABLE IF NOT EXISTS patients (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER, addr TEXT NOT NULL, pc TEXT NOT NULL, phone TEXT NOT NULL,
@@ -32,7 +40,8 @@ CREATE TABLE IF NOT EXISTS patients (
   dob TEXT, email TEXT,
   eligibility TEXT,                               -- the condition that stops them leaving home unaccompanied (needed on a GOS 6)
   rep TEXT,                                       -- next of kin or carer, and their number
-  last_test TEXT                                  -- date of the last sight test, ISO
+  last_test TEXT,                                 -- date of the last sight test, ISO
+  erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
 );
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id TEXT NOT NULL REFERENCES patients(id), label TEXT NOT NULL,
@@ -41,10 +50,11 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY, clinician_id TEXT NOT NULL REFERENCES clinicians(id), patient_id TEXT NOT NULL REFERENCES patients(id),
   type TEXT NOT NULL, day INTEGER NOT NULL DEFAULT 0, start_min INTEGER NOT NULL, drive INTEGER NOT NULL DEFAULT 10,
-  status TEXT NOT NULL CHECK (status IN ('booked','enroute','live','done','cancelled')),
+  status TEXT NOT NULL CHECK (status IN ('booked','enroute','live','done','missed','cancelled')), -- missed: nobody in when the clinician called
   moved INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, note TEXT, reason TEXT, gap INTEGER NOT NULL DEFAULT 0,
   cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT,
-  reminded INTEGER NOT NULL DEFAULT 0              -- day-before reminder sent
+  reminded INTEGER NOT NULL DEFAULT 0,             -- day-before reminder sent
+  cancel_token TEXT UNIQUE                         -- secret for the family cancellation link (/cancel/<practice>/<token>)
 );
 CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY, number TEXT NOT NULL UNIQUE, appointment_id TEXT UNIQUE REFERENCES appointments(id),
@@ -183,7 +193,9 @@ function seed(db, brand) {
   let DISPENSER_SLOTS = [[540, "dispense"], [645, "repair"], [780, "dispense"], [900, "repair"]];
   if (region === "nw") ({ clinicians, patients, pools, bases, waitlist: moreWaiting, optomSlots: OPTOM_SLOTS, dispenserSlots: DISPENSER_SLOTS } = northWest(patients, P, travel.place));
   clinicians.forEach((r) => ins("clinicians", r));
-  USERS.forEach((u) => ins("users", { id: u.id, name: u.name, role: u.role, clinician_id: u.clinicianId, email: emailFor(u, brand), pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret() }));
+  // The demo accounts: in the North West demo the clinicians' names and colours come from the seed.
+  const clinOf = Object.fromEntries(clinicians.map((c) => [c.id, c]));
+  USERS.forEach((u) => { const c = clinOf[u.clinicianId]; ins("users", { id: u.id, name: c ? c.name : u.name, role: u.role, clinician_id: u.clinicianId, email: emailFor(u, brand), pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret(), title: c ? c.role : u.title, color: c ? c.color : u.color }); });
   for (const p of patients) {
     const h = p._h || []; delete p._h;
     ins("patients", p);
@@ -260,8 +272,9 @@ sandbox.setOpener(openDb);
 // Row mappers: database shape → API shape
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
 const map = {
-  clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, lastTest: r.last_test }),
+  clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
+  user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0 }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, lastTest: r.last_test, erased: !!r.erased }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
@@ -272,4 +285,4 @@ const map = {
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, openDb, map, TABLES, USERS, emailFor };
+module.exports = { db, openDb, map, TABLES, USERS, emailFor, DEFAULT_HOURS };

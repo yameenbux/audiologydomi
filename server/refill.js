@@ -3,27 +3,36 @@
 const { DAY_START, DAY_END, TYPES, PRIO, PVN_NOTICE_MIN, canDo, district, hm } = require("./domain");
 const { driveMinutes, driveInfo } = require("./travel");
 
+/** A clinician's working hours on a day of the demo week: [start, end] in minutes, or null for a day off. */
+const hoursOn = (clinician, day) => {
+  const h = clinician && Array.isArray(clinician.hours) ? clinician.hours[day || 0] : undefined;
+  return h === undefined ? [DAY_START, DAY_END] : h;
+};
+
 /**
  * Minutes free from the start of a cancelled slot until the clinician must leave for the next visit.
  * @param {object} slot      the cancelled appointment {id, start, clinicianId}
  * @param {object[]} dayAppts the clinician's other active appointments today
+ * @param {number} [dayEnd]  when the clinician finishes that day
  */
-function freeWindow(slot, dayAppts) {
+function freeWindow(slot, dayAppts, dayEnd = DAY_END) {
   const next = dayAppts
     .filter((a) => a.id !== slot.id && a.start > slot.start)
     .sort((a, b) => a.start - b.start)[0];
-  const end = next ? next.start - (next.drive || 10) : DAY_END;
+  const end = next ? next.start - (next.drive || 10) : dayEnd;
   return Math.max(0, end - slot.start);
 }
 
 /**
  * Rank everyone on the waiting list for a freed slot.
  * Hard rules decide who is eligible; soft rules decide the order.
- * Returns every entry with `ok`, `score`, `why` (reasons for) and `reason` (why not).
+ * Returns every entry with `ok`, `score`, `why` (reasons for) and `reason` (why not). Patients who asked to be
+ * phoned rather than texted can still be suitable: they're marked `byPhone`, so they're never texted an offer,
+ * but the office can ring them and book them in.
  * @param {number} [leadMin] minutes from now until the slot starts; NHS sight tests need PVN_NOTICE_MIN of it
  */
 function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, declined = [], sameDay = true, leadMin = Infinity }) {
-  const win = freeWindow(slot, dayAppts);
+  const win = freeWindow(slot, dayAppts, (hoursOn(clinician, slot.day) || [0, slot.start])[1]);
   const out = [];
   for (const w of waitlist) {
     if (w.status !== "waiting" || declined.includes(w.id)) continue;
@@ -37,7 +46,6 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
 
     if (!canDo(clinician, w.type)) { ok = false; reason = `Needs an optometrist; ${clinician.first} dispenses`; }
     else if (t.pvn && leadMin < PVN_NOTICE_MIN) { ok = false; reason = "NHS test: PCSE needs 48h notice"; }
-    else if (p.contact === "Call") { ok = false; reason = "Asked for calls, not texts: the office rings them"; }
     else if (!w.shortNotice && sameDay) { ok = false; reason = "Needs 24h notice"; }
     else if (t.dur > win) { ok = false; reason = `Needs ${t.dur} min, slot is ${win}`; }
     else if (w.avail === "am" && slot.start >= 720) { ok = false; reason = "Mornings only"; }
@@ -46,6 +54,7 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
     else if (clinician.near.includes(d)) { score += 6; why.push(`Neighbouring area (${d})`); }
     else { ok = false; reason = `${d} is outside ${clinician.first}'s area`; }
 
+    const byPhone = ok && p.contact === "Call";
     if (ok) {
       why.unshift(`${PRIO[w.prio].label} priority`);
       score += Math.round(w.days * 0.6);
@@ -53,8 +62,9 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
       if (w.prefClinicianId === clinician.id) { score += 10; why.push(`Prefers ${clinician.first}`); }
       why.push(`Fits ${t.dur} of ${win} min`);
       if (t.pvn) why.push("PCSE notice to lodge if booked");
+      if (byPhone) why.push("Asked for calls, not texts: phone them");
     }
-    out.push({ waitlistId: w.id, patientId: p.id, name: p.name, type: w.type, ok, score: ok ? score : 0, why, reason });
+    out.push({ waitlistId: w.id, patientId: p.id, name: p.name, type: w.type, ok, byPhone, score: ok ? score : 0, why, reason });
   }
   return { window: win, candidates: out.sort((a, b) => (b.ok - a.ok) || (b.score - a.score)) };
 }
@@ -117,13 +127,16 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
   const d = district(pc);
   const out = [];
   for (let day = 0; day < days; day++) {
-  const earliestAllowed = ROUND5(Math.max(day === 0 ? Math.max(DAY_START, now + noticeMin) : DAY_START, pvnFrom - day * 1440));
   for (const c of clinicians) {
-    if (!canDo(c, type)) continue;
+    if (!canDo(c, type) || c.active === false) continue;
+    const hours = hoursOn(c, day);
+    if (!hours) continue; // their day off
+    const [dayStart, dayEnd] = hours;
+    const earliestAllowed = ROUND5(Math.max(day === 0 ? Math.max(dayStart, now + noticeMin) : dayStart, pvnFrom - day * 1440));
     const area = c.patch.includes(d) ? "patch" : c.near.includes(d) ? "near" : "outside";
     if (area === "outside") continue; // too far to be worth fitting in
     const round = appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === day).sort((x, y) => x.start - y.start);
-    const base = { pc: c.base || c.patch[0], name: "start of round", end: DAY_START };
+    const base = { pc: c.base || c.patch[0], name: "start of round", end: dayStart };
     const stops = [base, ...round.map((a) => ({ pc: a.pc, name: a.name, start: a.start, end: a.start + TYPES[a.type].dur }))];
     for (let i = 0; i < stops.length; i++) {
       const prev = stops[i], next = stops[i + 1] || null;
@@ -132,7 +145,7 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
       if (driveIn == null || driveOut == null) continue;
       let start = ROUND5(Math.max(prev.end + driveIn, earliestAllowed));
       if (avail === "pm") start = Math.max(start, 12 * 60);
-      const latestEnd = next ? next.start - driveOut : DAY_END;
+      const latestEnd = next ? next.start - driveOut : dayEnd;
       if (start + dur > latestEnd) continue;
       if (avail === "am" && start >= 12 * 60) continue;
       const direct = next ? driveMinutes(prev.pc, next.pc) || 0 : 0;
@@ -163,4 +176,4 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
   return out;
 }
 
-module.exports = { freeWindow, rankCandidates, parseReply, planOffer, suggestSlots };
+module.exports = { freeWindow, hoursOn, rankCandidates, parseReply, planOffer, suggestSlots };

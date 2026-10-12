@@ -3,12 +3,13 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, PVN_NOTICE_MIN, hm, first, dayPhrase, DAYS, DAY_START, DAY_END } = require("./domain");
-const { rankCandidates, parseReply, planOffer, suggestSlots } = require("./refill");
+const { TYPES, PVN_NOTICE_MIN, REASONS, hm, first, dayPhrase, district, DAYS, DAY_START, DAY_END } = require("./domain");
+const { rankCandidates, parseReply, planOffer, suggestSlots, hoursOn } = require("./refill");
 const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
 const sandbox = require("./sandbox");
 const importer = require("./importer");
+const auth = require("./auth");
 const planner = require("./planner");
 const regions = require("./regions");
 const bus = require("./bus");
@@ -30,6 +31,15 @@ const dayAppts = (cid, day = 0) => all("SELECT * FROM appointments WHERE clinici
 /** "today at 11:00", "tomorrow at 11:00", "on Wednesday 14 Oct at 11:00" */
 const when = (day, start) => `${dayPhrase(day)} at ${hm(start)}`;
 const newId = (prefix) => prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+/**
+ * Text a patient, unless they asked to be phoned instead (a landline, poor sight, can't read texts): then the
+ * office calls them, so nothing is sent. Returns whether a text went.
+ */
+function textPatient(p, { kind, body }) {
+  if (p.contact === "Call" || !p.phone) return false;
+  sendSms({ to: p.phone, name: p.name, kind, body });
+  return true;
+}
 
 function audit(actor, action, entity, detail) {
   run("INSERT INTO audit (ts, actor, action, entity, detail) VALUES (?, ?, ?, ?, ?)", sandbox.stamp(), actor, action, entity, detail);
@@ -99,8 +109,11 @@ function completePcse(id, user) {
 const declinedFor = (slotId) => all("SELECT waitlist_id FROM offers WHERE slot_id = ? AND status IN ('declined','expired')", slotId).map((r) => r.waitlist_id);
 const pendingFor = (slotId) => all("SELECT * FROM offers WHERE slot_id = ? AND status = 'pending'", slotId);
 
-/** Cancel a visit and start refilling it. `byText` when the patient cancelled by SMS. */
-function cancelAppointment(id, reason, actor, { byText = false } = {}) {
+/**
+ * Cancel a visit and start refilling it. `byText` when the patient cancelled by SMS, `byLink` when they (or
+ * their family) used the cancellation link.
+ */
+function cancelAppointment(id, reason, actor, { byText = false, byLink = false } = {}) {
   return tx(() => {
     const a = getAppt(id);
     if (!a) throw new HttpError(404, "That visit no longer exists.");
@@ -110,12 +123,12 @@ function cancelAppointment(id, reason, actor, { byText = false } = {}) {
     run("UPDATE appointments SET status = 'cancelled', reason = ?, cancelled_min = ? WHERE id = ?", reason, sandbox.nowMin(), id);
     audit(actor, "appointment.cancel", id, `${p.name} at ${hm(a.start)}: ${reason}`);
     pcseTask("cancel", a, p); // PCSE must be told an NHS visit won't happen, or the claim won't match
-    sendSms({ to: p.phone, name: p.name, kind: "cancellation", body: byText
+    textPatient(p, { kind: "cancellation", body: byText || byLink
       ? `Thanks ${first(p.name)}, we've cancelled your visit ${when(a.day, a.start)}. We'll be in touch to rebook. ${practice()}`
       : `Hi ${first(p.name)}, your visit ${when(a.day, a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${practice()}` });
-    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `${p.name} (${a.day === 0 ? "" : DAYS[a.day] + " "}${hm(a.start)}) has cancelled${byText ? " by text" : ""}. We're refilling the slot and will update you.` });
+    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `${p.name} (${a.day === 0 ? "" : DAYS[a.day] + " "}${hm(a.start)}) has cancelled${byText ? " by text" : byLink ? " online" : ""}. We're refilling the slot and will update you.` });
     const result = offerNext(id, actor, { first: true });
-    const evt = { ...result, cancelled: { patient: p.name, reason, byText } };
+    const evt = { ...result, cancelled: { patient: p.name, reason, byText, byLink } };
     bus.emit({ type: "refill.started", ...evt });
     return evt;
   });
@@ -128,13 +141,16 @@ function cancelAppointment(id, reason, actor, { byText = false } = {}) {
 function offerNext(slotId, actor, { first: isFirst = false } = {}) {
   const slot = getAppt(slotId);
   const { clinician, window, candidates } = rank(slot, declinedFor(slotId));
-  const eligible = candidates.filter((c) => c.ok);
+  const eligible = candidates.filter((c) => c.ok && !c.byPhone); // phone-only patients are rung by the office, never texted
+  const ringable = candidates.filter((c) => c.ok && c.byPhone);
   const now = sandbox.nowMin();
   const plan = planOffer({ leadMin: slot.day * 1440 + slot.start - now, drive: slot.drive, offerMinutes: settings().offerMinutes, eligible: eligible.length });
   const base = { slotId, clinicianId: slot.clinicianId, clinician: clinician.name, day: slot.day, start: slot.start, window, candidates: candidates.slice(0, 5), plan, now };
 
   if (plan.mode === "none" || plan.mode === "too-late") {
-    const why = plan.mode === "none" ? "Nobody suitable on the waiting list" : `Too close to the visit to confirm anyone (${Math.max(0, plan.slack)} min of slack)`;
+    const why = plan.mode === "too-late" ? `Too close to the visit to confirm anyone (${Math.max(0, plan.slack)} min of slack)`
+      : ringable.length ? `Nobody suitable can be texted. ${ringable.map((c) => c.name).slice(0, 2).join(" and ")} asked for calls: phone them and book from the list`
+      : "Nobody suitable on the waiting list";
     run("UPDATE appointments SET gap = 1 WHERE id = ?", slotId);
     audit(actor, "slot.unfilled", slotId, `${hm(slot.start)}: ${why}`);
     if (!isFirst) bus.emit({ type: "slot.unfilled", ...base, why });
@@ -142,7 +158,7 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
   }
 
   if (settings().mode === "instant") {
-    const booking = book(slot, eligible[0].waitlistId, null, actor);
+    const booking = book(slot, eligible[0].waitlistId, null, actor, "instant");
     return { outcome: "booked", top: eligible[0], booking, ...base };
   }
 
@@ -167,8 +183,11 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
   return result;
 }
 
-/** Put a waiting-list patient into a freed slot. */
-function book(slot, waitlistId, offerId, actor) {
+/**
+ * Put a waiting-list patient into a freed slot. `how`: "offer" (they replied YES), "instant" (instant mode) or
+ * "office" (the office rang them and booked it).
+ */
+function book(slot, waitlistId, offerId, actor, how = offerId ? "offer" : "instant") {
   const w = map.wait(one("SELECT * FROM waitlist WHERE id = ?", waitlistId));
   const p = getPatient(w.patientId);
   const old = getPatient(slot.patientId);
@@ -184,24 +203,22 @@ function book(slot, waitlistId, offerId, actor) {
   pcseTask("lodge", getAppt(id), p);
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
   run("UPDATE recalls SET status = 'booked' WHERE waitlist_id = ?", waitlistId);
-  if (offerId) {
-    run("UPDATE offers SET status = 'accepted', booked_appointment_id = ? WHERE id = ?", id, offerId);
-    // Everyone else asked for this slot hears straight away that it has gone, and keeps their place.
-    for (const o of pendingFor(slot.id)) {
-      run("UPDATE offers SET status = 'superseded' WHERE id = ?", o.id);
-      run("UPDATE waitlist SET status = 'waiting' WHERE id = ?", o.waitlist_id);
-      const other = getPatient(map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
-      sendSms({ to: other.phone, name: other.name, kind: "offer-taken", body: `Sorry ${first(other.name)}, the visit ${when(slot.day, slot.start)} has just been taken. You keep your place on our list. ${practice()}` });
-    }
+  if (offerId) run("UPDATE offers SET status = 'accepted', booked_appointment_id = ? WHERE id = ?", id, offerId);
+  // Everyone else asked for this slot hears straight away that it has gone, and keeps their place.
+  for (const o of pendingFor(slot.id)) {
+    run("UPDATE offers SET status = 'superseded' WHERE id = ?", o.id);
+    run("UPDATE waitlist SET status = 'waiting' WHERE id = ?", o.waitlist_id);
+    const other = getPatient(map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
+    sendSms({ to: other.phone, name: other.name, kind: "offer-taken", body: `Sorry ${first(other.name)}, the visit ${when(slot.day, slot.start)} has just been taken. You keep your place on our list. ${practice()}` });
   }
   addNote(p.id, `Moved forward from waiting list to ${DAYS[slot.day]} ${hm(slot.start)} with ${c.name}.`, { name: "Office" }, { silent: true });
-  const patientBody = offerId
-    ? `Thank you ${first(p.name)}, you're booked ${when(slot.day, slot.start)} with ${c.first}. We'll text when ${c.first} is on the way. ${practice()}`
-    : `Good news ${first(p.name)}: thanks to a cancellation, your home visit has moved forward to ${when(slot.day, slot.start).replace(/^today/, "TODAY")} with ${c.first}. Reply NO if you can't make it and we'll keep your place. ${practice()}`;
-  sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: patientBody });
+  const patientBody = how === "instant"
+    ? `Good news ${first(p.name)}: thanks to a cancellation, your home visit has moved forward to ${when(slot.day, slot.start).replace(/^today/, "TODAY")} with ${c.first}. Reply NO if you can't make it and we'll keep your place. ${practice()}`
+    : `Thank you ${first(p.name)}, you're booked ${when(slot.day, slot.start)} with ${c.first}. We'll text when ${c.first} is on the way. ${practice()}`;
+  textPatient(p, { kind: "confirmation", body: patientBody });
   sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Diary update: your ${slot.day === 0 ? "" : DAYS[slot.day] + " "}${hm(slot.start)} (${old.name}) cancelled. Now seeing ${p.name}, ${t.name.toLowerCase()}, ${p.addr} ${p.pc}. Record is in the app.` });
-  audit(actor, "slot.filled", id, `${p.name} moved forward to ${hm(slot.start)} with ${c.name}`);
-  const booking = { appointmentId: id, patient: p.name, clinician: c.name, day: slot.day, start: slot.start, instant: !offerId };
+  audit(actor, "slot.filled", id, `${p.name} moved forward to ${hm(slot.start)} with ${c.name}${how === "office" ? " (booked by phone)" : ""}`);
+  const booking = { appointmentId: id, patient: p.name, clinician: c.name, day: slot.day, start: slot.start, instant: how === "instant", byOffice: how === "office" };
   bus.emit({ type: "slot.filled", clinicianId: c.id, slotId: slot.id, ...booking });
   return booking;
 }
@@ -254,8 +271,9 @@ function sendReminders(day, actor = "system") {
   return tx(() => {
     const due = all("SELECT a.*, p.name AS pname, p.phone, c.first AS cfirst FROM appointments a JOIN patients p ON p.id = a.patient_id JOIN clinicians c ON c.id = a.clinician_id WHERE a.day = ? AND a.status = 'booked' AND a.reminded = 0 ORDER BY a.start_min", day);
     for (const a of due) {
+      const link = cancelLink(a.id);
       sendSms({ to: a.phone, name: a.pname, kind: "reminder",
-        body: `Hi ${first(a.pname)}, a reminder from ${practice()}: ${a.cfirst} visits you ${when(day, a.start_min)} for your ${TYPES[a.type].name.toLowerCase()}. Can't make it? Reply CANCEL and we'll offer the time to someone waiting.` });
+        body: `Hi ${first(a.pname)}, a reminder from ${practice()}: ${a.cfirst} visits you ${when(day, a.start_min)} for your ${TYPES[a.type].name.toLowerCase()}. Can't make it? Reply CANCEL${link ? ` or cancel online at ${link}` : ""} and we'll offer the time to someone waiting.` });
       run("UPDATE appointments SET reminded = 1 WHERE id = ?", a.id);
     }
     if (due.length) {
@@ -392,7 +410,8 @@ async function planRoute(cid, day) {
     .map((r) => ({ id: r.id, name: r.name, pc: r.pc, dur: TYPES[r.type].dur, start: r.start_min, status: r.status, type: r.type }));
   await travel.prepare([c.base, ...visits.map((v) => v.pc)]);
   const drive = (a, b) => (a === b ? 0 : travel.driveMinutes(a, b) || 15);
-  const plan = planner.planDay({ base: c.base, visits, drive, miles: travel.miles, now: day === 0 ? sandbox.nowMin() : null });
+  const [dayStart, dayEnd] = hoursOn(c, day) || [DAY_START, DAY_END];
+  const plan = planner.planDay({ base: c.base, visits, drive, miles: travel.miles, now: day === 0 ? sandbox.nowMin() : null, dayStart, dayEnd });
   return { clinicianId: c.id, clinician: c.name, first: c.first, day, dayLabel: DAYS[day], ...plan };
 }
 
@@ -470,20 +489,21 @@ const HMRC_PENCE_PER_MILE = 45; // HMRC approved mileage rate for cars (first 10
 
 /** The week per clinician and day: visits, time booked against the working day, driving, miles and their mileage value. */
 async function weekReport() {
-  const working = DAY_END - DAY_START;
-  const clinicians = all("SELECT * FROM clinicians ORDER BY id").map(map.clinician);
+  // Utilisation is measured against each clinician's own working hours; a day off counts as no working time.
+  const clinicians = all("SELECT * FROM clinicians ORDER BY rowid").map(map.clinician).filter((c) => c.active || one("SELECT 1 FROM appointments WHERE clinician_id = ? AND status != 'cancelled'", c.id));
   const rows = [];
   for (const c of clinicians) {
     const days = [];
     for (let d = 0; d < DAYS.length; d++) {
       const r = await routeFor(c.id, d, null, { withPath: false });
       const booked = r.stops.reduce((t, s) => t + (s.end - s.start), 0);
-      days.push({ day: d, dayLabel: DAYS[d], visits: r.totals.visits, bookedMin: booked, workingMin: working, utilisation: Math.round((booked / working) * 100),
+      const h = hoursOn(c, d), working = h ? h[1] - h[0] : 0;
+      days.push({ day: d, dayLabel: DAYS[d], visits: r.totals.visits, bookedMin: booked, workingMin: working, utilisation: working ? Math.round((booked / working) * 100) : 0,
         driveMin: r.totals.driveMin, miles: r.totals.miles, mileagePence: Math.round(r.totals.miles * HMRC_PENCE_PER_MILE) });
     }
     const sum = (k) => days.reduce((t, x) => t + x[k], 0);
     rows.push({ clinicianId: c.id, name: c.name, first: c.first, color: c.color, days,
-      total: { visits: sum("visits"), bookedMin: sum("bookedMin"), workingMin: working * DAYS.length, utilisation: Math.round((sum("bookedMin") / (working * DAYS.length)) * 100),
+      total: { visits: sum("visits"), bookedMin: sum("bookedMin"), workingMin: sum("workingMin"), utilisation: sum("workingMin") ? Math.round((sum("bookedMin") / sum("workingMin")) * 100) : 0,
         driveMin: sum("driveMin"), miles: Math.round(sum("miles") * 10) / 10, mileagePence: sum("mileagePence") } });
   }
   const t = (k) => rows.reduce((a, r) => a + r.total[k], 0);
@@ -561,10 +581,11 @@ function bookingPatient(input) {
   return { id: null, name, pc, addr: String(input.addr || "").trim() || "Address to confirm", phone: String(input.phone || "").trim() || "07700 900000", alerts: [] };
 }
 
-function slotsFor(patient, type, avail) {
+/** Where a visit could go this week. `exclude`: a visit being moved, so its current time counts as free. */
+function slotsFor(patient, type, avail, { exclude = null } = {}) {
   if (!TYPES[type]) throw new HttpError(400, "Choose a visit type.");
-  const clinicians = all("SELECT * FROM clinicians ORDER BY id").map(map.clinician);
-  const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled'`)
+  const clinicians = all("SELECT * FROM clinicians WHERE active = 1 ORDER BY id").map(map.clinician);
+  const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.id IS NOT ?`, exclude)
     .map((r) => ({ ...map.appt(r), pc: r.pc, name: r.name }));
   const wait = patient.id && one("SELECT prio FROM waitlist WHERE patient_id = ? AND status = 'waiting'", patient.id);
   return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
@@ -804,4 +825,431 @@ async function publicBook(input) {
 }
 const onlineTypes = () => ONLINE_TYPES.map((k) => ({ key: k, name: TYPES[k].name, dur: TYPES[k].dur, nhs: !!TYPES[k].pvn }));
 
-module.exports = { submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+/* ---------- The office runs everything: records, visits, the team ---------- */
+const sameDigits = (a, b) => String(a || "").replace(/\D/g, "") === String(b || "").replace(/\D/g, "");
+/** A UK phone number tidied to "07700 900123" / "01204 292005", or null if it isn't one. */
+const ukPhone = (v) => { const d = String(v || "").replace(/[\s()-]/g, "").replace(/^\+44/, "0"); return /^0\d{9,10}$/.test(d) ? d.replace(/^(\d{5})(\d+)$/, "$1 $2") : null; };
+const upcoming = (pid) => all("SELECT * FROM appointments WHERE patient_id = ? AND status IN ('booked','enroute','live') ORDER BY day, start_min", pid).map(map.appt);
+
+/** Re-work the drive to each visit in a round from the stop before it (the first from home) after the round changes. */
+function redrive(cid, day) {
+  const c = getClinician(cid); if (!c) return;
+  let prev = c.base;
+  all("SELECT a.id, a.status, a.drive, p.pc FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", cid, day).forEach((r, i) => {
+    const d = i === 0 ? 0 : travel.driveMinutes(prev, r.pc) || 10;
+    if (r.status === "booked" && d !== r.drive) run("UPDATE appointments SET drive = ? WHERE id = ?", d, r.id);
+    prev = r.pc;
+  });
+}
+
+const PATIENT_LABELS = { name: "name", addr: "address", pc: "postcode", phone: "phone", contact: "how to contact", email: "email", dob: "date of birth",
+  eligibility: "reason for a home visit", rep: "next of kin or carer", specs: "glasses", alerts: "visit notes" };
+
+/**
+ * The office changes a patient's details. Only the fields sent are changed. The audit log records which fields
+ * changed, never the old or new values; the clinician is told if the address of an upcoming visit changed.
+ */
+async function updatePatient(id, input, user) {
+  const before = getPatient(String(id));
+  if (!before) throw new HttpError(404, "Patient not found.");
+  if (before.erased) throw new HttpError(409, "This patient's details were erased.");
+  const has = (k) => Object.prototype.hasOwnProperty.call(input, k);
+  const next = {};
+  if (has("name")) { const v = clean(input.name, 80); if (v.length < 2) throw new HttpError(400, "Enter the patient's full name."); next.name = v; }
+  if (has("addr")) { const v = clean(input.addr, 120); if (v.length < 4) throw new HttpError(400, "Enter the first line of the address."); next.addr = v; }
+  if (has("pc")) {
+    const v = travel.normalise(input.pc);
+    if (!travel.known(v)) throw new HttpError(400, "Choose the town and postcode area, or type the full postcode.");
+    next.pc = v;
+  }
+  if (has("phone")) { const v = ukPhone(input.phone); if (!v) throw new HttpError(400, "Enter a UK phone number, like 07700 900123 or 01204 292005."); next.phone = v; }
+  if (has("contact")) { if (!["Text", "Call"].includes(input.contact)) throw new HttpError(400, "Choose text or call."); next.contact = input.contact; }
+  const phone = next.phone || before.phone, contact = next.contact || before.contact;
+  if (contact === "Text" && !/^07/.test(phone)) throw new HttpError(400, "Texts need a mobile number. Add one, or set them to be phoned.");
+  if (has("email")) { const v = clean(input.email, 120); if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) throw new HttpError(400, "That email address doesn't look right."); next.email = v || null; }
+  if (has("dob")) {
+    const v = String(input.dob || "");
+    if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= "1900-01-01" && v <= "2026-10-12")) throw new HttpError(400, "Enter the date of birth as a date in the past.");
+    next.dob = v || null;
+  }
+  if (has("eligibility")) {
+    const v = clean(input.eligibility, 200);
+    // Checked only when it changes, so an old "Housebound" doesn't block saving a new phone number.
+    if (v && v !== before.eligibility && GENERIC_REASON.test(v)) throw new HttpError(400, `Record the illness or condition behind "${v}". The NHS claim needs it.`);
+    next.eligibility = v || null;
+  }
+  if (has("rep")) next.rep = clean(input.rep, 120) || null;
+  if (has("specs")) next.specs = clean(input.specs, 80) || "None on record";
+  if (has("alerts")) {
+    const list = (Array.isArray(input.alerts) ? input.alerts : String(input.alerts || "").split("\n")).map((a) => clean(a, 120)).filter(Boolean).slice(0, 8);
+    next.alerts = list;
+  }
+  const changed = Object.keys(next).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(before[k]));
+  if (!changed.length) return { patient: before, changed: [] };
+  if (next.pc) await travel.prepare([next.pc, ...upcoming(before.id).map((a) => getClinician(a.clinicianId).base)]);
+  return tx(() => {
+    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", specs: "specs", alerts: "alerts" };
+    for (const k of changed) run(`UPDATE patients SET ${cols[k]} = ? WHERE id = ?`, k === "alerts" ? JSON.stringify(next[k]) : next[k], before.id);
+    if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((Date.UTC(2026, 9, 12) - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
+    const labels = changed.map((k) => PATIENT_LABELS[k]);
+    const moved = changed.includes("addr") || changed.includes("pc");
+    if (moved) {
+      // Their visits are now somewhere else: drive times change, and each clinician needs the new address.
+      const rounds = new Set();
+      for (const a of upcoming(before.id)) {
+        rounds.add(a.clinicianId + ":" + a.day);
+        const c = getClinician(a.clinicianId), p = getPatient(before.id);
+        sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Address change for ${p.name} (${DAYS[a.day]} ${hm(a.start)}): now ${p.addr}, ${p.pc}.` });
+      }
+      for (const r of rounds) { const [cid, day] = r.split(":"); redrive(cid, Number(day)); }
+    }
+    addNote(before.id, `Details updated by the office: ${labels.join(", ")}.`, user, { silent: true });
+    audit(user.name, "patient.update", before.id, `Changed ${labels.join(", ")}`);
+    bus.emit({ type: "patient.updated", patientId: before.id });
+    return { patient: getPatient(before.id), changed: labels };
+  });
+}
+
+/**
+ * Everything Domi holds about one patient, for a subject access request under UK GDPR (or to send to another
+ * practice). Audited.
+ */
+function exportPatient(id, user) {
+  const p = getPatient(String(id));
+  if (!p) throw new HttpError(404, "Patient not found.");
+  return tx(() => {
+    const visits = all("SELECT a.*, c.name AS clinician FROM appointments a JOIN clinicians c ON c.id = a.clinician_id WHERE a.patient_id = ? ORDER BY a.day, a.start_min", p.id)
+      .map((r) => ({ day: DAYS[r.day], time: hm(r.start_min), type: TYPES[r.type].name, clinician: r.clinician, status: r.status, reason: r.reason || undefined }));
+    const texts = all("SELECT * FROM messages WHERE phone IS NOT NULL ORDER BY id").filter((m) => p.phone && sameDigits(m.phone, p.phone))
+      .map((m) => ({ at: m.created_at, direction: m.direction === "in" ? "from the patient" : "to the patient", body: m.body }));
+    const out = {
+      exported: { at: `${DAYS[0]} ${sandbox.stamp()}`, by: user.name, practice: practice(), note: "Everything this practice holds about the patient in Domi." },
+      patient: { name: p.name, dateOfBirth: p.dob, age: p.age, address: p.addr, postcode: p.pc, phone: p.phone, contact: p.contact, email: p.email,
+        reasonForHomeVisit: p.eligibility, nextOfKin: p.rep, glasses: p.specs, lastSightTest: p.lastTest, prescription: p.rx, visitNotes: p.alerts },
+      notes: all("SELECT * FROM notes WHERE patient_id = ? ORDER BY id", p.id).map((n) => ({ when: n.label, by: n.author || undefined, note: n.body })),
+      visits,
+      waitingList: all("SELECT * FROM waitlist WHERE patient_id = ?", p.id).map((w) => ({ for: TYPES[w.type].name, priority: w.prio, status: w.status, note: w.note || undefined })),
+      recalls: all("SELECT * FROM recalls WHERE patient_id = ?", p.id).map((r) => ({ reason: r.reason, status: r.status })),
+      invoices: all("SELECT * FROM invoices WHERE patient_id = ?", p.id).map((i) => ({ number: i.number, total: `£${(i.total_pence / 100).toFixed(2)}`, status: i.status, issued: i.issued_at })),
+      referrals: all("SELECT * FROM referrals WHERE patient_id = ?", p.id).map((r) => ({ received: r.created_at, from: REF_FROM[r.from_kind], referrer: r.from_name || undefined, reason: r.eligibility, notes: r.notes || undefined })),
+      texts,
+    };
+    audit(user.name, "patient.export", p.id, "Exported everything held about them");
+    return out;
+  });
+}
+
+/**
+ * Erase a patient's personal details on request (UK GDPR right to erasure). Refused while visits are booked, and
+ * for anyone already seen: clinical and NHS claim records must be kept (for at least 7 years in England), so the
+ * right to erasure doesn't apply to them. What's left is an anonymous row, so diaries and counts still add up.
+ */
+function erasePatient(id, input, user) {
+  return tx(() => {
+    const p = getPatient(String(id));
+    if (!p) throw new HttpError(404, "Patient not found.");
+    if (p.erased) throw new HttpError(409, "Their details have already been erased.");
+    if (clean(input.confirm, 80).toLowerCase() !== p.name.toLowerCase()) throw new HttpError(400, `Type ${p.name}'s full name to confirm.`);
+    const booked = upcoming(p.id);
+    if (booked.length) throw new HttpError(409, `${p.name} has ${booked.length} visit${booked.length === 1 ? "" : "s"} booked. Cancel ${booked.length === 1 ? "it" : "them"} first.`);
+    if (one("SELECT 1 FROM appointments WHERE patient_id = ? AND status IN ('done','missed')", p.id) || one("SELECT 1 FROM invoices WHERE patient_id = ?", p.id))
+      throw new HttpError(409, `${p.name} has been seen, so their clinical and NHS claim records must be kept (at least 7 years). Their details can't be erased yet.`);
+    if (one("SELECT 1 FROM waitlist WHERE patient_id = ? AND status = 'offered'", p.id)) throw new HttpError(409, `${p.name} has just been offered a visit. Wait for their reply.`);
+    const name = p.name;
+    run("DELETE FROM offers WHERE waitlist_id IN (SELECT id FROM waitlist WHERE patient_id = ?)", p.id);
+    run("DELETE FROM recalls WHERE patient_id = ?", p.id);
+    run("DELETE FROM waitlist WHERE patient_id = ?", p.id);
+    run("DELETE FROM notes WHERE patient_id = ?", p.id);
+    for (const m of all("SELECT id, phone FROM messages WHERE phone IS NOT NULL")) if (p.phone && sameDigits(m.phone, p.phone)) run("DELETE FROM messages WHERE id = ?", m.id);
+    // Their name also appears in texts to clinicians and in the activity log: replace it there too.
+    run("UPDATE messages SET body = replace(body, ?, 'an erased patient'), to_name = replace(to_name, ?, 'Erased patient')", name, name);
+    run("UPDATE audit SET detail = replace(detail, ?, 'an erased patient')", name);
+    run("UPDATE appointments SET note = NULL WHERE patient_id = ?", p.id);
+    run("UPDATE referrals SET name = 'Erased patient', dob = NULL, addr = 'Erased', phone = NULL, eligibility = 'Erased', notes = NULL, from_name = NULL, from_phone = NULL, entitlement = '[]' WHERE patient_id = ?", p.id);
+    run(`UPDATE patients SET name = 'Erased patient', age = NULL, addr = 'Erased', pc = ?, phone = '', contact = 'Call', alerts = '[]', specs = '', rx = NULL,
+      dob = NULL, email = NULL, eligibility = NULL, rep = NULL, last_test = NULL, erased = 1 WHERE id = ?`, district(p.pc), p.id);
+    audit(user.name, "patient.erase", p.id, "Personal details erased on request");
+    bus.emit({ type: "patient.updated", patientId: p.id });
+    return { ok: true };
+  });
+}
+
+/* Moving a visit to another time, in one step: one text, the PCSE notification moved with it. */
+function movable(id) {
+  const a = getAppt(String(id));
+  if (!a) throw new HttpError(404, "That visit no longer exists.");
+  if (a.status !== "booked") throw new HttpError(409, "Only visits that haven't started can be moved.");
+  return a;
+}
+/** Where this visit could go instead: the same search as booking, with its current time counted as free. */
+async function moveOptions(id, input) {
+  const a = movable(id), p = getPatient(a.patientId);
+  await warmRoutes({ patientId: p.id });
+  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id })
+    .filter((s) => !(s.clinicianId === a.clinicianId && s.day === a.day && s.start === a.start)).slice(0, 6);
+  return { appointmentId: a.id, patient: { id: p.id, name: p.name, pc: p.pc }, type: a.type, from: { clinicianId: a.clinicianId, day: a.day, start: a.start }, slots };
+}
+async function moveAppointment(id, input, user) {
+  const pre = movable(id);
+  await warmRoutes({ patientId: pre.patientId });
+  return tx(() => {
+    const a = movable(id), p = getPatient(a.patientId), t = TYPES[a.type];
+    const c = getClinician(String(input.clinicianId || ""));
+    if (!c) throw new HttpError(400, "Choose a clinician.");
+    const day = Number(input.day), start = Number(input.start);
+    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
+    if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
+    const old = getClinician(a.clinicianId);
+    run("UPDATE appointments SET clinician_id = ?, day = ?, start_min = ?, drive = ?, reminded = 0, seen = 0 WHERE id = ?", c.id, day, start, slot.driveIn, a.id);
+    redrive(old.id, a.day); redrive(c.id, day);
+    // PCSE's notification is for a date and time: cancel the old one and lodge the new.
+    pcseTask("cancel", a, p); pcseTask("lodge", getAppt(a.id), p);
+    const was = `${DAYS[a.day]} ${hm(a.start)}`;
+    textPatient(p, { kind: "time-change", body: `Hi ${first(p.name)}, it's ${practice()}. Your home visit has moved to ${when(day, start)} with ${c.first} (was ${dayPhrase(a.day).replace(/^on /, "")} at ${hm(a.start)}). Reply CANCEL if that doesn't suit.` });
+    sendSms({ to: "clinician", name: old.name, kind: "diary-change", toClinicianId: old.id, body: old.id === c.id
+      ? `Diary change: ${p.name} (${t.name.toLowerCase()}) has moved from ${was} to ${DAYS[day]} ${hm(start)}.`
+      : `Diary change: ${p.name} (${was}) has moved to ${c.first}'s round. That time is free now.` });
+    if (old.id !== c.id) sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${t.name.toLowerCase()}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. Moved from ${old.first}'s round.` });
+    addNote(p.id, `Visit moved by the office from ${was} (${old.name}) to ${DAYS[day]} ${hm(start)} (${c.name}).`, user, { silent: true });
+    audit(user.name, "appointment.move", a.id, `${p.name}: ${was} ${old.name} → ${DAYS[day]} ${hm(start)} ${c.name}`);
+    bus.emit({ type: "appointment.moved", clinicianId: old.id, appointmentId: a.id });
+    if (old.id !== c.id) bus.emit({ type: "appointment.moved", clinicianId: c.id, appointmentId: a.id });
+    return { appointmentId: a.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, dayLabel: DAYS[day], label: slot.label, texted: p.contact !== "Call" };
+  });
+}
+
+/**
+ * The office records what happened at a visit, for a clinician who couldn't (no signal, flat phone, forgot).
+ * "done" completes it without any "on the way" text and raises the invoice; "missed" means nobody was in.
+ */
+function recordOutcome(id, input, user) {
+  return tx(() => {
+    const a = getAppt(String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    if (!["booked", "enroute", "live"].includes(a.status)) throw new HttpError(409, `That visit is already ${a.status === "done" ? "complete" : a.status}.`);
+    if (a.day > 0 || a.start > sandbox.nowMin()) throw new HttpError(409, "That visit hasn't started yet. Record it once its time has passed.");
+    const outcome = input.outcome === "missed" ? "missed" : input.outcome === "done" ? "done" : null;
+    if (!outcome) throw new HttpError(400, "Choose what happened.");
+    const p = getPatient(a.patientId), c = getClinician(a.clinicianId), note = clean(input.note, 2000);
+    run("UPDATE appointments SET status = ?, seen = 1 WHERE id = ?", outcome, a.id);
+    let invoice = null, rebooked = null;
+    if (outcome === "done") {
+      invoice = raiseInvoice(getAppt(a.id), user);
+      addNote(p.id, note ? `Recorded by the office for ${c.name}: ${note}` : `Visit completed with ${c.name} (recorded by the office).`, user, { silent: true });
+    } else {
+      pcseTask("cancel", a, p); // no sight test happened, so no claim: PCSE's notification is withdrawn
+      addNote(p.id, `Nobody in when ${c.first} called at ${hm(a.start)}.${note ? " " + note : ""}`, user, { silent: true });
+      if (input.rebook) {
+        const wid = newId("w"), seq = one("SELECT COALESCE(MAX(added_seq), 0) + 1 AS s FROM waitlist").s;
+        run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
+        run("INSERT INTO waitlist (id, patient_id, type, prio, days, avail, short_notice, added_seq, note) VALUES (?, ?, ?, 'soon', 0, 'any', 1, ?, ?)", wid, p.id, a.type, seq, "Not in at their last visit");
+        rebooked = wid;
+        bus.emit({ type: "waitlist.added", waitlistId: wid });
+      }
+    }
+    audit(user.name, "appointment.recorded", a.id, `${p.name} ${hm(a.start)} with ${c.name}: ${outcome === "done" ? "completed" : "nobody in"} (recorded by the office)`);
+    bus.emit({ type: "appointment.updated", clinicianId: c.id, appointmentId: a.id, status: outcome });
+    return { ...getAppt(a.id), invoice, rebooked };
+  });
+}
+
+/* Filling a gap by hand: everyone who'd fit, and the office books the one it rang. */
+const freedSlot = (id) => {
+  const slot = getAppt(String(id));
+  if (!slot || slot.status !== "cancelled") throw new HttpError(404, "That isn't a free slot.");
+  if (slot.day === 0 && slot.start <= sandbox.nowMin()) throw new HttpError(409, "That time has already passed.");
+  if (one("SELECT 1 FROM appointments WHERE clinician_id = ? AND day = ? AND start_min = ? AND status != 'cancelled'", slot.clinicianId, slot.day, slot.start))
+    throw new HttpError(409, "That slot has already been filled.");
+  return slot;
+};
+/** Who on the waiting list could take a freed slot, best first, including people who asked to be phoned. */
+function gapCandidates(id) {
+  const slot = freedSlot(id), { clinician, window, candidates } = rank(slot, []);
+  const pending = pendingFor(slot.id).map((o) => map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
+  return { slotId: slot.id, clinicianId: clinician.id, clinician: clinician.name, day: slot.day, start: slot.start, type: slot.type, window, candidates, offeredTo: pending.map((pid) => getPatient(pid).name) };
+}
+/** The office rang someone (usually a patient who can't take texts) and they said yes: book them straight in. */
+function bookCandidate(id, waitlistId, user) {
+  return tx(() => {
+    const slot = freedSlot(id);
+    const cand = rank(slot, []).candidates.find((x) => x.waitlistId === String(waitlistId || ""));
+    if (!cand) throw new HttpError(409, "They're no longer waiting: they may have just been booked or offered another visit.");
+    if (!cand.ok) throw new HttpError(409, `${cand.name} can't take this slot: ${cand.reason.charAt(0).toLowerCase() + cand.reason.slice(1)}.`);
+    return book(slot, cand.waitlistId, null, user.name, "office");
+  });
+}
+
+/* ---------- Cancellation link for patients and families ---------- */
+/** The private link that cancels one visit, for a relative who doesn't text. Null until the app knows its address. */
+function cancelLink(apptId) {
+  const sb = sandbox.current();
+  let r = one("SELECT cancel_token FROM appointments WHERE id = ?", apptId);
+  if (!r) return null;
+  if (!r.cancel_token) { const tok = crypto.randomBytes(16).toString("base64url"); run("UPDATE appointments SET cancel_token = ? WHERE id = ?", tok, apptId); r = { cancel_token: tok }; }
+  return sb.base ? `${sb.base}/cancel/${sb.id}/${r.cancel_token}` : null;
+}
+function officeCancelLink(id, user) {
+  return tx(() => {
+    const a = getAppt(String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    if (a.status !== "booked") throw new HttpError(409, "Only visits that haven't started can be cancelled online.");
+    const url = cancelLink(a.id);
+    audit(user.name, "appointment.cancel-link", a.id, "Cancellation link copied for the family");
+    return { url };
+  });
+}
+const byToken = (token) => {
+  const r = /^[A-Za-z0-9_-]{16,64}$/.test(String(token || "")) && one("SELECT * FROM appointments WHERE cancel_token = ?", String(token));
+  if (!r) throw new HttpError(404, "This link isn't valid any more. Please call us to change the visit.");
+  return map.appt(r);
+};
+/** What the cancellation page shows: initials only, so a forwarded link reveals as little as possible. */
+function publicVisit(token) {
+  const a = byToken(token), p = getPatient(a.patientId), c = getClinician(a.clinicianId);
+  const started = a.day === 0 && a.start <= sandbox.nowMin();
+  const state = a.status === "cancelled" ? "cancelled" : a.status !== "booked" ? "started" : started ? "past" : "booked";
+  const initials = p.name.split(" ").map((w, i, all) => (i === all.length - 1 ? w : w[0] + ".")).join(" ");
+  return { state, patient: initials, when: when(a.day, a.start), visit: TYPES[a.type].name, clinician: c.first, reasons: REASONS };
+}
+function publicCancel(token, input) {
+  return tx(() => {
+    const v = publicVisit(token), a = byToken(token);
+    if (v.state === "cancelled") throw new HttpError(409, "This visit is already cancelled.");
+    if (v.state !== "booked") throw new HttpError(409, `${v.clinician} is already on the way or has been. Please call us instead.`);
+    const reason = REASONS.includes(input.reason) ? input.reason : "Patient asked to rebook";
+    return { ok: true, refill: cancelAppointment(a.id, reason, "Cancellation link", { byLink: true }).outcome };
+  });
+}
+
+/* ---------- The team: clinicians, office staff, working hours ---------- */
+const ROLES = ["Optometrist", "Dispensing optician"];
+const userOf = (cid) => one("SELECT * FROM users WHERE clinician_id = ?", cid);
+function teamList() {
+  const users = all("SELECT * FROM users ORDER BY role, name").map(map.user);
+  return {
+    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => ({ ...c, email: (users.find((u) => u.clinicianId === c.id) || {}).email || null })),
+    staff: users.filter((u) => u.role === "admin"),
+    roles: ROLES,
+  };
+}
+const validEmail = (v) => { const e = clean(v, 120).toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new HttpError(400, "Enter a valid email address for signing in."); return e; };
+const emailTaken = (email, exceptUser) => one("SELECT 1 FROM users WHERE email = ? AND id IS NOT ?", email, exceptUser);
+const districts = (v) => {
+  const list = (Array.isArray(v) ? v : String(v || "").split(/[\s,]+/)).map((d) => String(d).trim().toUpperCase()).filter(Boolean);
+  const bad = list.filter((d) => !/^[A-Z]{1,2}\d{1,2}[A-Z]?$/.test(d) || !travel.known(d));
+  if (bad.length) throw new HttpError(400, `We don't know the postcode area${bad.length === 1 ? "" : "s"} ${bad.join(", ")}.`);
+  return [...new Set(list)];
+};
+/** Working hours Mon–Fri: each [start, end] inside the demo's 09:00–17:00 day, at least an hour, or null for a day off. */
+function workingHours(v) {
+  if (!Array.isArray(v) || v.length !== DAYS.length) throw new HttpError(400, "Set hours for each day, Monday to Friday.");
+  return v.map((h, i) => {
+    if (h == null) return null;
+    const [s, e] = [Number(h[0]), Number(h[1])];
+    if (!(s % 15 === 0 && e % 15 === 0 && s >= DAY_START && e <= DAY_END && e - s >= 60)) throw new HttpError(400, `${DAYS[i].slice(0, 3)}: hours must be between 09:00 and 17:00, at least an hour, in quarter hours.`);
+    return [s, e];
+  });
+}
+
+/** Add a clinician (with their sign-in account), or change one. Refuses changes that would strand booked visits. */
+function saveClinician(input, user) {
+  return tx(() => {
+    const existing = input.id ? getClinician(String(input.id)) : null;
+    if (input.id && !existing) throw new HttpError(404, "No such clinician.");
+    const name = clean(input.name, 60); if (name.length < 2) throw new HttpError(400, "Enter their full name.");
+    const role = ROLES.includes(input.role) ? input.role : null; if (!role) throw new HttpError(400, "Choose optometrist or dispensing optician.");
+    const color = /^#[0-9a-f]{6}$/i.test(String(input.color || "")) ? input.color : (existing ? existing.color : "#0B3B7C");
+    const areaName = clean(input.areaName, 60) || "Their area";
+    const patch = districts(input.patch); if (!patch.length) throw new HttpError(400, "Add at least one postcode area they cover, like BL1.");
+    const near = districts(input.near).filter((d) => !patch.includes(d));
+    const base = travel.normalise(input.base); if (!travel.known(base)) throw new HttpError(400, "Enter the postcode they start from (home or the practice).");
+    const hours = workingHours(input.hours);
+    const clash = (where, ...args) => all(`SELECT a.*, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.status = 'booked' ${where}`, existing && existing.id, ...args);
+    if (existing) {
+      if (role !== "Optometrist" && existing.optom) {
+        const tests = clash("").filter((a) => TYPES[a.type].optom);
+        if (tests.length) throw new HttpError(409, `${existing.first} has ${tests.length} eye test${tests.length === 1 ? "" : "s"} or check${tests.length === 1 ? "" : "s"} booked that need an optometrist. Move them first.`);
+      }
+      const outside = clash("").filter((a) => { const h = hours[a.day]; return !h || a.start_min < h[0] || a.start_min + TYPES[a.type].dur > h[1]; });
+      if (outside.length) {
+        const x = outside[0];
+        throw new HttpError(409, `${outside.length} booked visit${outside.length === 1 ? " falls" : "s fall"} outside those hours (${x.name}, ${DAYS[x.day]} ${hm(x.start_min)}${outside.length > 1 ? ", and more" : ""}). Move ${outside.length === 1 ? "it" : "them"} first.`);
+      }
+    }
+    const first_ = name.split(" ")[0];
+    let cid = existing && existing.id;
+    if (existing) {
+      run("UPDATE clinicians SET name = ?, first = ?, role = ?, color = ?, area_name = ?, patch = ?, near = ?, base = ?, hours = ? WHERE id = ?", name, first_, role, color, areaName, JSON.stringify(patch), JSON.stringify(near), base, JSON.stringify(hours), cid);
+      const u = userOf(cid);
+      if (u) {
+        const email = input.email ? validEmail(input.email) : u.email;
+        if (emailTaken(email, u.id)) throw new HttpError(409, "Another account already signs in with that email.");
+        run("UPDATE users SET name = ?, title = ?, color = ?, email = ? WHERE id = ?", name, role, color, email, u.id);
+      }
+      audit(user.name, "clinician.update", cid, name);
+    } else {
+      const email = validEmail(input.email);
+      if (emailTaken(email, null)) throw new HttpError(409, "Another account already signs in with that email.");
+      cid = newId("c");
+      run("INSERT INTO clinicians (id, name, first, role, color, area_name, patch, near, base, hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cid, name, first_, role, color, areaName, JSON.stringify(patch), JSON.stringify(near), base, JSON.stringify(hours));
+      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, auth.DEMO_HASH, auth.newSecret(), role, color);
+      audit(user.name, "clinician.add", cid, `${name}, ${role}`);
+    }
+    bus.emit({ type: "team.updated" });
+    return getClinician(cid);
+  });
+}
+
+/** Someone leaves (or comes back). Their history stays; they stop getting work and can't sign in. */
+function setClinicianActive(id, active, user) {
+  return tx(() => {
+    const c = getClinician(String(id));
+    if (!c) throw new HttpError(404, "No such clinician.");
+    if (!active) {
+      const n = one("SELECT COUNT(*) AS n FROM appointments WHERE clinician_id = ? AND status IN ('booked','enroute','live')", c.id).n;
+      if (n) throw new HttpError(409, `${c.first} has ${n} visit${n === 1 ? "" : "s"} booked. Move or cancel ${n === 1 ? "it" : "them"} first.`);
+      run("UPDATE waitlist SET pref_clinician_id = NULL WHERE pref_clinician_id = ?", c.id);
+    }
+    run("UPDATE clinicians SET active = ? WHERE id = ?", active ? 1 : 0, c.id);
+    run("UPDATE users SET active = ? WHERE clinician_id = ?", active ? 1 : 0, c.id);
+    audit(user.name, active ? "clinician.reactivate" : "clinician.deactivate", c.id, c.name);
+    bus.emit({ type: "team.updated" });
+    const u = userOf(c.id);
+    return { ok: true, userId: u ? u.id : null };
+  });
+}
+
+/** Office accounts: add one, or change a name, job title or sign-in email. */
+function saveStaff(input, user) {
+  return tx(() => {
+    const existing = input.id ? one("SELECT * FROM users WHERE id = ? AND role = 'admin'", String(input.id)) : null;
+    if (input.id && !existing) throw new HttpError(404, "No such office account.");
+    const name = clean(input.name, 60); if (name.length < 2) throw new HttpError(400, "Enter their full name.");
+    const title = clean(input.title, 60) || "Office";
+    const email = validEmail(input.email);
+    if (emailTaken(email, existing ? existing.id : null)) throw new HttpError(409, "Another account already signs in with that email.");
+    let id = existing && existing.id;
+    if (existing) { run("UPDATE users SET name = ?, title = ?, email = ? WHERE id = ?", name, title, email, id); audit(user.name, "staff.update", id, name); }
+    else {
+      id = newId("u-");
+      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'admin', NULL, ?, ?, ?, ?, ?)", id, name, email, auth.DEMO_HASH, auth.newSecret(), title, "#5B6770");
+      audit(user.name, "staff.add", id, `${name}, ${title}`);
+    }
+    bus.emit({ type: "team.updated" });
+    return map.user(one("SELECT * FROM users WHERE id = ?", id));
+  });
+}
+function setStaffActive(id, active, user) {
+  return tx(() => {
+    const u = one("SELECT * FROM users WHERE id = ? AND role = 'admin'", String(id));
+    if (!u) throw new HttpError(404, "No such office account.");
+    if (!active && u.id === user.id) throw new HttpError(409, "You can't switch off your own account.");
+    if (!active && one("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1 AND id != ?", u.id).n === 0) throw new HttpError(409, "The practice needs at least one office account.");
+    run("UPDATE users SET active = ? WHERE id = ?", active ? 1 : 0, u.id);
+    audit(user.name, active ? "staff.reactivate" : "staff.deactivate", u.id, u.name);
+    bus.emit({ type: "team.updated" });
+    return { ok: true, userId: u.id };
+  });
+}
+
+module.exports = { updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
