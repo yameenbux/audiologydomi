@@ -26,3 +26,48 @@ test("website builds with its settings filled in and no third-party requests", (
   for (const m of html.matchAll(/url\((fonts\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(out, m[1])), `${m[1]} is missing`);
   fs.rmSync(out, { recursive: true, force: true });
 });
+
+const build = (env) => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "domi-site-"));
+  execFileSync(process.execPath, [path.join(__dirname, "..", "scripts", "build-site.js"), out], { env: { ...process.env, SITE_URL: "https://domi.example", WEB3FORMS_KEY: "", CF_BEACON_TOKEN: "", ...env } });
+  return { out, read: (f) => fs.readFileSync(path.join(out, f), "utf8"), done: () => fs.rmSync(out, { recursive: true, force: true }) };
+};
+
+test("privacy, terms, thank-you and not-found pages: titles, descriptions, previews, breadcrumbs and working links", () => {
+  const b = build({});
+  for (const f of ["privacy/index.html", "terms/index.html", "thanks/index.html", "404.html"]) {
+    const html = b.read(f);
+    assert.match(html, /<title>[^<]+ · Domi<\/title>/, f);
+    assert.match(html, /<meta name="description" content="[^"]{40,}">/, f);
+    assert.match(html, /apple-touch-icon\.png/, f);
+    assert.match(html, /aria-label="Breadcrumb"/, f);
+    // Every link to a page on this site goes somewhere that exists
+    for (const m of html.matchAll(/href="(\/[^"#]*)/g)) {
+      const target = m[1] === "/" ? "index.html" : m[1].endsWith("/") ? m[1].slice(1) + "index.html" : m[1].slice(1);
+      assert.ok(fs.existsSync(path.join(b.out, target)), `${f} links to ${m[1]}, which isn't built`);
+    }
+  }
+  assert.match(b.read("privacy/index.html"), /canonical" href="https:\/\/domi\.example\/privacy\/"/);
+  assert.match(b.read("privacy/index.html"), /"@type":"BreadcrumbList"/);
+  assert.match(b.read("terms/index.html"), /og:title" content="Terms and conditions · Domi"/);
+  const sitemap = b.read("sitemap.xml");
+  assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", "https://domi.example/privacy/", "https://domi.example/terms/"]);
+  assert.match(b.read("robots.txt"), /Sitemap: https:\/\/domi\.example\/sitemap\.xml/);
+  b.done();
+});
+
+test("the contact form falls back to email without a Web3Forms key; analytics only with a Cloudflare token", () => {
+  const off = build({});
+  const html = off.read("index.html");
+  assert.match(html, /id="enquiry"[^>]*data-key=""/);
+  assert.match(html, /name="botcheck"/, "spam trap");
+  assert.doesNotMatch(html, /cloudflareinsights/);
+  off.done();
+  const on = build({ WEB3FORMS_KEY: "12345678-abcd-4def-8123-1234567890ab", CF_BEACON_TOKEN: "0123456789abcdef0123456789abcdef" });
+  const live = on.read("index.html");
+  assert.match(live, /name="access_key" value="12345678-abcd-4def-8123-1234567890ab"/);
+  assert.match(live, /name="redirect" value="https:\/\/domi\.example\/thanks\/"/);
+  for (const f of ["index.html", "privacy/index.html", "thanks/index.html"]) assert.match(on.read(f), /static\.cloudflareinsights\.com\/beacon\.min\.js" data-cf-beacon='\{"token": "0123456789abcdef0123456789abcdef"\}'/);
+  on.done();
+  assert.throws(() => build({ CF_BEACON_TOKEN: "not a token" }));
+});

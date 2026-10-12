@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Page not found · Domi</title>
+<meta name="description" content="This page isn't part of the Domi demo. Go back to the demo, or visit the Domi website.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<script src="/powered.js"></script>
+<style>
+  body.nf { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg) }
+  .nf-main { flex: 1; display: grid; place-items: center; padding: 32px 20px }
+  .nf-card { max-width: 520px; width: 100%; background: var(--surface); border-radius: 22px; padding: 32px 28px; box-shadow: inset 0 0 0 1px var(--line); text-align: center }
+  .nf-card img { width: 56px; height: 56px }
+  .nf-card h1 { font-size: clamp(30px, 6vw, 40px); line-height: 1.08; margin: 16px 0 10px }
+  .nf-card p { color: var(--muted); margin: 0 0 22px }
+  .nf-acts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap }
+</style>
+<!--ANALYTICS-->
+</head>
+<body class="nf">
+<main class="nf-main">
+  <div class="nf-card">
+    <img src="/logo.svg" alt="Domi">
+    <div class="caps" style="margin-top:14px">Error 404</div>
+    <h1>This page isn’t here.</h1>
+    <p>It isn’t part of the demo, or the link has a typo.</p>
+    <div class="nf-acts"><a class="btn" href="/">Back to the demo</a><a class="btn secondary" href="%%SITE%%">The Domi website</a></div>
+  </div>
+</main>
+<script>window.DomiPowered({ legalOnly: true, site: "%%SITE%%" });</script>
+</body>
+</html>

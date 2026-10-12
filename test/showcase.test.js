@@ -75,10 +75,17 @@ test("referral form: a referral waits for the office; accepting makes the patien
   const info = (await call("GET", `/api/public/${code}`)).data;
   assert.ok(info.referral.need.sight && info.areas.length === 8);
   const form = { fromKind: "family", fromName: "Gary Holt", fromPhone: "07700 900960", name: "Joan Holt", dob: "1940-03-02", addr: "3 Mill Lane", pc: "BL1",
-    phone: "", eligibility: "Dementia", entitlement: ["60+", "nonsense"], need: "sight", avail: "am", urgent: false, notes: "Ring Gary first", consent: true };
+    phone: "", eligibility: "Dementia", entitlement: ["60+", "nonsense"], need: "sight", avail: "am", urgent: false, notes: "Ring Gary first", consent: true, formMs: 45000 };
   assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, { ...form, eligibility: "housebound" })).status, 400, "the condition, not just 'housebound'");
   assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, { ...form, consent: false })).status, 400);
   assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, { ...form, fromPhone: "" })).status, 400, "someone to call");
+  // Spam: a bot that fills the hidden box, or posts straight away, gets "ok" but nothing is saved
+  const before = (await call("GET", "/api/state", office.token)).data.referrals.length;
+  assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, { ...form, website: "http://spam.example" })).status, 200);
+  assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, { ...form, formMs: 400 })).status, 200);
+  const { formMs, ...noTimer } = form;
+  assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, noTimer)).status, 200);
+  assert.strictEqual((await call("GET", "/api/state", office.token)).data.referrals.length, before, "none of those were saved");
   assert.strictEqual((await call("POST", `/api/public/${code}/referrals`, null, form)).status, 200);
 
   let s = (await call("GET", "/api/state", office.token)).data;

@@ -1,0 +1,9 @@
+# The demo holds invented patients and practices' private previews. Every page says "noindex", which keeps it out of
+# search results (crawlers have to fetch a page to see that, so the front page stays fetchable, which also lets link
+# previews work). The patient-facing pages and the API aren't for crawlers at all.
+# The website is at https://domi.ysbdesigns.uk
+User-agent: *
+Disallow: /api/
+Disallow: /refer/
+Disallow: /book/
+Disallow: /cancel/

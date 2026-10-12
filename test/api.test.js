@@ -218,7 +218,7 @@ test("patients book online: only efficient slots from tomorrow, nothing about ot
   assert.ok(slots.every((s) => s.day >= 1), "not today");
   const names = (await state(office.token)).patients.map((p) => p.name);
   assert.ok(!names.some((n) => JSON.stringify(res.data).includes(n)), "never another patient's name");
-  const form = { pc: "LS16 7SN", type: "repair", avail: "any", ref: slots[0].ref, name: "Margery Hollis", phone: "07700 900777", addr: "8 Holt Park Crescent", consent: true };
+  const form = { pc: "LS16 7SN", type: "repair", avail: "any", ref: slots[0].ref, name: "Margery Hollis", phone: "07700 900777", addr: "8 Holt Park Crescent", consent: true, formMs: 20000 };
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, phone: "0113 496 0000" })).status, 400, "needs a mobile to text");
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, consent: false })).status, 400);
   const ok = await call("POST", `/api/public/${code}/bookings`, null, form);

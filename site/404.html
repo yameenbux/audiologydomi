@@ -4,27 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found · Domi</title>
+<meta name="description" content="This page isn't here. Head back to the Domi homepage, try the live demo or get in touch.">
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="dark">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>
-  @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 700; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-700-normal.woff2) format('woff2'); }
-  @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; font-display: swap; src: url(/fonts/plus-jakarta-sans-latin-400-normal.woff2) format('woff2'); }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; text-align: center; color: #EDF4F0;
-    font: 17px/1.6 'Plus Jakarta Sans', system-ui, sans-serif; background: radial-gradient(100% 100% at 0% 0%, #22513F 0%, #0C1412 75%); }
-  img { width: 56px; height: 56px; border-radius: 14px; }
-  h1 { font-size: clamp(34px, 6vw, 52px); letter-spacing: -0.035em; line-height: 1.08; margin: 22px 0 10px; }
-  h1 span { background: linear-gradient(90deg, #F4A27D, #E07B4F); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  p { color: #BFD3CA; margin: 0 0 28px; }
-  a { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 999px; background: #F7FBF9; color: #1E4D40; font-weight: 700; text-decoration: none; }
-</style>
+<meta name="theme-color" content="#0C1412">
+<!--ICONS-->
+<link rel="stylesheet" href="/page.css">
+<!--ANALYTICS-->
 </head>
 <body>
-  <main>
-    <img src="/logo.svg" alt="">
-    <h1>This page has <span>moved on.</span></h1>
-    <p>It isn’t here any more, or the link has a typo.</p>
-    <a href="/">Go to the Domi homepage</a>
-  </main>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+  <nav class="top" aria-label="Main"><a class="brand" href="/"><img src="/logo.svg" alt="" width="40" height="40">Domi</a></nav>
+</div>
+<main id="main" class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li><span aria-current="page">Page not found</span></li></ol></nav>
+  <div class="card">
+    <p style="margin:0 0 6px;color:var(--amber);font-weight:700;letter-spacing:.08em;font-size:14px">ERROR 404</p>
+    <h1>This page isn’t here.</h1>
+    <p style="color:var(--on-forest-soft);margin:0">It may have moved, or the link has a typo. Here’s where most people are heading:</p>
+    <div class="actions"><a class="btn btn-main" href="/">Go to the homepage</a><a class="btn btn-line" href="%%DEMO_URL%%" rel="noopener">Try the live demo</a><a class="btn btn-line" href="/#contact">Contact us</a></div>
+  </div>
+</main>
+<footer><div class="wrap"><p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p><p><a href="/privacy/">Privacy policy</a> · <a href="/terms/">Terms and conditions</a> · <a href="/#contact">Contact</a></p></div></footer>
 </body>
 </html>
