@@ -4,6 +4,7 @@
 // without passing it around. Laptop and phone share one sandbox by joining with its code.
 const { AsyncLocalStorage } = require("node:async_hooks");
 const crypto = require("node:crypto");
+const brands = require("./brands");
 
 const als = new AsyncLocalStorage();
 const sandboxes = new Map();
@@ -15,8 +16,8 @@ const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I/L, so codes
 let openDb = null; // injected by db.js to avoid a require cycle
 // reminderAt: when the day-before reminders go out (minutes after midnight on the demo clock).
 // practice: the practice's name, as patients see it in texts, on the booking page and on invoices. The product is Domi.
-const SAMPLE_PRACTICE = "Aire Valley Eyecare"; // invented for the demo
-const defaults = () => ({ practice: SAMPLE_PRACTICE, mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60,
+// The default practice is invented for the demo (server/brands.js); a branded demo uses the practice's own name.
+const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60,
   // Price per visit type, in pounds. 0 = no invoice to the patient: NHS sight tests are claimed from the NHS
   // on a GOS 6 form, and glasses are charged when they're ordered (or paid for with an NHS voucher).
   prices: { sight: 0, exam: 65, dispense: 0, repair: 15, follow: 35 } });
@@ -36,9 +37,10 @@ function evict() {
   }
 }
 
-function create() {
+function create(brandId) {
   evict();
-  const sb = { id: newCode(), db: openDb(), settings: defaults(), t0: Date.now(), lastSeen: Date.now(), txDepth: 0, pending: null };
+  const brand = brands.get(brandId);
+  const sb = { id: newCode(), brand, db: openDb(brand), settings: defaults(brand), t0: Date.now(), lastSeen: Date.now(), txDepth: 0, pending: null };
   sandboxes.set(sb.id, sb);
   return sb;
 }
@@ -51,8 +53,8 @@ function get(id) {
 
 function reset(sb) {
   sb.db.close();
-  sb.db = openDb();
-  sb.settings = defaults();
+  sb.db = openDb(sb.brand);
+  sb.settings = defaults(sb.brand);
   sb.t0 = Date.now();
   sb.remindedDay = 0;
 }

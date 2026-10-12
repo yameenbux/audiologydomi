@@ -6,7 +6,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const sandbox = require("./sandbox");
-const { db, map, TABLES, USERS } = require("./db");
+const { db, map, TABLES, USERS, emailFor } = require("./db");
+const brands = require("./brands");
+const regions = require("./regions");
 const D = require("./domain");
 const travel = require("./travel");
 const svc = require("./service");
@@ -89,11 +91,13 @@ function clinicianCanSee(user, patientId) {
   return !!hasVisit || c.patch.includes(D.district(p.pc));
 }
 
-route("GET", "/api/meta", { public: true }, () => ({
+// `?brand=` styles the sign-in screen before a demo exists; afterwards the demo's own brand comes with /api/state.
+route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
   types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, days: D.DAYS, smsProvider: provider, routing: travel.routingStatus().provider,
-  demoUsers: USERS.map(({ id, name, role, title, color, email }) => ({ id, name, role, title, color, email })),
+  demoUsers: USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })),
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
-}));
+  brand: brands.pub(brand), areas: regions.areasFor(brand.region),
+}; });
 
 /* ---------- Sign-in ---------- */
 // Start a private demo (a practice of its own), or check a code to join one. No account is signed in yet.
@@ -103,7 +107,7 @@ route("POST", "/api/demo/start", { public: true }, (req, body) => {
     if (!sb) throw new svc.HttpError(404, "That demo code has expired. Start a new demo instead.");
     return { sandbox: sb.id };
   }
-  return { sandbox: sandbox.create().id };
+  return { sandbox: sandbox.create(body.brand).id };
 });
 
 // Step 1: email and password. Returns a short-lived challenge for step 2; nothing is signed in yet.
@@ -246,10 +250,11 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const recalls = isAdmin ? db.prepare("SELECT * FROM recalls ORDER BY due_day").all().map(map.recall) : [];
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
   const pcse = isAdmin ? svc.pcseList() : [];
+  const referrals = isAdmin ? db.prepare("SELECT * FROM referrals ORDER BY status = 'new' DESC, id DESC").all().map(map.referral) : [];
   const sb = sandbox.current();
   return {
-    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse,
-    metrics: isAdmin ? svc.metrics() : null, settings: sb.settings,
+    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null,
+    metrics: isAdmin ? svc.metrics() : null, settings: sb.settings, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region),
   };
 });
 
@@ -319,9 +324,12 @@ setInterval(() => publicHits.clear(), 30 * 60e3).unref();
 const practice = (code) => { const sb = sandbox.get(code); if (!sb) throw new svc.HttpError(404, "This booking link has expired. Please call the practice."); return sb; };
 route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) => {
   const sb = practice(code);
-  return { practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL };
+  return { practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() };
 });
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
+route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user, { code }) => { limitPublic(req, "refer", 10); return sandbox.run(practice(code), () => svc.submitReferral(body)); });
+route("POST", "/api/referrals/:id/accept", {}, (req, body, user, { id }) => { needAdmin(user); return svc.acceptReferral(id, body, user); });
+route("POST", "/api/referrals/:id/decline", {}, (req, body, user, { id }) => { needAdmin(user); return svc.declineReferral(id, body.reason, user); });
 route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
 
 // Invoices: raised automatically when a visit is completed.
@@ -354,6 +362,10 @@ route("GET", "/api/route", {}, (req, body, user) => {
   const insert = q.get("pc") ? { pc: q.get("pc"), start: q.get("start"), type: q.get("type"), name: q.get("name") } : null;
   return svc.routeFor(cid, Number(q.get("day") || 0), insert);
 });
+
+// Route planning: the office sees the proposed order first, then applies it.
+route("GET", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); const q = new URL(req.url, "http://x").searchParams; return svc.planRoute(q.get("clinician"), Number(q.get("day") || 0)); });
+route("POST", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); return svc.applyRoute(body.clinicianId, Number(body.day || 0), user); });
 
 // Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
 route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(1, user.name); });
@@ -427,6 +439,7 @@ function serveStatic(req, res) {
   if (p === "/") p = "/index.html";
   if (p === "/under-the-hood") p = "/under-the-hood.html";
   if (p === "/brand") p = "/brand.html";
+  if (p.startsWith("/refer/")) p = "/refer.html"; // the practice's referral form: /refer/<practice code>
   if (p === "/book" || p.startsWith("/book/")) p = "/book.html"; // a practice's patient booking page: /book/<practice code>
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }

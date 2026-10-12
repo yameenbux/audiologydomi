@@ -101,6 +101,9 @@ patient needs to be seen.
 | **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. Domi searches the whole week for every gap where the visit fits, including the drive in and on to the next patient, and ranks them by the extra driving, weighed against how soon it is. Booking texts the patient and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, from the office's own fee per visit |
 | **Day-before reminders** | Every visit tomorrow gets a reminder text at the practice's reminder time (17:00 by default). A CANCEL reply refills that slot a day ahead |
+| **Route planning** | *Plan routes* (every clinician, any day) or *Plan the best route* (one clinician). Visits that haven't started are put in the order that drives least, from the clinician's home base and back. Every order is tried for up to 7 visits in a half-day; beyond that, nearest neighbour then 2-opt. Mornings stay mornings and afternoons stay afternoons; today nothing moves inside half an hour; each visit keeps its time slot where it can. A plan has to save at least 10 minutes. The office sees what it saves and who moves first; applying it texts each patient whose time changed and tells the clinician. `server/planner.js` |
+| **Referral form** | `/refer/<practice code>`, linked from the practice's website instead of a callback form or documents. Patients, family, carers, care homes and GPs fill it in: the patient, the condition behind the home visit ("housebound" alone is refused, because the GOS 6 needs the condition), NHS entitlement, what's needed, when they're home, and consent. Sudden sight changes get NHS 111 / A&E advice on the spot and are flagged. Referrals wait under *New referrals*; accepting one creates the patient record and a waiting-list place and texts whoever gave a mobile |
+| **Towns and postcodes** | Every form asks for town, then postcode area, then the rest of the postcode, from the towns the practice covers (`server/regions.js`), with *Somewhere else* for the odd exception. Imports flag postcodes outside those towns |
 | **Route map** | Each clinician's day on a map: numbered stops, drive minutes per leg, the drive home, and totals. Drawn from coordinates, so it needs no map service and works offline |
 | **Patient booking page** | `/book/<practice code>`: large text, one question at a time. Only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. NHS sight tests start two days out, for the PCSE notice. Glasses deliveries stay with the office, because they wait for the lab |
 | **Import patients** | Office only. Upload a CSV saved from Google Sheets or Excel (up to 5,000 rows). Domi recognises the columns (you can change any), tidies names, UK dates, phones and postcodes, and checks every row before anything is saved: rows without a name or a valid postcode are skipped, possible duplicates (same mobile, or name with postcode or date of birth) are skipped, and warnings flag a landline-only patient (phoned, not texted) or a missing or generic home-visit reason. Patients due a sight test within a fortnight join recalls and the refill pool. The file isn't kept, and the audit log records counts, never names. `server/importer.js` |
@@ -266,6 +269,8 @@ encoded with `+faststart` so it starts before it has fully downloaded.
 | The sample practice, its patients and diary | `server/db.js` |
 | Demo defaults: practice name, fee, prices, reminder time | `server/sandbox.js` |
 | Visit types, who can do them, and the PCSE 48-hour rule | `server/domain.js` |
+| A practice's own branding, towns and sample diary (opened with `/?brand=<id>`) | `server/brands.js`, `server/regions.js`, `server/seed-nw.js` |
+| Route planning rules | `server/planner.js` |
 | The office and clinician screens | `public/app.js`, `public/app.css` |
 | What's marked *Soon*, and the roadmap | `ROADMAP` in `public/app.js` |
 | The patient booking page | `public/book.html` |
@@ -317,6 +322,12 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 - **Inbound texts:** Twilio signature verification. **Static files:** path-traversal-safe, all self-hosted.
 
 ---
+
+> [!NOTE]
+> **Showing a particular practice.** `/?brand=<id>` opens a demo in that practice's name, colours, typeface
+> and logo (loaded from their own website, never copied here), set in the towns they cover with a full
+> invented week: 50 patients, three clinicians, referrals waiting. Without the parameter, the demo is the
+> default invented practice in Leeds. The choice is remembered on that device until another `?brand=` is opened.
 
 ## Showing the demo (about 8 minutes)
 

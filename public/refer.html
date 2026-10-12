@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Refer someone for a home eye test</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<script src="/areas.js"></script>
+<style>
+  /* Filled in by patients, family, carers and care-home staff: large type, plain words, one page. */
+  body.rf { font-size: 18px; background: var(--bg) }
+  .rf-top { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--surface) }
+  .rf-top b { display: block; font: 600 26px/1.1 var(--f-display); min-height: 29px }
+  .rf-main { max-width: 680px; margin: 0 auto; padding: 28px 20px 64px }
+  .rf-main h1 { font-size: clamp(32px, 6.5vw, 44px); line-height: 1.05; margin: 6px 0 10px }
+  .rf-lead { color: var(--muted); margin: 0 0 8px; font-size: 18px }
+  .rf fieldset { border: 0; margin: 28px 0 0; padding: 22px; background: var(--surface); border-radius: 18px; box-shadow: inset 0 0 0 1.5px var(--line) }
+  .rf legend { font-weight: 700; font-size: 20px; padding: 0; float: left; width: 100%; margin-bottom: 14px }
+  .rf legend + * { clear: both }
+  .rf .q { display: grid; gap: 6px; margin-top: 16px; font-weight: 600 }
+  .rf .q small { font-weight: 400; color: var(--muted); font-size: 15.5px }
+  .rf .input { font-size: 18px; padding: 13px 15px; width: 100% }
+  .rf textarea.input { min-height: 96px; resize: vertical; font: inherit }
+  .rf .opts { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 6px }
+  .rf .opt { display: flex; gap: 12px; align-items: center; padding: 13px 14px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--line); cursor: pointer; font-weight: 500; font-size: 17px }
+  .rf .opt:has(input:checked) { box-shadow: inset 0 0 0 2.5px var(--apricot); background: var(--apricot-soft) }
+  .rf .opt input { width: 21px; height: 21px; accent-color: var(--apricot); flex: none }
+  .rf .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px }
+  .rf .chips button { border: 0; border-radius: 99px; padding: 7px 13px; background: var(--subtle); font: inherit; font-size: 15px; cursor: pointer }
+  .rf .btn.lg { font-size: 19px; padding: 16px 22px; width: 100%; justify-content: center; margin-top: 26px }
+  .rf .urgent { margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--warn-soft); color: var(--ink); font-size: 16px }
+  .rf .done { background: var(--surface); border-radius: 18px; padding: 26px; box-shadow: inset 0 0 0 2px var(--ok) }
+  .rf .err { margin-top: 18px }
+  .pc-pick { margin-top: 6px }
+</style>
+</head>
+<body class="rf">
+<header class="rf-top"><b id="practice"></b></header>
+<main class="rf-main" id="root" aria-live="polite"><p class="rf-lead">Loading…</p></main>
+<script>
+(function () {
+"use strict";
+const code = (location.pathname.split("/")[2] || "").toUpperCase();
+const root = document.getElementById("root");
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let INFO = null, sent = false;
+const CONDITIONS = ["Dementia", "Severe arthritis", "After a stroke", "Parkinson's disease", "COPD or on oxygen", "Heart failure", "Agoraphobia", "Registered blind or partially sighted"];
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({ error: "Something went wrong. Please call us instead." }));
+  if (!r.ok) throw new Error(d.error || "Something went wrong. Please call us instead.");
+  return d;
+}
+
+function form(err, pc = "") {
+  const R = INFO.referral, opt = (name, value, label, type = "radio", checked = false) => `<label class="opt"><input type="${type}" name="${name}" value="${esc(value)}" ${checked ? "checked" : ""}><span>${esc(label)}</span></label>`;
+  return `<div class="caps">Home eye tests</div><h1>Refer someone for a home visit</h1>
+  <p class="rf-lead">For people who can't get to an optician's without help. Fill this in for yourself or for someone you look after, and we'll call to arrange a time. It takes about three minutes.</p>
+  <form id="rf" novalidate>
+    <fieldset><legend>Who is filling this in?</legend>
+      <div class="opts">${Object.entries(R.from).map(([k, v], i) => opt("fromKind", k, v, "radio", i === 0)).join("")}</div>
+      <div id="from-who" hidden>
+        <label class="q">Your name<input class="input" id="fromName" autocomplete="name"></label>
+        <label class="q">Your phone number<small>We'll call you to arrange the visit.</small><input class="input" id="fromPhone" type="tel" inputmode="tel" autocomplete="tel"></label>
+      </div>
+    </fieldset>
+    <fieldset><legend>The patient</legend>
+      <label class="q">Full name<input class="input" id="name" required></label>
+      <label class="q">Date of birth<input class="input" id="dob" type="date" min="1910-01-01" max="2010-12-31"></label>
+      <label class="q">First line of the address<input class="input" id="addr" required autocomplete="address-line1"></label>
+      <div class="q" style="margin-top:16px">Where is it?${DomiAreas.picker(INFO.areas || [], "pc", pc, { big: true })}</div>
+      <label class="q">Patient's phone number<small>A mobile if they have one: we'll text the time of the visit.</small><input class="input" id="phone" type="tel" inputmode="tel"></label>
+    </fieldset>
+    <fieldset><legend>Why a home visit?</legend>
+      <label class="q">What stops them getting to an optician's on their own?<small>The illness or condition, please, not just "housebound": the NHS asks us to record it.</small>
+        <input class="input" id="elig" required></label>
+      <div class="chips" aria-label="Common reasons">${CONDITIONS.map((c) => `<button type="button" data-chip="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+      <p class="q" style="margin-bottom:0">Do any of these apply?<small>Any one means the eye test is free on the NHS.</small></p>
+      <div class="opts">${Object.entries(R.entitlement).map(([k, v]) => opt("ent", k, v, "checkbox")).join("")}</div>
+    </fieldset>
+    <fieldset><legend>What do they need?</legend>
+      <div class="opts">${Object.entries(R.need).map(([k, v], i) => opt("need", k, v, "radio", i === 0)).join("")}</div>
+      <p class="q" style="margin-bottom:0">When are they usually at home?</p>
+      <div class="opts">${Object.entries(INFO.avail).map(([k, v], i) => opt("avail", k, v, "radio", i === 0)).join("")}</div>
+      <label class="opt" style="margin-top:16px"><input type="checkbox" id="urgent"><span>Their sight has changed suddenly</span></label>
+      <div class="urgent" id="urgent-note" hidden>If they have sudden loss of sight, flashes or a curtain over their vision, or a painful red eye, call NHS 111 or go to A&amp;E today. Don't wait for a home visit.</div>
+      <label class="q">Anything else we should know?<small>Access, the best person to call, the room number in a care home.</small><textarea class="input" id="notes" maxlength="1000"></textarea></label>
+    </fieldset>
+    <label class="opt" style="margin-top:22px"><input type="checkbox" id="consent"><span>The patient agrees to us contacting them about this, or I can act on their behalf.</span></label>
+    ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
+    <button class="btn lg" type="submit">Send the referral</button>
+    <p class="muted" style="font-size:15px;margin-top:14px">We use these details only to arrange and carry out the eye care visit. ${INFO.brand && INFO.brand.phone ? `Rather talk? Call us on ${esc(INFO.brand.phone)}.` : ""}</p>
+  </form>`;
+}
+function render(err) {
+  const keep = sent ? null : snapshot(), pc = DomiAreas.read(root, "pc");
+  root.innerHTML = sent ? `<div class="done"><div class="caps">Referral sent</div><h1 style="margin-top:8px">Thank you</h1>
+    <p class="rf-lead" style="margin:0">We've got the details and will call ${sent.self ? "you" : "you or the patient"} to arrange a time, usually within two working days.</p></div>` : form(err, pc);
+  if (keep) restore(keep);
+  if (err) root.querySelector(".err").scrollIntoView({ block: "center" });
+}
+// Keep what's been typed when the form is drawn again to show an error.
+const snapshot = () => Object.fromEntries([...root.querySelectorAll("input, textarea, select")].map((e) => [e.id || e.name + ":" + e.value, e.type === "checkbox" || e.type === "radio" ? e.checked : e.value]));
+function restore(v) {
+  root.querySelectorAll("input, textarea, select").forEach((e) => { const k = e.id || e.name + ":" + e.value; if (!(k in v)) return; if (e.type === "checkbox" || e.type === "radio") e.checked = v[k]; else e.value = v[k]; });
+  sync();
+}
+function sync() {
+  const kind = (root.querySelector("[name=fromKind]:checked") || {}).value;
+  const who = root.querySelector("#from-who"); if (who) who.hidden = kind === "self";
+  const u = root.querySelector("#urgent"); if (u) root.querySelector("#urgent-note").hidden = !u.checked;
+}
+root.addEventListener("change", sync);
+root.addEventListener("click", (e) => { const c = e.target.closest("[data-chip]"); if (c) { const i = root.querySelector("#elig"); i.value = i.value ? i.value + ", " + c.dataset.chip.toLowerCase() : c.dataset.chip; i.focus(); } });
+root.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const v = (id) => (root.querySelector("#" + id) || {}).value || "";
+  const pick = (n) => (root.querySelector(`[name=${n}]:checked`) || {}).value;
+  const body = { fromKind: pick("fromKind"), fromName: v("fromName"), fromPhone: v("fromPhone"), name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(root, "pc"),
+    phone: v("phone"), eligibility: v("elig"), entitlement: [...root.querySelectorAll("[name=ent]:checked")].map((x) => x.value), need: pick("need"), avail: pick("avail"),
+    urgent: root.querySelector("#urgent").checked, notes: v("notes"), consent: root.querySelector("#consent").checked };
+  const btn = root.querySelector("[type=submit]"); btn.disabled = true;
+  try { await api("POST", `/api/public/${code}/referrals`, body); sent = { self: body.fromKind === "self" }; render(); window.scrollTo(0, 0); }
+  catch (err) { render(err.message); }
+});
+DomiAreas.bind(() => INFO && INFO.areas);
+api("GET", `/api/public/${code}`).then((info) => {
+  INFO = info;
+  const b = info.brand, top = document.getElementById("practice");
+  if (b && b.theme) document.documentElement.dataset.brand = b.id;
+  if (b && b.logo) { top.innerHTML = `<img src="${esc(b.logo)}" alt="${esc(info.practice)}" referrerpolicy="no-referrer" style="height:52px;width:auto;display:block">`; top.querySelector("img").addEventListener("error", () => { top.textContent = info.practice; }, { once: true }); }
+  else top.textContent = info.practice;
+  document.title = "Refer someone for a home eye test · " + info.practice; render();
+}).catch((e) => { root.innerHTML = `<h1>Referral form not found</h1><p class="rf-lead">${esc(e.message)}</p>`; });
+})();
+</script>
+</body>
+</html>

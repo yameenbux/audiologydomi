@@ -546,3 +546,51 @@ a.btn { text-decoration: none }
 .ir-m .e { color: var(--crit) } .ir-m .ok { color: var(--ok) }
 .kv .late { color: var(--warn); font-weight: 600 }
 .input.sm { padding: 6px 8px; font-size: 13px; min-height: 0 }
+
+/* ---------- Practice branding (server/brands.js) ----------
+   A branded demo takes the practice's own look. Home Visiting Optics: Outfit throughout, their bright blue
+   for actions, their navy for headers, white pages and pill-shaped buttons, as on their website. It stays
+   light whatever the device prefers, like their site. Fonts are self-hosted (SIL OFL 1.1, via Fontsource). */
+@font-face { font-family: "Outfit"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/outfit-latin-400-normal.woff2) format("woff2") }
+@font-face { font-family: "Outfit"; font-style: normal; font-weight: 500; font-display: swap; src: url(/fonts/outfit-latin-500-normal.woff2) format("woff2") }
+@font-face { font-family: "Outfit"; font-style: normal; font-weight: 600; font-display: swap; src: url(/fonts/outfit-latin-600-normal.woff2) format("woff2") }
+@font-face { font-family: "Outfit"; font-style: normal; font-weight: 700; font-display: swap; src: url(/fonts/outfit-latin-700-normal.woff2) format("woff2") }
+:root[data-brand="hvo"] {
+  --bg: #F3F6FA; --surface: #FFFFFF; --subtle: #EAF0F7; --ink: #041223; --muted: #52627A; --line: #DCE4EF;
+  --forest: #0B3B7C; --on-forest: #FFFFFF; --forest-soft: #DDE8F6;
+  --apricot: #0089CF; --apricot-soft: #DDF0FA; --apricot-ink: #00598A;
+  --ok: #1E7A4C; --ok-soft: #DCF2E5; --warn: #A15C00; --warn-soft: #FBEBD3; --crit: #B3261E; --crit-soft: #F9DEDC;
+  --hero: #0B3B7C; --on-hero: #FFFFFF; --scrim: rgba(4, 18, 35, .45);
+  --shadow-sm: 0 1px 2px rgba(4, 18, 35, .06); --shadow: 0 1px 2px rgba(4, 18, 35, .05), 0 16px 40px -12px rgba(4, 18, 35, .18);
+  --f-display: "Outfit", system-ui, sans-serif; --f-ui: "Outfit", system-ui, sans-serif;
+  color-scheme: light;
+}
+:root[data-brand="hvo"] h1, :root[data-brand="hvo"] h2 { font-weight: 600; letter-spacing: -.01em }
+:root[data-brand="hvo"] em { font-style: normal; color: var(--apricot) }
+:root[data-brand="hvo"] .btn { border-radius: 999px }
+:root[data-brand="hvo"] .top { border-top: 4px solid var(--forest) }
+/* Their logo is a wide lockup (eye and name), so it replaces both the mark and the wordmark. */
+.lockup .brand-logo { width: auto; height: 44px; max-width: 220px; object-fit: contain }
+.lockup .by { font-size: 10.5px; color: var(--muted); font-weight: 600; letter-spacing: .04em; white-space: nowrap; border-left: 1px solid var(--line); padding-left: 10px }
+@media (max-width: 640px) { .lockup .brand-logo { height: 34px; max-width: 150px } .lockup .by { display: none } }
+
+/* Town → postcode area → rest of postcode (public/areas.js) */
+.pc-pick .pc-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px }
+.pc-pick .pc-f { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink); min-width: 0 }
+.pc-pick .pc-f > span { font-size: 12.5px; color: var(--muted) }
+.pc-pick .pc-f[hidden] { display: none }
+.pc-pick .pc-other { margin-top: 10px }
+.pc-pick.big .pc-f { font-size: 18px } .pc-pick.big .pc-f > span { font-size: 16px; color: var(--ink); font-weight: 700 }
+@media (max-width: 560px) { .pc-pick .pc-row { grid-template-columns: 1fr 1fr } .pc-pick .pc-row .pc-f:first-child { grid-column: 1 / -1 } }
+
+/* Route planning */
+.plan-card { border: 1.5px solid var(--apricot); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; background: var(--surface) }
+.plan-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap }
+.plan-head b { font-size: 17px; display: block; margin-top: 4px }
+.plan-tot { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted) } .plan-tot b { display: inline; font-size: 13px; color: var(--ink) }
+.plan-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px }
+.plan-list li { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; font-size: 13.5px; padding: 6px 8px; border-radius: 8px }
+.plan-list li.moved { background: var(--apricot-soft) } .plan-list li.fixed { opacity: .65 }
+.plan-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap }
+.plan-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line) }
+.plan-row .btn { flex: none }

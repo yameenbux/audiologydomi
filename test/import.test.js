@@ -87,7 +87,8 @@ test("import: preview saves nothing; commit saves what passed, skips duplicates,
   const before = (await call("GET", "/api/state", office.token)).data;
   const pv = await call("POST", "/api/import/preview", office.token, { csv: SHEET });
   assert.strictEqual(pv.status, 200);
-  assert.deepStrictEqual(pv.data.counts, { total: 4, ready: 2, duplicate: 1, error: 1, warnings: 0 });
+  assert.deepStrictEqual(pv.data.counts, { total: 4, ready: 2, duplicate: 1, error: 1, warnings: 2 });
+  assert.ok(pv.data.rows[0].warnings.includes("BL1 is outside the towns you cover"), "the Leeds demo practice doesn't cover Bolton");
   assert.match(pv.data.rows[2].duplicateOf, /Dorothy Fenwick, already on Domi/);
   assert.strictEqual((await call("GET", "/api/state", office.token)).data.patients.length, before.patients.length, "a preview saves nothing");
 
