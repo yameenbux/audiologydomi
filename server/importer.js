@@ -170,7 +170,7 @@ const GENERIC = /^(house ?bound|bed ?bound|immobile|wheelchair( user| bound)?|ca
  * Turn one CSV row into a patient, with problems that stop the import (errors) and ones the office should
  * know about (warnings).
  */
-function readRow(cells, mapping) {
+function readRow(cells, mapping, { townOf } = {}) {
   const v = {};
   mapping.forEach((key, i) => { if (key && FIELD_KEYS.has(key)) v[key] = v[key] ? `${v[key]} ${cells[i] || ""}`.trim() : (cells[i] || ""); });
   const errors = [], warnings = [];
@@ -181,6 +181,7 @@ function readRow(cells, mapping) {
   if (!v.pc) errors.push("No postcode");
   else if (!pc.kind) errors.push(`"${pc.value}" isn't a UK postcode`);
   else if (pc.kind === "district") warnings.push("Only the first half of the postcode");
+  if (pc.kind && townOf && !townOf(pc.value.split(" ")[0])) warnings.push(`${pc.value.split(" ")[0]} is outside the towns you cover`);
 
   const addr = [v.addr, v.addr2, v.town].map((x) => String(x || "").trim()).filter(Boolean).join(", ");
   if (!addr) warnings.push("No address");
@@ -251,7 +252,7 @@ const keyOf = (p) => ({ phone: p.phone.replace(/\D/g, ""), namePc: `${p.name.toL
  * Check a whole file. `existing` is the patients already on the system, so duplicates are caught before
  * they're created. Rows are returned in file order with a status: "ready", "duplicate" or "error".
  */
-function check(csv, mappingIn, existing = []) {
+function check(csv, mappingIn, existing = [], opts = {}) {
   const text = String(csv || "");
   if (!text.trim()) throw new Error("The file is empty.");
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error("That file is over 3 MB. Split it into smaller files.");
@@ -273,7 +274,7 @@ function check(csv, mappingIn, existing = []) {
     if (k.nameDob) seen.nameDob.set(k.nameDob, { name: p.name, existing: true });
   }
   const rows = data.map((cells, i) => {
-    const r = readRow(cells, mapping);
+    const r = readRow(cells, mapping, opts);
     const out = { line: i + 2, ...r, status: r.errors.length ? "error" : "ready", duplicateOf: null };
     if (!r.errors.length) {
       const k = keyOf(r.patient);

@@ -7,6 +7,30 @@
 // The session lives in an HttpOnly cookie the page can't read. The only thing remembered here is which
 // demo (practice) this browser was using, which isn't a secret.
 let META = null, S = null, ES = null, fetchedAt = 0;
+/* ---------- Practice branding ---------- */
+// A branded demo is opened with /?brand=<id>; the choice is remembered on this device, and once a demo exists
+// its own brand (from /api/state) is the one that counts.
+const prefs = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} } };
+let BRAND_ID = null;
+DomiAreas.bind(() => (S && S.areas) || (META && META.areas));
+function applyBrand(b) {
+  if (!b) return;
+  BRAND_ID = b.id === "domi" ? null : b.id;
+  prefs.set("domi-brand", BRAND_ID);
+  if (BRAND_ID) document.documentElement.dataset.brand = b.id; else delete document.documentElement.dataset.brand;
+  const lock = document.querySelector(".lockup");
+  if (lock && lock.dataset.brand !== b.id) {
+    lock.dataset.brand = b.id;
+    lock.setAttribute("aria-label", b.practice);
+    lock.innerHTML = b.logo
+      ? `<img class="brand-logo" src="${esc(b.logo)}" alt="${esc(b.logoAlt)}" referrerpolicy="no-referrer"><span class="by">Powered by Domi</span>`
+      : `<img src="/logo.svg" alt=""><span class="wm"><b>Domi</b><span>EYE CARE AT HOME</span></span>`;
+    // If their site can't be reached, show their name rather than a broken image.
+    const img = lock.querySelector(".brand-logo");
+    if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm"><b>${esc(b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
+  }
+  document.title = b.logo ? `${b.practice} · Diary` : "Domi";
+}
 const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null };
 let DEMO_SB = null;
 try { DEMO_SB = localStorage.getItem("domi-demo"); localStorage.removeItem("domi-token"); } catch (e) {}
@@ -145,6 +169,7 @@ async function load() {
   if (outbox.length && !flushing) { if (S && navigator.onLine !== false) return flush(); }
   try { S = await api("GET", "/api/state"); }
   catch (e) { if (e.offline && goOffline()) return; throw e; }
+  applyBrand(S.brand);
   fetchedAt = Date.now(); UI.offline = false;
   saveOffline(); prefetchRecords();
   if (S.user.clinicianId) UI.lastClin = "u-" + S.user.clinicianId;
@@ -157,7 +182,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "reset"];
+const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -175,9 +200,11 @@ function onEvent(type, e) {
   if (type === "reset") { UI.pid = null; UI.rec = null; closeDrawer(); toast("This demo was started again"); return; }
   if (!isAdmin()) {
     if (type === "slot.filled") toast(`Diary changed: ${e.patient} at ${hm(e.start)}`);
+    if (type === "route.planned") toast(`Your route ${e.day === 0 ? "today" : "on " + dayName(e.day)} has been re-planned: ${mins(e.savedMin)} less driving`);
     if (type === "appointment.booked") toast(`New visit${e.online ? " (booked online)" : ""}: ${e.patient}, ${e.day ? dayName(e.day) + " " : ""}${hm(e.start)}`);
     return;
   }
+  if (type === "referral.updated" && e.fresh) toast("New referral from the website form");
   if (type === "appointment.booked" && e.online) toast(`Booked online by the patient: ${e.patient}, ${dayName(e.day)} ${hm(e.start)} (+${e.extraDrive} min driving)`);
   if (type === "refill.started") {
     if (e.cancelled && e.cancelled.byText) toast(`${e.cancelled.patient} texted to cancel. Refilling ${hm(e.start)}.`);
@@ -208,7 +235,7 @@ async function enter() {
 }
 async function submitPassword(email, password, join) {
   const start = (body) => api("POST", "/api/demo/start", body).then((r) => r.sandbox);
-  let sb = join ? await start({ join: join.toUpperCase() }) : DEMO_SB || await start();
+  let sb = join ? await start({ join: join.toUpperCase() }) : DEMO_SB || await start({ brand: BRAND_ID });
   let r;
   try { r = await api("POST", "/api/auth/password", { sandbox: sb, email, password }); }
   catch (e) {
@@ -257,9 +284,11 @@ function signInView() {
   const A = UI.auth;
   const brand = `<section class="signin-brand">
       <div>
-        <div class="caps" style="color:inherit;opacity:.7">Domiciliary eye care</div>
-        <h1 style="margin-top:14px">Eye care that <em>comes to you.</em></h1>
-        <p>A diary for home-visit opticians. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>
+        <div class="caps" style="color:inherit;opacity:.7">${BRAND_ID && META.brand ? esc(META.brand.practice) : "Domiciliary eye care"}</div>
+        ${BRAND_ID && META.brand ? `<h1 style="margin-top:14px">Every home visit, <em>in one place.</em></h1>
+        <p>Patients, referrals, diaries and each clinician's route, all here: no spreadsheets, no documents. When someone cancels, the next patient who can be seen is offered the slot by text.</p>`
+        : `<h1 style="margin-top:14px">Eye care that <em>comes to you.</em></h1>
+        <p>A diary for home-visit opticians. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>`}
       </div>
       <ul class="features">
         <li><span class="ic">${icon("bolt")}</span><span><b>Cancellations refill themselves</b><em>Ranked by urgency, area, wait and travel time.</em></span></li>
@@ -311,7 +340,7 @@ function officeView() {
     <div class="page-head">
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
         <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
-        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}<button class="btn secondary sm" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
+        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}<button class="btn secondary sm" type="button" data-act="plans">${icon("pin")}Plan routes</button><button class="btn secondary sm" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
       <div class="quick-stats">
         <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
@@ -352,6 +381,7 @@ function officeView() {
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
         </section>
+        ${referralsPanel()}
         ${pcsePanel()}
         ${recallsPanel()}
         ${remindersPanel()}
@@ -362,6 +392,40 @@ function officeView() {
         </section>
       </aside>
     </div></div>`;
+}
+/** Referrals from the website form, waiting for the office to accept or decline. */
+function referralsPanel() {
+  const all = S.referrals || [], fresh = all.filter((r) => r.status === "new");
+  const opt = S.referralOptions || { need: {}, from: {} };
+  return `<section class="panel" aria-label="New referrals">
+    <div class="panel-h"><h2>New referrals</h2><span class="sub">${fresh.length ? `${fresh.length} to look at` : "All dealt with"}</span></div>
+    <p class="panel-note">From the referral form on your website, instead of emails and documents. Accepting one makes the patient record and puts them on the waiting list.</p>
+    <div style="padding:0 18px 8px"><button class="btn secondary sm" type="button" data-act="referlink">${icon("qr")}Share the referral form</button></div>
+    ${fresh.length ? `<ul class="recalls">${fresh.map((r) => `<li><div style="min-width:0"><div class="nm">${esc(r.name)}${r.urgent ? ` <span class="badge b-crit">Sight changed</span>` : ""}</div>
+      <div class="meta"><span>${esc(opt.need[r.need] || r.need)}</span><span>${esc(r.pc)}</span><span>${esc((opt.from[r.fromKind] || "").replace(/^(A|The) /, ""))} · ${esc(r.at)}</span></div></div>
+      <div class="ra"><button class="btn secondary sm" type="button" data-act="referral" data-id="${r.id}">Open</button></div></li>`).join("")}</ul>` : ""}
+  </section>`;
+}
+function referralDrawer(d) {
+  const r = (S.referrals || []).find((x) => x.id === d.id);
+  if (!r) return "";
+  const o = S.referralOptions, row = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+  const born = r.dob ? new Date(r.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
+  return `<div class="drawer-h"><div><div class="caps">Referral · ${esc(r.at)} · ${esc(o.from[r.fromKind])}</div><h2 style="margin-top:6px">${esc(r.name)}</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      ${r.urgent ? `<div class="callout apricot" style="margin-bottom:14px">${icon("bolt")}<div><b>Sight has changed suddenly</b><div style="margin-top:2px">Call today. If it's sudden loss of sight, flashes or a painful red eye, they need NHS 111 or A&amp;E, not a home visit. The form told them so.</div></div></div>` : ""}
+      <dl class="kv">${row("Needs", esc(o.need[r.need]))}${row("Born", esc(born))}${row("Address", esc(r.addr + ", " + r.pc))}${row("Phone", r.phone ? `<span class="mono">${esc(r.phone)}</span>` : "None given")}
+        ${row("Home visit because", esc(r.eligibility))}${row("NHS entitlement", esc(r.entitlement.map((k) => o.entitlement[k]).join(", ") || "None ticked"))}
+        ${row("Home", esc(META.avail[r.avail]))}${r.fromKind !== "self" ? row("Referred by", esc([r.fromName, r.fromPhone].filter(Boolean).join(", "))) : ""}${row("Notes", esc(r.notes || ""))}</dl>
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="row2"><div class="field"><label for="rf-type">Waiting list for</label><select class="input" id="rf-type">${Object.entries(META.types).map(([k, v]) => `<option value="${k}" ${k === r.need ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
+        <div class="field"><label for="rf-prio">Priority</label><select class="input" id="rf-prio">${Object.entries(META.prio).map(([k, v]) => `<option value="${k}" ${k === (r.urgent ? "urgent" : "routine") ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div></div>
+      ${d.dup ? `<div class="err" role="alert">${esc(d.dup)}</div>` : ""}
+      <details style="margin-top:14px"><summary class="muted" style="font-size:13.5px;cursor:pointer">Decline instead</summary>
+        <div class="field" style="margin-top:10px"><label for="rf-why">Reason (kept on the referral)</label><input class="input" id="rf-why" placeholder="e.g. Can get to a practice, so not eligible for a home visit"></div>
+        <button class="btn danger sm" type="button" data-act="ref-decline" data-id="${r.id}">Decline referral</button></details>
+    </div>
+    <div class="drawer-f"><button class="btn ghost" type="button" data-act="close">Later</button><button class="btn" type="button" data-act="ref-accept" data-id="${r.id}" data-anyway="${d.dup ? "1" : "0"}">${icon("check")}${d.dup ? "Accept anyway" : "Accept and add to the waiting list"}</button></div>`;
 }
 /** What the office must do in PCSE Online for NHS sight tests: lodge a notification for each new one, cancel it for each cancelled one. */
 function pcsePanel() {
@@ -601,6 +665,8 @@ function renderDrawer() {
   else if (d.kind === "import") inner = importDrawer();
   else if (d.kind === "qr") inner = qrModal();
   else if (d.kind === "route") inner = routeDrawer(d.data);
+  else if (d.kind === "plans") inner = plansDrawer(d);
+  else if (d.kind === "referral") inner = referralDrawer(d);
   else if (d.kind === "booklink") inner = bookLinkModal();
   else if (d.kind === "report") inner = reportDrawer(d.data);
   else if (d.kind === "invoices") inner = invoicesDrawer(d.data);
@@ -682,9 +748,47 @@ async function openRoute(cid, day) {
   openDrawer({ kind: "route", data });
 }
 function routeDrawer(r) {
+  const d = UI.drawer, plan = d.plan;
   return `<div class="drawer-h"><div><div class="caps">${esc(r.day === 0 ? "Today" : dayName(r.day))}</div><h2 style="margin-top:6px">${esc(r.clinician.first)}'s route</h2></div>${closeX}</div>
-    <div class="drawer-b">${r.stops.length ? routeMap(r) + routeSummary(r) : `<div class="empty"><b>No visits</b>Nothing booked on this day.</div>`}
-      <p class="muted" style="font-size:12.5px;margin-top:14px">Drive times are road routes between the patients' postcodes. Miles are estimated from distance.</p></div>`;
+    <div class="drawer-b">${d.applied ? `<div class="callout forest" style="margin-bottom:14px">${icon("check")}<div><b>Route re-planned</b><div style="margin-top:2px">${d.applied.changed} patient${d.applied.changed === 1 ? "" : "s"} texted their new time; ${esc(r.clinician.first)}'s phone has the new order.</div></div></div>` : ""}
+      ${plan ? planView(plan) : ""}
+      ${r.stops.length ? routeMap(r) + routeSummary(r) : `<div class="empty"><b>No visits</b>Nothing booked on this day.</div>`}
+      <p class="muted" style="font-size:12.5px;margin-top:14px">Drive times are road routes between the patients' postcodes where available, otherwise estimated from distance. Miles are estimated from distance.</p></div>
+    ${isAdmin() && r.stops.length && !plan ? `<div class="drawer-f"><button class="btn" type="button" data-act="plan-route" data-c="${r.clinician.id}" data-d="${r.day}">${icon("pin")}Plan the best route</button></div>` : ""}`;
+}
+/** The proposed order: what it saves, who moves, and anything to check before applying. */
+function planView(p) {
+  if (!p.changed) return `<div class="callout" style="margin-bottom:14px">${icon("check")}<div><b>This is already a good order</b><div style="margin-top:2px">No other order saves ten minutes or more of driving, so nobody needs a new time.</div></div></div>`;
+  return `<section class="plan-card">
+    <div class="plan-head"><div><div class="caps">Proposed order</div><b>${mins(p.savedMin)} less driving${p.savedMiles > 0 ? `, ${p.savedMiles} fewer miles` : ""}</b></div>
+      <div class="plan-tot"><span>Now <b>${mins(p.before.driveMin)}</b></span><span>Planned <b>${mins(p.after.driveMin)}</b></span></div></div>
+    <ol class="plan-list">${p.fixed.map((f) => `<li class="fixed"><span class="mono">${hm(f.start)}</span><span>${esc(f.name)}</span><span class="muted">${f.status === "done" ? "Done" : "Under way"}: stays</span></li>`).join("")}
+      ${p.planned.map((x) => `<li class="${x.moved ? "moved" : ""}"><span class="mono">${hm(x.start)}</span><span>${esc(x.name)}</span><span class="muted">${x.moved ? `was ${hm(x.from)}` : "same time"}</span></li>`).join("")}</ol>
+    ${p.warnings.length ? `<div class="ir-m" style="margin:8px 0 0">${p.warnings.map((w) => `<span>${esc(w)}</span>`).join("")}</div>` : ""}
+    <p class="muted" style="font-size:12.5px;margin:10px 0 0">Mornings stay mornings and afternoons stay afternoons. Each patient whose time changes gets a text with the new time and can reply NO.</p>
+    <div class="plan-actions"><button class="btn ghost sm" type="button" data-act="plan-cancel">Keep it as it is</button><button class="btn sm" type="button" data-act="plan-apply" data-c="${p.clinicianId}" data-d="${p.day}">${icon("check")}Apply and text ${p.changed} patient${p.changed === 1 ? "" : "s"}</button></div>
+  </section>`;
+}
+/* ---------- Every clinician's route for one day, planned at once ---------- */
+function plansDrawer(d) {
+  const day = d.day, list = d.list;
+  const total = list ? list.reduce((t, p) => t + (p.changed ? p.savedMin : 0), 0) : 0;
+  return `<div class="drawer-h"><div><div class="caps">Route planning</div><h2 style="margin-top:6px">Plan the rounds</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <p class="muted" style="margin:0 0 12px;font-size:13.5px">Domi puts each clinician's visits in the order that drives least, from their home base and back, keeping mornings in the morning and afternoons in the afternoon. Nothing changes until you apply it.</p>
+      <div class="seg imp-filter" role="group" aria-label="Day">${(META.days || []).map((x, i) => `<button type="button" data-act="plans-day" data-v="${i}" aria-pressed="${i === day}">${i === 0 ? "Today" : esc(x.slice(0, 3))}</button>`).join("")}</div>
+      ${!list ? `<p class="muted">Planning…</p>` : `${total ? `<div class="callout forest" style="margin-bottom:12px">${icon("car")}<div><b>${mins(total)} less driving ${day === 0 ? "today" : "on " + esc(dayName(day))}</b><div style="margin-top:2px">Across ${list.filter((p) => p.changed).length} clinician${list.filter((p) => p.changed).length === 1 ? "" : "s"}.</div></div></div>` : ""}
+        ${list.map((p) => `<div class="plan-row"><span class="avatar sm" style="background:${(cln(p.clinicianId) || {}).color}">${initials(p.clinician)}</span>
+          <div style="min-width:0;flex:1"><b>${esc(p.clinician)}</b><div class="muted" style="font-size:12.5px">${p.planned.length + p.fixed.length} visits · ${p.changed ? `${mins(p.savedMin)} less driving, ${p.changed} new time${p.changed === 1 ? "" : "s"}` : p.applied ? "Planned" : "Already a good order"}</div>${p.warnings.length ? `<div class="ir-m">${p.warnings.map((w) => `<span>${esc(w)}</span>`).join("")}</div>` : ""}</div>
+          ${p.applied ? `<span class="badge b-ok">Applied</span>` : `<button class="btn secondary sm" type="button" data-act="route" data-c="${p.clinicianId}" data-d="${day}">${icon("pin")}See</button>${p.changed ? `<button class="btn sm" type="button" data-act="plans-apply" data-c="${p.clinicianId}">${icon("check")}Apply</button>` : ""}`}</div>`).join("")}`}
+    </div>
+    ${list && list.some((p) => p.changed && !p.applied) ? `<div class="drawer-f"><button class="btn" type="button" data-act="plans-apply-all">${icon("check")}Apply all and text patients</button></div>` : ""}`;
+}
+async function loadPlans(day) {
+  UI.drawer.day = day; UI.drawer.list = null; renderDrawer();
+  const cs = S.clinicians;
+  UI.drawer.list = await Promise.all(cs.map((c) => api("GET", `/api/route/plan?clinician=${c.id}&day=${day}`)));
+  renderDrawer();
 }
 /* ---------- What's coming: placeholders for features not built yet, clearly labelled ---------- */
 // Nothing here pretends to work: each button opens a short note on what's coming. No dates are promised.
@@ -792,7 +896,7 @@ function flowDrawer() {
 /* Book a visit: who, what, when they're home -> best slots across every round, ranked by extra driving. */
 function bookInput() {
   const v = (id) => { const e = $("#" + id); return e ? e.value : ""; };
-  return { patientId: v("bk-p"), name: v("bk-name"), pc: v("bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail") };
+  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail") };
 }
 /* ---------- Importing patients from a spreadsheet ---------- */
 // The file is read in the browser and sent for checking; nothing is saved until the office presses Import.
@@ -892,8 +996,9 @@ function bookDrawer() {
   <form class="drawer-b" id="book-form">
     <p class="muted" style="margin:0 0 16px;font-size:13.5px">Searches every clinician's round this week for gaps where this visit fits, using road driving times between the full postcodes for the drive in and the drive on to the next patient, and ranks them by the extra driving they add.</p>
     <div class="field"><label for="bk-p">Patient</label><select class="input" id="bk-p" data-keep>${opts.map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.name)} · ${esc(p.pc)}${waiting.has(p.id) ? " · on waiting list" : ""}</option>`).join("")}<option value="new" ${sel === "new" ? "selected" : ""}>New patient…</option></select></div>
-    <div id="bk-new" ${sel === "new" ? "" : "hidden"}><div class="row2"><div class="field"><label for="bk-name">Name</label><input class="input" id="bk-name" data-keep placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="bk-pc">Postcode</label><input class="input" id="bk-pc" data-keep placeholder="LS16 7SN" autocapitalize="characters" autocomplete="postal-code"></div></div>
-      <div class="row2"><div class="field"><label for="bk-addr">Address</label><input class="input" id="bk-addr" data-keep placeholder="House and street"></div><div class="field"><label for="bk-phone">Mobile</label><input class="input" id="bk-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
+    <div id="bk-new" ${sel === "new" ? "" : "hidden"}><div class="row2"><div class="field"><label for="bk-name">Name</label><input class="input" id="bk-name" data-keep placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="bk-addr">Address</label><input class="input" id="bk-addr" data-keep placeholder="House and street"></div></div>
+      <div class="field">${DomiAreas.picker(S.areas || [], "bk-pc", DomiAreas.read(document, "bk-pc"))}</div>
+      <div class="row2"><div class="field"><label for="bk-phone">Mobile</label><input class="input" id="bk-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
     <div class="row2"><div class="field"><label for="bk-type">Visit type</label><select class="input" id="bk-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name} · ${v.dur} min</option>`).join("")}</select></div>
     <div class="field"><label for="bk-avail">Patient is home</label><select class="input" id="bk-avail" data-keep>${Object.entries(META.avail).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
     <button class="btn block lg" type="submit">${icon("pin")}Find the best slots this week</button>
@@ -906,7 +1011,8 @@ function wlDrawer() {
   return `<div class="drawer-h"><div><div class="caps">Waiting list</div><h2 style="margin-top:6px">Add a patient</h2></div>${closeX}</div>
   <form class="drawer-b" id="wl-form">
     <div class="field"><label for="wl-p">Patient</label><select class="input" id="wl-p" data-keep>${opts.map((p) => `<option value="${p.id}">${esc(p.name)} · ${esc(p.pc)}</option>`).join("")}<option value="new">New patient…</option></select></div>
-    <div id="wl-new" ${opts.length ? "hidden" : ""}><div class="row2"><div class="field"><label for="wl-name">Name</label><input class="input" id="wl-name" data-keep placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="wl-pc">Postcode</label><input class="input" id="wl-pc" data-keep placeholder="LS16 7SN" autocapitalize="characters" autocomplete="postal-code"></div></div>
+    <div id="wl-new" ${opts.length ? "hidden" : ""}><div class="row2"><div class="field"><label for="wl-name">Name</label><input class="input" id="wl-name" data-keep placeholder="e.g. Ruth Ingham"></div></div>
+      <div class="field">${DomiAreas.picker(S.areas || [], "wl-pc", DomiAreas.read(document, "wl-pc"))}</div>
       <div class="row2"><div class="field"><label for="wl-addr">Address</label><input class="input" id="wl-addr" data-keep placeholder="House and street"></div><div class="field"><label for="wl-phone">Mobile</label><input class="input" id="wl-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
     <div class="row2"><div class="field"><label for="wl-type">Visit type</label><select class="input" id="wl-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("")}</select></div>
     <div class="field"><label for="wl-prio">Priority</label><select class="input" id="wl-prio" data-keep><option value="routine">Routine</option><option value="soon">Soon</option><option value="urgent">Urgent</option></select></div></div>
@@ -977,11 +1083,12 @@ function reportCsv(r) {
 }
 /** The practice's own booking page, for its website, recall texts and leaflets. */
 function bookLinkModal() {
-  const url = `${location.origin}/book/${S.sandbox}`;
+  const refer = UI.drawer.refer, url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`;
   let qr = "";
   try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
-  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">For patients</div><h2 style="margin-top:6px;font-size:30px">Patient booking page</h2></div>${closeX}</div>
-    <p class="muted" style="margin:8px 0 0">Patients pick a time themselves. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Fittings stay with the office.</p>
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">For patients${refer ? ", family and carers" : ""}</div><h2 style="margin-top:6px;font-size:30px">${refer ? "Referral form" : "Patient booking page"}</h2></div>${closeX}</div>
+    <p class="muted" style="margin:8px 0 0">${refer ? "Link it from your website's Book or Contact page instead of a callback form. Patients, family, carers, care homes and GPs fill it in, and it arrives here under New referrals: no emails, documents or spreadsheets to retype."
+      : "Patients pick a time themselves. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. Glasses deliveries stay with the office."}</p>
     ${qr ? `<div class="qr">${qr}</div>` : ""}
     <div class="copyline"><span class="mono">${esc(url)}</span><button class="btn secondary sm" type="button" data-act="copy" data-v="${esc(url)}">${icon("copy")}Copy</button></div>
     <p style="text-align:center;margin:12px 0 0"><a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Open it</a></p>`;
@@ -1078,8 +1185,35 @@ document.addEventListener("click", async (e) => {
       case "report": openDrawer({ kind: "report", data: await api("GET", "/api/reports/week") }); break;
       case "report-csv": reportCsv(UI.drawer.data); toast("CSV downloaded"); break;
       case "booklink": openDrawer({ kind: "booklink" }); break;
+      case "referlink": openDrawer({ kind: "booklink", refer: true }); break;
+      case "referral": openDrawer({ kind: "referral", id: el.dataset.id }); break;
+      case "ref-accept": {
+        el.disabled = true;
+        const body = { type: ($("#rf-type") || {}).value, prio: ($("#rf-prio") || {}).value, anyway: el.dataset.anyway === "1" };
+        try { const r = await api("POST", `/api/referrals/${el.dataset.id}/accept`, body); await load(); closeDrawer(); toast(`Added to the waiting list${r.texted ? " and texted" : ""}`); }
+        catch (e) { if (/already on Domi/.test(e.message)) { UI.drawer.dup = e.message; renderDrawer(); } else throw e; }
+        break;
+      }
+      case "ref-decline": el.disabled = true; await api("POST", `/api/referrals/${el.dataset.id}/decline`, { reason: ($("#rf-why") || {}).value }); await load(); closeDrawer(); toast("Referral declined"); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
-      case "route": await openRoute(el.dataset.c, UI.view === "week" ? 0 : UI.day); break;
+      case "route": await openRoute(el.dataset.c, el.dataset.d != null ? Number(el.dataset.d) : UI.view === "week" ? 0 : UI.day); break;
+      case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); renderDrawer(); break;
+      case "plan-cancel": UI.drawer.plan = null; renderDrawer(); break;
+      case "plan-apply": {
+        el.disabled = true;
+        const r = await api("POST", "/api/route/plan", { clinicianId: el.dataset.c, day: Number(el.dataset.d) });
+        const data = await api("GET", `/api/route?clinician=${el.dataset.c}&day=${el.dataset.d}`);
+        UI.drawer = { kind: "route", data, applied: r }; await load(); toast(`Route planned: ${mins(r.savedMin)} less driving`); break;
+      }
+      case "plans": UI.drawer = { kind: "plans", day: UI.view === "week" ? 1 : UI.day }; openDrawer(UI.drawer); await loadPlans(UI.drawer.day); break;
+      case "plans-day": await loadPlans(Number(el.dataset.v)); break;
+      case "plans-apply": case "plans-apply-all": {
+        el.disabled = true;
+        const D = UI.drawer, ids = act === "plans-apply" ? [el.dataset.c] : D.list.filter((p) => p.changed && !p.applied).map((p) => p.clinicianId);
+        let saved = 0;
+        for (const id of ids) { const r = await api("POST", "/api/route/plan", { clinicianId: id, day: D.day }); saved += r.savedMin; const i = D.list.findIndex((p) => p.clinicianId === id); D.list[i] = { ...r, applied: true, changed: 0 }; }
+        await load(); toast(`Routes planned: ${mins(saved)} less driving`); break;
+      }
       case "my-route": {
         if (UI.myRoute) { UI.myRoute = null; render(); break; }
         try { UI.myRoute = await api("GET", "/api/route?day=0"); }
@@ -1182,7 +1316,7 @@ document.addEventListener("submit", async (e) => {
       return;
     }
     if (e.target.id === "wl-form") {
-      await api("POST", "/api/waitlist", { patientId: $("#wl-p").value, name: $("#wl-name").value, pc: $("#wl-pc").value, addr: $("#wl-addr").value, phone: $("#wl-phone").value, type: $("#wl-type").value, prio: $("#wl-prio").value, avail: $("#wl-avail").value, shortNotice: $("#wl-short").value === "1" });
+      await api("POST", "/api/waitlist", { patientId: $("#wl-p").value, name: $("#wl-name").value, pc: DomiAreas.read(document, "wl-pc"), addr: $("#wl-addr").value, phone: $("#wl-phone").value, type: $("#wl-type").value, prio: $("#wl-prio").value, avail: $("#wl-avail").value, shortNotice: $("#wl-short").value === "1" });
       closeDrawer(); await load(); toast("Added to the waiting list");
     }
     if (e.target.id === "pw-form") {
@@ -1242,15 +1376,27 @@ $("#reset").onclick = async () => {
 
 (async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-  try { META = await api("GET", "/api/meta"); }
-  catch (e) { if (e.offline && goOffline()) return; $("#app").innerHTML = `<div class="shell"><div class="err">Can't reach the server. Start it with <span class="mono">npm start</span> and reload.</div></div>`; return; }
   const params = new URLSearchParams(location.search);
+  const wanted = params.has("brand") ? (params.get("brand") === "domi" ? null : params.get("brand").toLowerCase()) : undefined;
+  // A link for a different practice starts a fresh demo for it, rather than reopening the last one.
+  if (wanted !== undefined && wanted !== prefs.get("domi-brand")) rememberDemo(null);
+  if (wanted !== undefined) prefs.set("domi-brand", wanted);
+  BRAND_ID = prefs.get("domi-brand");
+  try { META = await api("GET", "/api/meta" + (BRAND_ID ? "?brand=" + encodeURIComponent(BRAND_ID) : "")); applyBrand(META.brand); }
+  catch (e) { if (e.offline && goOffline()) return; $("#app").innerHTML = `<div class="shell"><div class="err">Can't reach the server. Start it with <span class="mono">npm start</span> and reload.</div></div>`; return; }
   history.replaceState(null, "", "/"); // never leave a one-time link in the address bar or history
   if (params.get("pair")) {
     try { const r = await api("POST", "/api/auth/pair/redeem", { token: params.get("pair") }); rememberDemo(r.sandbox); await enter(); return; } catch (e) { fail(e); }
   }
   if (params.get("join")) UI.auth = { step: "password", join: params.get("join") };
-  try { if ((await api("GET", "/api/auth/session")).signedIn) { await load(); connect(); return; } } catch (e) { /* not signed in */ }
+  try {
+    if ((await api("GET", "/api/auth/session")).signedIn) {
+      await load();
+      if (wanted === undefined || (S.brand.id === "domi" ? null : S.brand.id) === wanted) { connect(); return; }
+      await api("POST", "/api/auth/logout").catch(() => {}); rememberDemo(null); S = null; BRAND_ID = wanted;
+      META = await api("GET", "/api/meta" + (BRAND_ID ? "?brand=" + encodeURIComponent(BRAND_ID) : "")); applyBrand(META.brand);
+    }
+  } catch (e) { /* not signed in */ }
   S = null; render();
 })();
 })();

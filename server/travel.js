@@ -9,6 +9,7 @@
 // The rest of the app stays synchronous: callers `await prepare([...postcodes])` before a calculation, and
 // `driveMinutes()` then reads the cache.
 const { district } = require("./domain");
+const { ALL_CENTRES } = require("./regions");
 
 // Approximate district centres, used for district-only postcodes and when a full postcode can't be looked up.
 const CENTRES = {
@@ -16,6 +17,7 @@ const CENTRES = {
   LS10: [53.770, -1.535], LS11: [53.776, -1.565], LS12: [53.795, -1.600], LS13: [53.808, -1.640],
   LS14: [53.825, -1.455], LS15: [53.805, -1.450], LS16: [53.860, -1.605], LS17: [53.858, -1.540],
   LS18: [53.840, -1.640], LS26: [53.748, -1.475], LS27: [53.745, -1.600], LS28: [53.795, -1.665],
+  ...ALL_CENTRES, // every other region a practice can cover (server/regions.js)
 };
 // Coordinates of the demo's own postcodes (from postcodes.io), so the sample diary needs no lookups.
 const KNOWN = {
@@ -35,6 +37,8 @@ const KNOWN = {
 const SAME_DISTRICT_MIN = 6; // two addresses in one district, exact location unknown
 const ROAD_FACTOR = 1.3;     // roads are longer than straight lines
 const MIN_PER_KM = 2;        // about 30 km/h across the city
+const LONG_KM = 20;          // beyond this a trip is mostly A-roads and motorway...
+const LONG_MIN_PER_KM = 1;   // ...at about 60 km/h
 const PARK_MIN = 4;          // finding somewhere to park, walking to the door
 const TRAFFIC = 1.3;         // OSRM times are free-flowing; daytime Leeds traffic is slower
 const TIMEOUT_MS = 3000;
@@ -52,6 +56,7 @@ const isFull = (pc) => FULL.test(normalise(pc));
 
 const cfg = { provider: "estimate", osrmUrl: "https://router.project-osrm.org", geoUrl: "https://api.postcodes.io", fetch: (...a) => fetch(...a) };
 const geo = new Map(Object.entries(KNOWN)); // postcode -> [lat, lon]
+const placed = new Map();                   // coordinates given by the app itself (the invented demo addresses)
 const invalid = new Set();                  // full postcodes postcodes.io says don't exist
 const road = new Map();                     // "A|B" -> minutes by road
 const status = { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0 };
@@ -90,7 +95,8 @@ function estimate(from, to) {
   const a = point(from), b = point(to);
   if (!a || !b) return null;
   if (!(exact(from) && exact(to)) && district(normalise(from)) === district(normalise(to))) return SAME_DISTRICT_MIN;
-  return Math.round(PARK_MIN + km(a, b) * ROAD_FACTOR * MIN_PER_KM);
+  const road = km(a, b) * ROAD_FACTOR;
+  return Math.round(PARK_MIN + Math.min(road, LONG_KM) * MIN_PER_KM + Math.max(0, road - LONG_KM) * LONG_MIN_PER_KM);
 }
 
 /** Drive time and where it came from: { min, source: "road" | "estimate" }, or null if a postcode is unknown. */
@@ -174,10 +180,16 @@ function routingStatus() {
 
 /** Testing hook: forget everything learned at runtime. */
 function _reset() {
-  geo.clear(); Object.entries(KNOWN).forEach(([k, v]) => geo.set(k, v));
+  geo.clear(); Object.entries(KNOWN).forEach(([k, v]) => geo.set(k, v)); placed.forEach((v, k) => geo.set(k, v));
   invalid.clear(); road.clear(); loadSnapshot();
   Object.assign(status, { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0 });
 }
+
+/**
+ * Pin a postcode to coordinates without looking it up. The North West demo's patients are invented, with
+ * invented postcodes, so they're given places near their district's centre rather than sent to postcodes.io.
+ */
+function place(pc, coords) { const n = normalise(pc); placed.set(n, coords); geo.set(n, coords); invalid.delete(n); }
 
 /** Where a postcode is, for drawing: { lat, lon, exact } (exact = its own coordinates, not its district's centre). */
 function locate(pc) { const p = point(pc); return p ? { lat: p[0], lon: p[1], exact: exact(pc) } : null; }
@@ -189,4 +201,4 @@ function miles(from, to) {
   return Math.round((km(a, b) * ROAD_FACTOR / 1.609) * 10) / 10;
 }
 
-module.exports = { driveMinutes, driveInfo, known, normalise, isFull, prepare, geocode, configure, routingStatus, locate, miles, CENTRES, KNOWN, _reset };
+module.exports = { place, driveMinutes, driveInfo, known, normalise, isFull, prepare, geocode, configure, routingStatus, locate, miles, CENTRES, KNOWN, _reset };

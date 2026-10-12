@@ -5,6 +5,9 @@ const { DatabaseSync } = require("node:sqlite");
 const sandbox = require("./sandbox");
 const { driveMinutes } = require("./travel");
 const auth = require("./auth");
+const travel = require("./travel");
+const { northWest } = require("./seed-nw");
+const brands = require("./brands");
 
 // `db` always points at the database of the sandbox handling the current request.
 const db = new Proxy({}, {
@@ -80,6 +83,15 @@ CREATE TABLE IF NOT EXISTS pcse (
   day INTEGER NOT NULL, start_min INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo','done')),
   created_at TEXT NOT NULL, done_by TEXT
 );
+-- Referrals from the practice's website form: patients, family, carers, care homes, GPs. They replace the
+-- documents and inbox the office used to retype from. Nothing is a patient until the office accepts it.
+CREATE TABLE IF NOT EXISTS referrals (
+  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','accepted','declined')),
+  from_kind TEXT NOT NULL, from_name TEXT, from_phone TEXT,
+  name TEXT NOT NULL, dob TEXT, addr TEXT NOT NULL, pc TEXT NOT NULL, phone TEXT, eligibility TEXT NOT NULL,
+  entitlement TEXT NOT NULL DEFAULT '[]', need TEXT NOT NULL, avail TEXT NOT NULL DEFAULT 'any', urgent INTEGER NOT NULL DEFAULT 0,
+  notes TEXT, patient_id TEXT REFERENCES patients(id), decided_by TEXT, decline_reason TEXT
+);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT NOT NULL,
   action TEXT NOT NULL, entity TEXT, detail TEXT
@@ -96,36 +108,38 @@ const USERS = [
   { id: "u-c3", email: "priya@airevalleyeyecare.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Optometrist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "pcse", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
+const TABLES = ["audit", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
 
-/** A fresh, seeded in-memory database for one sandbox. */
-function openDb() {
+/** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
+function openDb(brand = brands.get()) {
   const d = new DatabaseSync(":memory:");
   d.exec("PRAGMA foreign_keys = ON;");
   d.exec(SCHEMA);
-  seed(d);
+  seed(d, brand);
   return d;
 }
+/** A demo user's sign-in email for this brand: sarah@<the brand's demo domain>. */
+const emailFor = (u, brand = brands.get()) => u.email.replace(/@.*/, "@" + brand.emailDomain);
 
-function seed(db) {
+function seed(db, brand) {
+  const region = brand.region;
   const ins = (table, row) => {
     const keys = Object.keys(row);
     db.prepare(`INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`)
       .run(...keys.map((k) => (row[k] !== null && typeof row[k] === "object" ? JSON.stringify(row[k]) : row[k])));
   };
   db.exec("BEGIN");
-  [
+  let clinicians = [
     { id: "c1", name: "Amira Shah", first: "Amira", role: "Optometrist", color: "#1E4D40", area_name: "North Leeds", patch: ["LS6", "LS16", "LS17"], near: ["LS7", "LS18", "LS8"], base: "LS6 4AA" },
     { id: "c2", name: "Tom Whitfield", first: "Tom", role: "Dispensing optician", color: "#3F6E8C", area_name: "East Leeds", patch: ["LS8", "LS9", "LS15"], near: ["LS7", "LS14", "LS26"], base: "LS8 2RS" },
     { id: "c3", name: "Priya Nair", first: "Priya", role: "Optometrist", color: "#7A5A8C", area_name: "South & West", patch: ["LS11", "LS12", "LS27"], near: ["LS13", "LS10", "LS28"], base: "LS12 3TL" },
-  ].forEach((r) => ins("clinicians", r));
+  ];
   // Every demo gets its own two-factor secrets; the password is the shared demo one (hashed once at start-up).
-  USERS.forEach((u) => ins("users", { id: u.id, name: u.name, role: u.role, clinician_id: u.clinicianId, email: u.email, pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret() }));
 
   // rx: the last prescription, per eye: sphere, cylinder, axis, reading addition, and corrected acuity.
   const RX = (date, R, L) => ({ date, R: { sph: R[0], cyl: R[1], axis: R[2], add: R[3], va: R[4] }, L: { sph: L[0], cyl: L[1], axis: L[2], add: L[3], va: L[4] } });
-  const P = (id, name, age, addr, pc, phone, o = {}) => ({ id, name, age, addr, pc, phone, contact: o.contact || "Text", alerts: o.alerts || [], specs: o.specs || "None on record", rx: o.rx || null, _h: o.h || [] });
-  const patients = [
+  const P = (id, name, age, addr, pc, phone, o = {}) => ({ id, name, age, addr, pc, phone, contact: o.contact || "Text", alerts: o.alerts || [], specs: o.specs || "None on record", rx: o.rx || null, eligibility: o.eligibility || null, _h: o.h || [] });
+  let patients = [
     P("p1", "Dorothy Fenwick", 84, "12 Weetwood Lane", "LS16 7SN", "07700 900112", { alerts: ["Daughter Julie present for visits"], specs: "Varifocals (2024)", rx: RX("10 Oct 2024", ["+2.25", "-0.75", "90", "+2.75", "6/9"], ["+2.00", "-0.50", "85", "+2.75", "6/9"]), h: [["10 Oct 2024", "NHS sight test. Early cataract both eyes, monitoring. New varifocals."]] }),
     P("p2", "Peter Dunn", 79, "3 Otley Road, Headingley", "LS6 4DH", "07700 900245", { contact: "Call", alerts: ["Macular degeneration: can't read texts, call him"], specs: "Single vision distance and reading", rx: RX("29 Sep 2026", ["+1.50", "-1.00", "175", "+3.00", "6/18"], ["+1.75", "-0.75", "5", "+3.00", "6/12"]), h: [["29 Sep 2026", "NHS sight test. Dry AMD right eye, stable. Two pairs ordered, back from the lab."]] }),
     P("p3", "Hilda Marsh", 91, "Flat 4, Moor Court", "LS17 7LH", "07700 900318", { alerts: ["Care home: sign in at reception", "Uses wheelchair"], specs: "Bifocals", rx: RX("2 Jul 2026", ["+3.00", "-0.50", "100", "+3.00", "6/12"], ["+3.25", "", "", "+3.00", "6/12"]), h: [["2 Jul 2026", "NHS sight test. Pseudophakic both eyes. Bifocals fitted."], ["8 Oct 2026", "Care home called: left arm snapped."]] }),
@@ -161,8 +175,17 @@ function seed(db) {
     P("p42", "Pauline Rigg", 80, "62 Halton Moor Road", "LS15 7UD", "07700 900686", { specs: "Varifocals" }),
     P("p43", "Dennis Marlow", 75, "9 Armley Ridge Road", "LS12 2AX", "07700 900797", { specs: "Reading glasses" }),
   ];
+  // Later in the week, each clinician sees people from their own pool, starting from home.
+  let pools = { c1: ["p20", "p21", "p22", "p23", "p24", "p2"], c2: ["p25", "p26", "p27", "p28", "p12", "p6"], c3: ["p29", "p30", "p31", "p10", "p14"] };
+  let bases = { c1: "LS6 4AA", c2: "LS8 2RS", c3: "LS12 3TL" };
+  let moreWaiting = [];
+  let OPTOM_SLOTS = [[540, "sight"], [645, "dispense"], [780, "sight"], [900, "follow"]];
+  let DISPENSER_SLOTS = [[540, "dispense"], [645, "repair"], [780, "dispense"], [900, "repair"]];
+  if (region === "nw") ({ clinicians, patients, pools, bases, waitlist: moreWaiting, optomSlots: OPTOM_SLOTS, dispenserSlots: DISPENSER_SLOTS } = northWest(patients, P, travel.place));
+  clinicians.forEach((r) => ins("clinicians", r));
+  USERS.forEach((u) => ins("users", { id: u.id, name: u.name, role: u.role, clinician_id: u.clinicianId, email: emailFor(u, brand), pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret() }));
   for (const p of patients) {
-    const h = p._h; delete p._h;
+    const h = p._h || []; delete p._h;
     ins("patients", p);
     h.forEach(([label, body]) => ins("notes", { patient_id: p.id, label, body, author: null, created_at: "" }));
   }
@@ -184,15 +207,11 @@ function seed(db) {
   // Tuesday to Friday: four regular slots per clinician, with a different one left free each day
   // so there is always room to book into. Drives are worked out from the previous stop.
   // The NHS sight tests already booked were notified to PCSE when they were booked.
-  const pools = { c1: ["p20", "p21", "p22", "p23", "p24", "p2"], c2: ["p25", "p26", "p27", "p28", "p12", "p6"], c3: ["p29", "p30", "p31", "p10", "p14"] };
-  const bases = { c1: "LS6 4AA", c2: "LS8 2RS", c3: "LS12 3TL" };
-  const OPTOM_SLOTS = [[540, "sight"], [645, "dispense"], [780, "sight"], [900, "follow"]];
-  const DISPENSER_SLOTS = [[540, "dispense"], [645, "repair"], [780, "dispense"], [900, "repair"]];
   for (let day = 1; day <= 4; day++) {
     for (const [ci, cid] of ["c1", "c2", "c3"].entries()) {
       let prev = bases[cid];
-      (cid === "c2" ? DISPENSER_SLOTS : OPTOM_SLOTS).forEach(([start, type], i) => {
-        if (i === (day + ci) % 4) return; // the free slot
+      (cid === "c2" ? DISPENSER_SLOTS : OPTOM_SLOTS).forEach(([start, type], i, slots) => {
+        if (i === (day + ci) % slots.length) return; // the free slot
         const pool = pools[cid];
         const pid = pool[(day * 3 + i + ci) % pool.length];
         const drive = i === 0 ? 0 : driveMinutes(prev, pcOf[pid]) || 10;
@@ -208,6 +227,7 @@ function seed(db) {
     { id: "w4", patient_id: "p13", type: "follow", prio: "routine", days: 21, avail: "any", short_notice: 1, pref_clinician_id: null },
     { id: "w5", patient_id: "p31", type: "repair", prio: "routine", days: 6, avail: "am", short_notice: 0, pref_clinician_id: null },
     { id: "w6", patient_id: "p15", type: "repair", prio: "routine", days: 15, avail: "any", short_notice: 1, pref_clinician_id: "c2" },
+    ...moreWaiting,
   ].forEach((r, i) => ins("waitlist", { ...r, added_seq: i }));
   // Recalls due within two weeks join the refill pool, so a cancellation can be filled by someone due a test anyway.
   // due_day: days from today (negative = overdue). NHS sight tests are every two years, or yearly from 70.
@@ -221,6 +241,16 @@ function seed(db) {
     ins("waitlist", { id: wid, patient_id: r.patient_id, type: r.type, prio: "routine", days: Math.max(0, -r.due_day), avail: "any", short_notice: 1, pref_clinician_id: null, added_seq: 100 + i, source: "recall", note: r.reason });
     ins("recalls", { ...r, waitlist_id: wid });
   });
+  // Referrals waiting for the office, as they'd arrive from the website overnight.
+  const R = region === "nw"
+    ? [["rf1", "family", "Karen Bolton-Hughes", "07700 900950", "Ada Greenhalgh", "1939-05-14", "7 Oak Avenue, Bolton", "BL3 6RT", "", "Dementia, can't go out without me", ["60+"], "sight", "am", 0, "Mum's glasses keep going missing and she's struggling to read the TV guide. Mornings are best, she's tired after lunch."],
+       ["rf2", "carehome", "Moorside House (manager, Julie)", "07700 900951", "Thomas Ainscough", "1936-11-02", "Moorside House care home, Wigan", "WN6 7QA", "", "After a stroke, uses a wheelchair", ["60+", "benefits"], "sight", "any", 0, "New resident, last eye test unknown. Room 4."],
+       ["rf3", "self", null, null, "Brenda Crossley", "1948-08-21", "19 Brook Street, Oldham", "OL4 2LP", "07700 900952", "Severe arthritis in my hips", ["60+", "glaucoma-family"], "sight", "pm", 1, "Sudden blurry patch in my left eye since yesterday."]]
+    : [["rf1", "family", "Julie Fenton", "07700 900950", "Ada Greenhalgh", "1939-05-14", "7 Oak Avenue, Leeds", "LS16 8DE", "", "Dementia, can't go out without me", ["60+"], "sight", "am", 0, "Mum's glasses keep going missing. Mornings are best."],
+       ["rf2", "carehome", "Moor Court (manager, Sue)", "07700 900951", "Thomas Ainscough", "1936-11-02", "Moor Court, Leeds", "LS17 7LH", "", "After a stroke, uses a wheelchair", ["60+", "benefits"], "sight", "any", 0, "New resident, room 4."],
+       ["rf3", "self", null, null, "Brenda Crossley", "1948-08-21", "19 Brook Street, Leeds", "LS15 8BX", "07700 900952", "Severe arthritis in my hips", ["60+"], "repair", "pm", 0, "Arm snapped off my varifocals."]];
+  R.forEach(([id, from_kind, from_name, from_phone, name, dob, addr, pc, phone, eligibility, entitlement, need, avail, urgent, notes], i) =>
+    ins("referrals", { id, created_at: ["07:42", "08:15", "09:58"][i], from_kind, from_name, from_phone, name, dob, addr, pc, phone, eligibility, entitlement, need, avail, urgent, notes }));
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
@@ -238,7 +268,8 @@ const map = {
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   pcse: (r) => ({ id: r.id, action: r.action, patientId: r.patient_id, appointmentId: r.appointment_id, day: r.day, start: r.start_min, status: r.status, at: r.created_at, by: r.done_by }),
+  referral: (r) => ({ id: r.id, at: r.created_at, status: r.status, fromKind: r.from_kind, fromName: r.from_name, fromPhone: r.from_phone, name: r.name, dob: r.dob, addr: r.addr, pc: r.pc, phone: r.phone, eligibility: r.eligibility, entitlement: J(r.entitlement, []), need: r.need, avail: r.avail, urgent: !!r.urgent, notes: r.notes, patientId: r.patient_id, decidedBy: r.decided_by, declineReason: r.decline_reason }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, openDb, map, TABLES, USERS };
+module.exports = { db, openDb, map, TABLES, USERS, emailFor };
