@@ -89,13 +89,13 @@ function snapshot(root) {
   const a = document.activeElement;
   return {
     id: a && root.contains(a) ? a.id : null, ss: a && a.selectionStart, se: a && a.selectionEnd,
-    vals: [...root.querySelectorAll("[data-keep]")].map((e) => [e.id, e.value]),
+    vals: [...root.querySelectorAll("[data-keep]")].map((e) => [e.id, e.type === "checkbox" ? e.checked : e.value]),
     scroll: [...root.querySelectorAll("[data-scroll]")].map((e) => [e.dataset.scroll, e.scrollTop, e.scrollLeft]),
     y: window.scrollY,
   };
 }
 function restore(root, s) {
-  s.vals.forEach(([id, v]) => { const e = document.getElementById(id); if (e && root.contains(e)) e.value = v; });
+  s.vals.forEach(([id, v]) => { const e = document.getElementById(id); if (e && root.contains(e)) { if (e.type === "checkbox") e.checked = v; else e.value = v; } });
   s.scroll.forEach(([k, t, l]) => { const e = root.querySelector(`[data-scroll="${k}"]`); if (e) { e.scrollTop = t; e.scrollLeft = l; } });
   if (s.id) { const e = document.getElementById(s.id); if (e) { e.focus({ preventScroll: true }); try { if (s.ss != null) e.setSelectionRange(s.ss, s.se); } catch (err) {} } }
   window.scrollTo(0, s.y);
@@ -175,13 +175,17 @@ async function load() {
   if (UI.drawer && UI.drawer.kind === "invoices") UI.drawer.data = await api("GET", "/api/invoices").catch(() => UI.drawer.data);
   if (UI.myRoute && !isAdmin()) UI.myRoute = await api("GET", "/api/route?day=0").catch(() => null);
   if (UI.pid) { try { UI.rec = await api("GET", "/api/patients/" + UI.pid + "?background=1"); } catch (e) { UI.pid = null; UI.rec = null; } }
+  const d = UI.drawer;
+  if (d && d.kind === "patient" && !d.edit) d.rec = await api("GET", "/api/patients/" + d.id + "?background=1").catch(() => d.rec);
+  if (d && d.kind === "team" && !d.edit) d.data = await api("GET", "/api/team").catch(() => d.data);
   render();
-  if (UI.drawer) renderDrawer();
+  // A form being filled in isn't redrawn by live updates, so nothing typed or picked is lost.
+  if (UI.drawer && !UI.drawer.edit) renderDrawer();
 }
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "reset"];
+const EVENTS = ["patient.updated", "appointment.moved", "team.updated", "refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -201,12 +205,14 @@ function onEvent(type, e) {
     if (type === "slot.filled") toast(`Diary changed: ${e.patient} at ${hm(e.start)}`);
     if (type === "route.planned") toast(`Your route ${e.day === 0 ? "today" : "on " + dayName(e.day)} has been re-planned: ${mins(e.savedMin)} less driving`);
     if (type === "appointment.booked") toast(`New visit${e.online ? " (booked online)" : ""}: ${e.patient}, ${e.day ? dayName(e.day) + " " : ""}${hm(e.start)}`);
+    if (type === "appointment.moved") toast("The office has moved a visit on your round");
     return;
   }
   if (type === "referral.updated" && e.fresh) toast("New referral from the website form");
   if (type === "appointment.booked" && e.online) toast(`Booked online by the patient: ${e.patient}, ${dayName(e.day)} ${hm(e.start)} (+${e.extraDrive} min driving)`);
   if (type === "refill.started") {
     if (e.cancelled && e.cancelled.byText) toast(`${e.cancelled.patient} texted to cancel. Refilling ${hm(e.start)}.`);
+    if (e.cancelled && e.cancelled.byLink) toast(`${e.cancelled.patient}'s visit was cancelled online. Refilling ${hm(e.start)}.`);
     if (!UI.flow || UI.flow.slotId !== e.slotId) { UI.flow = flowFrom(e); openDrawer({ kind: "flow" }); }
     return;
   }
@@ -339,8 +345,8 @@ function officeView() {
   return `<div class="shell">
     <div class="page-head">
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
-        <p>Three clinicians on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
-        <div class="tools"><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}<button class="btn secondary sm" type="button" data-act="plans">${icon("pin")}Plan routes</button><button class="btn secondary sm" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
+        <p>${(() => { const n = onBoard(0).filter((c) => (c.hours || [])[0] !== null).length; return n === 1 ? "One clinician" : (["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"][n] || n) + " clinicians"; })()} on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
+        <div class="tools"><button class="btn secondary sm" type="button" data-act="patients">${icon("users")}Patients</button><button class="btn secondary sm" type="button" data-act="team">${icon("shield")}Team &amp; hours</button><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}<button class="btn secondary sm" type="button" data-act="plans">${icon("pin")}Plan routes</button><button class="btn secondary sm" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
       <div class="quick-stats">
         <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
@@ -484,13 +490,20 @@ function smsBubble(m) {
   const who = m.dir === "in" ? `From ${esc(m.name)}` : `To ${esc(m.name)}`;
   return `<div class="sms ${cls}"><div class="who">${who} · <span class="mono">${esc(String(m.at || "").slice(0, 5))}</span></div><div class="bub">${esc(m.body)}</div></div>`;
 }
+/** Clinicians on the diary: everyone working, plus anyone who has left but still has visits that day. */
+const onBoard = (day) => S.clinicians.filter((c) => c.active !== false || S.appts.some((a) => a.clinicianId === c.id && (a.day || 0) === day && active(a)));
 function board(nowM) {
   const PX = 1.4, DS = META.dayStart, DE = META.dayEnd, H = (DE - DS) * PX;
+  const team = onBoard(UI.day);
   let ticks = "";
   for (let m = DS; m <= DE; m += 60) ticks += `<div class="tick mono" style="top:${(m - DS) * PX}px">${hm(m)}</div>`;
   const nowY = Math.max(0, Math.min(H, (nowM - DS) * PX));
-  const lanes = S.clinicians.map((c, ci) => {
+  const lanes = team.map((c, ci) => {
     const list = dayAppts(c.id, UI.day);
+    // Outside their working hours (or a day off) is shaded, so nobody books into it by eye.
+    const h = (c.hours || [])[UI.day] === undefined ? [DS, DE] : c.hours[UI.day];
+    const off = !h ? `<div class="off-hours" style="top:0;height:${H}px"><span>Day off</span></div>`
+      : (h[0] > DS ? `<div class="off-hours" style="top:0;height:${(h[0] - DS) * PX}px"></div>` : "") + (h[1] < DE ? `<div class="off-hours" style="top:${(h[1] - DS) * PX}px;height:${(DE - h[1]) * PX}px"></div>` : "");
     const blocks = list.map((a) => {
       const p = pat(a.patientId), t = T(a.type), top = (a.start - DS) * PX, h = Math.max(t.dur * PX - 4, 36);
       const cls = a.moved ? "moved" : a.bookedMin != null && a.status === "booked" ? "fresh" : a.status;
@@ -501,27 +514,30 @@ function board(nowM) {
       const extra = (h > 62 ? `<span class="ty">${t.name}</span>` : "")
         + (h > 84 && a.moved ? `<span class="badge b-apricot" style="margin-top:4px">${icon("bolt")}Moved forward</span>` : "")
         + (h > 60 && !a.moved && a.bookedMin != null ? `<span class="badge b-forest" style="margin-top:4px">${icon("plus")}New booking</span>` : "")
-        + (h > 84 && a.status === "enroute" ? `<span class="badge b-warn" style="margin-top:4px">${icon("car")}On the way</span>` : "");
+        + (h > 84 && a.status === "enroute" ? `<span class="badge b-warn" style="margin-top:4px">${icon("car")}On the way</span>` : "")
+        + (a.status === "missed" ? `<span class="badge b-plain" style="margin-top:4px">Nobody in</span>` : "");
       return `${drive}<button class="blk ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}">${head}${extra}</button>`;
     }).join("");
     const filled = new Set(list.map((a) => a.start));
     const gaps = S.appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === UI.day && a.status === "cancelled" && !filled.has(a.start)).map((a) => {
       const t = T(a.type), offers = S.offers.filter((o) => o.slot_id === a.id);
       const label = offers.length ? `Offer out · replies close ${esc(offers[0].deadline)}` : `Open slot · ${money(S.metrics.fee)} unfilled`;
-      return `<div class="blk gap ${offers.length ? "offering" : ""}" style="top:${(a.start - DS) * PX}px;height:${t.dur * PX - 4}px"><span class="tm">${hm(a.start)}</span><span class="ty">${label}</span></div>`;
+      return `<button class="blk gap ${offers.length ? "offering" : ""}" type="button" data-act="gap" data-id="${a.id}" style="top:${(a.start - DS) * PX}px;height:${t.dur * PX - 4}px" aria-label="Free slot at ${hm(a.start)}: choose who fills it"><span class="tm">${hm(a.start)}</span><span class="ty">${label}</span></button>`;
     }).join("");
-    return `<div class="lane" style="height:${H}px;background-size:100% ${60 * PX}px">${blocks}${gaps}${UI.day === 0 ? `<div class="now" data-now style="top:${nowY}px">${ci === 0 ? `<span class="now-label mono" data-clock>${hm(nowM)}</span>` : ""}</div>` : ""}</div>`;
+    return `<div class="lane" style="height:${H}px;background-size:100% ${60 * PX}px">${off}${blocks}${gaps}${UI.day === 0 ? `<div class="now" data-now style="top:${nowY}px">${ci === 0 ? `<span class="now-label mono" data-clock>${hm(nowM)}</span>` : ""}</div>` : ""}</div>`;
   }).join("");
-  const heads = S.clinicians.map((c) => `<div class="col-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div style="min-width:0;flex:1"><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div></div><button class="icon-btn sm" type="button" data-act="route" data-c="${c.id}" title="${esc(c.first)}'s route on a map" aria-label="${esc(c.first)}'s route on a map">${icon("pin")}</button></div>`).join("");
-  return `<div class="board" style="grid-template-columns:56px repeat(${S.clinicians.length},minmax(210px,1fr))"><div class="col-h"></div>${heads}<div class="times" style="height:${H}px">${ticks}</div>${lanes}</div>`;
+  const heads = team.map((c) => `<div class="col-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div style="min-width:0;flex:1"><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div></div><button class="icon-btn sm" type="button" data-act="route" data-c="${c.id}" title="${esc(c.first)}'s route on a map" aria-label="${esc(c.first)}'s route on a map">${icon("pin")}</button></div>`).join("");
+  return `<div class="board" style="grid-template-columns:56px repeat(${team.length},minmax(210px,1fr))"><div class="col-h"></div>${heads}<div class="times" style="height:${H}px">${ticks}</div>${lanes}</div>`;
 }
 
 /* Week at a glance: each clinician's load per day; click a day to open it. */
 function weekView() {
   const WORK = META.dayEnd - META.dayStart;
-  const cells = S.clinicians.map((c) => `<div class="wk-row"><div class="col-h" style="border:0;padding:0"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div><div class="nm">${esc(c.first || c.name)}</div><div class="rl">${esc(c.areaName)}</div></div></div>
+  const cells = S.clinicians.filter((c) => c.active !== false).map((c) => `<div class="wk-row"><div class="col-h" style="border:0;padding:0"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div><div class="nm">${esc(c.first || c.name)}</div><div class="rl">${esc(c.areaName)}</div></div></div>
     ${(META.days || []).map((d, i) => {
-      const list = dayAppts(c.id, i), mins = list.reduce((t, a) => t + T(a.type).dur + (a.drive || 0), 0), pct = Math.min(100, Math.round(mins / WORK * 100));
+      const h = (c.hours || [])[i] === undefined ? [META.dayStart, META.dayEnd] : c.hours[i];
+      const list = dayAppts(c.id, i), mins = list.reduce((t, a) => t + T(a.type).dur + (a.drive || 0), 0), pct = h ? Math.min(100, Math.round(mins / (h[1] - h[0]) * 100)) : 0;
+      if (!h && !list.length) return `<div class="wk-cell off"><span class="wk-sub">Day off</span></div>`;
       const fresh = list.filter((a) => a.moved || a.bookedMin != null).length;
       return `<button class="wk-cell" type="button" data-act="day" data-v="${i}" aria-label="${esc(c.name)}, ${d}: ${list.length} visits">
         <span class="wk-n">${list.length}<small> visits</small></span>
@@ -567,11 +583,12 @@ function nextAction(a) {
   return null;
 }
 function todayTab(c) {
-  const list = dayAppts(c.id), done = list.filter((a) => a.status === "done").length;
+  const finished = (a) => a.status === "done" || a.status === "missed";
+  const list = dayAppts(c.id), done = list.filter(finished).length;
   const moved = list.find((a) => (a.moved || a.bookedMin != null) && !a.seen);
-  const nxt = list.find((a) => a.status !== "done");
+  const nxt = list.find((a) => !finished(a));
   const rest = list.filter((a) => a !== nxt);
-  const switcher = !isOffice() ? "" : `<span class="preview-tag">Office preview</span><select class="who-select" id="me" aria-label="Switch clinician">${META.demoUsers.filter((u) => u.role === "clinician").map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
+  const switcher = !isOffice() ? "" : `<span class="preview-tag">Office preview</span><select class="who-select" id="me" aria-label="Switch clinician">${clinUsers().map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
   let hero = "";
   if (nxt) {
     const p = pat(nxt.patientId), t = T(nxt.type), act = nextAction(nxt);
@@ -585,7 +602,7 @@ function todayTab(c) {
   }
   const cards = rest.map((a, i) => {
     const p = pat(a.patientId), t = T(a.type);
-    const st = a.status === "done" ? `<span class="badge b-plain">Done</span>` : a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved</span>` : a.bookedMin != null ? `<span class="badge b-forest">${icon("plus")}New</span>` : "";
+    const st = a.status === "done" ? `<span class="badge b-plain">Done</span>` : a.status === "missed" ? `<span class="badge b-plain">Nobody in</span>` : a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved</span>` : a.bookedMin != null ? `<span class="badge b-forest">${icon("plus")}New</span>` : "";
     return `${a.drive && i > 0 && a.status !== "done" ? `<div class="drive-row">${icon("car")}${a.drive} min drive</div>` : ""}
       <button class="v ${a.moved ? "moved" : a.status === "done" ? "done" : ""}" type="button" data-act="open-p" data-id="${p.id}" data-appt="${a.id}">
         <div class="tl"><span class="t">${hm(a.start)}</span><span class="ln"></span></div>
@@ -672,6 +689,11 @@ function renderDrawer() {
   else if (d.kind === "invoices") inner = invoicesDrawer(d.data);
   else if (d.kind === "soon") inner = soonModal(d.id);
   else if (d.kind === "roadmap") inner = roadmapDrawer();
+  else if (d.kind === "patients") inner = patientsDrawer(d);
+  else if (d.kind === "patient") inner = patientDrawer(d);
+  else if (d.kind === "move") inner = moveDrawer(d);
+  else if (d.kind === "gap") inner = gapDrawer(d);
+  else if (d.kind === "team") inner = teamDrawer(d);
   if (!inner) { closeDrawer(); return; }
   const root = $("#drawer-root");
   const html = d.kind === "qr" || d.kind === "booklink" || d.kind === "soon" ? `<div class="scrim" data-act="close"></div><div class="modal" role="dialog" aria-modal="true" aria-label="Open on phone">${inner}</div>`
@@ -919,17 +941,27 @@ function apptDrawer(id) {
   const a = S.appts.find((x) => x.id === id); if (!a) return "";
   const p = pat(a.patientId), t = T(a.type), c = cln(a.clinicianId);
   const canCancel = a.status === "booked" || a.status === "enroute";
-  const status = { booked: ["b-forest", "Booked"], enroute: ["b-warn", "On the way"], live: ["b-ok", "With patient"], done: ["b-plain", "Done"] }[a.status] || ["b-plain", a.status];
+  const status = { booked: ["b-forest", "Booked"], enroute: ["b-warn", "On the way"], live: ["b-ok", "With patient"], done: ["b-plain", "Done"], missed: ["b-plain", "Nobody in"] }[a.status] || ["b-plain", a.status];
+  // Its time has passed but the clinician hasn't closed it: the office can record what happened.
+  const recordable = isAdmin() && OPEN.includes(a.status) && (a.day || 0) === 0 && a.start <= demoNow();
+  const tools = isAdmin() ? `<div class="appt-tools"><button class="btn secondary sm" type="button" data-act="open-rec" data-id="${p.id}">${icon("users")}Patient record</button>${a.status === "booked" ? `<button class="btn secondary sm" type="button" data-act="move" data-id="${a.id}">${icon("cal")}Move to another time</button><button class="btn secondary sm" type="button" data-act="cancel-link" data-id="${a.id}">${icon("copy")}Family cancel link</button>` : ""}</div>` : "";
+  const record = recordable ? `<div class="hr" style="margin:20px 0"></div>
+    <div class="caps">Record what happened</div>
+    <p class="muted" style="margin:6px 0 12px;font-size:13.5px">If ${esc(c.first)} couldn't update the app. Nobody is texted.</p>
+    <div class="field"><label for="rec-note">Note for the record</label><textarea class="input" id="rec-note" data-keep rows="2" maxlength="2000" placeholder="e.g. Glasses fitted and adjusted, comfortable."></textarea></div>
+    <label class="chk" style="margin-bottom:12px"><input type="checkbox" id="rec-rebook" data-keep checked> If nobody was in, put ${esc(first(p.name))} back on the waiting list</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" data-act="record" data-v="done" data-id="${a.id}">${icon("check")}Visit completed</button><button class="btn secondary" type="button" data-act="record" data-v="missed" data-id="${a.id}">Nobody in</button></div>` : "";
   return `<div class="drawer-h"><div><div class="caps">${a.day ? dayName(a.day) + " · " : ""}${hm(a.start)}–${hm(a.start + t.dur)} · ${esc(c.name)}</div><h2 style="margin-top:6px">${esc(p.name)}</h2>
       <div style="display:flex;gap:6px;margin-top:8px"><span class="badge ${status[0]}">${status[1]}</span>${a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved forward</span>` : ""}</div></div>${closeX}</div>
     <div class="drawer-b">
       <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd><dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
+      ${tools}${record}
       ${canCancel ? `<div class="hr" style="margin:20px 0"></div>
         <div class="field"><label for="reason">Why is it cancelled?</label><select class="input" id="reason" data-keep>${META.reasons.map((r) => `<option>${r}</option>`).join("")}</select></div>
         <button class="btn danger block lg" type="button" data-act="do-cancel" data-id="${a.id}">${icon("x")}Cancel and refill this slot</button>
         <div class="callout plain" style="margin-top:16px">${icon("phone")}<div><b>Or play the patient</b><div class="muted" style="margin-top:2px">Most cancellations come in by text. Send "CANCEL" from ${esc(first(p.name))}'s phone and watch the slot refill with nobody in the office touching it.</div>
           <button class="btn ghost sm" style="margin-top:10px" type="button" data-act="patient-cancel" data-id="${p.id}">${icon("send")}Text CANCEL as ${esc(first(p.name))}</button></div></div>`
-        : `<p class="muted" style="margin-top:20px">${a.status === "done" ? "This visit is complete." : "The clinician is with this patient now."}</p>`}
+        : recordable ? "" : `<p class="muted" style="margin-top:20px">${a.status === "done" ? "This visit is complete." : a.status === "missed" ? "Nobody was in." : "The clinician is with this patient now."}</p>`}
     </div>`;
 }
 
@@ -956,7 +988,7 @@ function flowDrawer() {
   const f = UI.flow; if (!f) return "";
   const c = first(f.clinician);
   const steps = [];
-  steps.push(step("ok", `${whenLabel(f.day, f.start)} slot freed`, `${esc(f.cancelled.patient || "The patient")} ${f.cancelled.byText ? "texted CANCEL" : "cancelled: " + esc(String(f.cancelled.reason || "").toLowerCase())}. ${f.window} min free before ${esc(c)}'s next visit.`));
+  steps.push(step("ok", `${whenLabel(f.day, f.start)} slot freed`, `${esc(f.cancelled.patient || "The patient")} ${f.cancelled.byText ? "texted CANCEL" : f.cancelled.byLink ? "cancelled with the online link" : "cancelled: " + esc(String(f.cancelled.reason || "").toLowerCase())}. ${f.window} min free before ${esc(c)}'s next visit.`));
   const ranked = f.candidates.filter((x) => x.ok);
   steps.push(step(ranked.length ? "ok" : "no", ranked.length ? `${ranked.length} suitable on the waiting list` : "Nobody on the list fits", ranked.length ? "Ranked by priority, area, days waiting and preferred clinician." : "",
     `<div class="cands">${f.candidates.slice(0, 4).map((x, i) => `<div class="cand ${x.ok && i === 0 ? "top" : ""}"><span class="pos">${i + 1}</span><div style="min-width:0"><b>${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span><div class="why">${x.ok ? x.why.map((w) => `<span>${esc(w)}</span>`).join("") : `<span>Not suitable: ${esc(x.reason)}</span>`}</div></div><span class="sc">${x.ok ? x.score + " pts" : "–"}</span></div>`).join("")}</div>`));
@@ -975,6 +1007,10 @@ function flowDrawer() {
   if (f.outcome === "booked") steps.push(step("ok", `${esc(f.booking.patient)} booked for ${whenLabel(f.day, f.start)}`, `${esc(c)} has been texted and the visit is on the phone now.${f.booking.instant ? " Booked instantly." : ""}`));
   if (f.outcome === "unfilled") steps.push(step("no", "Slot left open", esc(f.why || "Nobody suitable could take it.") + ". It stays visible in the diary."));
   const note = planText(f);
+  const ring = f.outcome !== "booked" && isAdmin() ? f.candidates.filter((x) => x.ok && x.byPhone) : [];
+  if (ring.length) steps.push(step(f.outcome === "unfilled" ? "no" : "send", `${ring.map((x) => esc(x.name)).slice(0, 2).join(" and ")} asked to be phoned`, "They're never texted offers. Ring them, and book whoever says yes.",
+    `<button class="btn secondary sm" style="margin-top:8px" type="button" data-act="gap" data-id="${f.slotId}">${icon("phone")}Ring and book</button>`));
+  else if (f.outcome === "unfilled" && isAdmin()) steps.push(step("send", "Fill it by hand", "See everyone who'd fit, ring one and book them.", `<button class="btn secondary sm" style="margin-top:8px" type="button" data-act="gap" data-id="${f.slotId}">${icon("phone")}Who could take it</button>`));
   return `<div class="drawer-h"><div><div class="caps">${esc(f.clinician)} · ${whenLabel(f.day, f.start)}</div><h2 style="margin-top:6px">${f.outcome === "booked" ? "Slot refilled" : f.outcome === "unfilled" ? "Couldn't refill" : "Refilling the slot"}</h2></div>${closeX}</div>
     <div class="drawer-b">${note && f.rounds.length ? `<div class="callout forest">${icon("clock")}<div>${esc(note)}</div></div>` : ""}<ol class="steps">${steps.join("")}</ol></div>
     ${f.outcome ? `<div class="drawer-f">${f.outcome === "booked" ? `<button class="btn ghost" type="button" data-act="see-clin" data-c="${f.clinicianId}">See ${esc(c)}'s phone</button>` : ""}<button class="btn" type="button" data-act="close">Done</button></div>` : ""}`;
@@ -1107,6 +1143,160 @@ function wlDrawer() {
     <button class="btn block lg" type="submit">${icon("plus")}Add to waiting list</button>
   </form>`;
 }
+/* ---------- Patients: find anyone, open their record, change it, export or erase it ---------- */
+const OPEN = ["booked", "enroute", "live"];
+const searchText = (p) => [p.name, p.pc, p.pc.replace(/\s/g, ""), p.addr, p.phone.replace(/\s/g, ""), p.dob || ""].join(" ").toLowerCase();
+const clinUsers = () => (S.staff || []).filter((u) => u.role === "clinician");
+function patientsDrawer(d) {
+  const words = String(d.q || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const all = S.patients.filter((p) => !p.erased);
+  const list = all.filter((p) => words.every((w) => searchText(p).includes(w))).sort((a, b) => a.name.localeCompare(b.name));
+  const next = (p) => S.appts.filter((a) => a.patientId === p.id && OPEN.includes(a.status)).sort((a, b) => a.day - b.day || a.start - b.start)[0];
+  const waiting = new Set(S.waitlist.filter((w) => w.status !== "booked").map((w) => w.patientId));
+  return `<div class="drawer-h"><div><div class="caps">${all.length} patients</div><h2 style="margin-top:6px">Patients</h2></div>${closeX}</div>
+  <div class="drawer-b">
+    <div class="field"><label for="pt-q">Find a patient</label><input class="input" id="pt-q" data-keep type="search" placeholder="Name, postcode, phone or date of birth" autocomplete="off" value="${esc(d.q || "")}"></div>
+    <ul class="plist-o">${list.slice(0, 80).map((p) => { const a = next(p); return `<li><button type="button" data-act="open-rec" data-id="${p.id}">
+      <span><b>${esc(p.name)}</b><span class="muted">${esc(p.addr)}, ${esc(p.pc)}</span></span>
+      <span class="tags">${a ? `<span class="badge b-forest">${a.day ? esc(dayName(a.day).slice(0, 3)) + " " : "Today "}${hm(a.start)}</span>` : ""}${waiting.has(p.id) ? `<span class="badge b-apricot">Waiting</span>` : ""}${p.contact === "Call" ? `<span class="badge b-plain">${icon("phone")}Phone</span>` : ""}</span></button></li>`; }).join("")}</ul>
+    ${list.length > 80 ? `<p class="muted" style="font-size:13px">Showing 80 of ${list.length}. Type more of the name to narrow it down.</p>` : ""}
+    ${!list.length ? `<div class="empty"><b>Nobody matches</b>Try a surname, a postcode like BL1, or the last digits of a phone number.</div>` : ""}
+  </div>`;
+}
+async function openRecord(id) { const d = { kind: "patient", id, rec: null }; openDrawer(d); d.rec = await api("GET", "/api/patients/" + id); if (UI.drawer === d) renderDrawer(); }
+const dobText = (p) => p.dob ? `${new Date(p.dob + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${p.age ? ` (${p.age})` : ""}` : p.age ? `Age ${p.age}` : "Not recorded";
+function patientDrawer(d) {
+  const p = d.rec;
+  if (!p) return `<div class="drawer-h"><div><div class="caps">Patient record</div><h2 style="margin-top:6px">Opening…</h2></div>${closeX}</div>`;
+  if (d.edit) return patientForm(p);
+  if (p.erased) return `<div class="drawer-h"><div><div class="caps">Patient record</div><h2 style="margin-top:6px">Erased patient</h2></div>${closeX}</div><div class="drawer-b"><p class="muted">This patient's personal details were erased on request. The anonymous visit history is kept so the diaries and reports still add up.</p></div>`;
+  const visits = S.appts.filter((a) => a.patientId === p.id && OPEN.includes(a.status)).sort((a, b) => a.day - b.day || a.start - b.start);
+  const waits = S.waitlist.filter((w) => w.patientId === p.id && w.status !== "booked");
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  return `<div class="drawer-h"><div><div class="caps">Patient record</div><h2 style="margin-top:6px">${esc(p.name)}</h2>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${p.contact === "Call" ? `<span class="badge b-plain">${icon("phone")}Phone, don't text</span>` : `<span class="badge b-plain">${icon("msg")}Texts</span>`}${waits.length ? `<span class="badge b-apricot">On the waiting list</span>` : ""}</div></div>${closeX}</div>
+    <div class="drawer-b">
+      <dl class="kv">${row("Address", `${esc(p.addr)}, ${esc(p.pc)}`)}${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${p.email ? row("Email", esc(p.email)) : ""}${row("Date of birth", esc(dobText(p)))}
+        ${row("Home visit because", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded: the NHS claim needs it</span>`)}${row("Next of kin", esc(p.rep || "None recorded"))}${row("Glasses", esc(p.specs))}${p.alerts.length ? row("Visit notes", esc(p.alerts.join(". "))) : ""}</dl>
+      <button class="btn secondary sm" style="margin-top:14px" type="button" data-act="rec-edit">${icon("note")}Edit details</button>
+      <div class="hr" style="margin:20px 0 14px"></div>
+      <div class="caps">Booked visits</div>
+      ${visits.length ? `<div class="offers">${visits.map((a) => { const c = cln(a.clinicianId), t = T(a.type); return `<div class="offer"><div class="oh"><span><b class="mono">${a.day ? esc(dayName(a.day)) : "Today"} · ${hm(a.start)}</b><div class="muted" style="font-size:12.5px">${t.name} with ${esc(c ? c.name : "")}</div></span>${a.status !== "booked" ? `<span class="badge b-warn">${a.status === "live" ? "With patient" : "On the way"}</span>` : ""}</div>
+        ${a.status === "booked" ? `<div class="oa"><button class="btn secondary sm" type="button" data-act="cancel-link" data-id="${a.id}">${icon("copy")}Family cancel link</button><button class="btn secondary sm" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button><button class="btn sm" type="button" data-act="move" data-id="${a.id}">${icon("cal")}Move</button></div>` : ""}</div>`; }).join("")}</div>`
+        : `<p class="muted" style="margin:8px 0 0;font-size:13.5px">No visits booked.</p>`}
+      <button class="btn sm" style="margin-top:12px" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button>
+      ${waits.length ? `<div class="hr" style="margin:20px 0 14px"></div><div class="caps">Waiting for</div><ul class="mini">${waits.map((w) => `<li>${T(w.type).name} · ${esc(META.prio[w.prio].label)} priority${w.note ? ` · ${esc(w.note)}` : ""}</li>`).join("")}</ul>` : ""}
+      <div class="hr" style="margin:20px 0 14px"></div>
+      <div class="caps">History</div>
+      ${p.history && p.history.length ? `<ul class="mini">${p.history.slice(0, 8).map((n) => `<li><b>${esc(n.label)}</b>${n.by ? ` · ${esc(n.by)}` : ""}<div>${esc(n.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="font-size:13.5px">Nothing yet.</p>`}
+      <details class="gdpr"><summary>${icon("shield")}Their data (UK GDPR)</summary>
+        <p class="muted">If ${esc(first(p.name))} or someone acting for them asks what you hold, download everything and send it to them.</p>
+        <button class="btn secondary sm" type="button" data-act="rec-export">${icon("copy")}Download everything we hold</button>
+        <p class="muted" style="margin-top:16px">Erasing removes their details for good. It isn't possible while a visit is booked, or for anyone already seen: clinical and NHS claim records must be kept for at least 7 years.</p>
+        <div class="field"><label for="erase-name">Type ${esc(p.name)} to confirm</label><input class="input" id="erase-name" data-keep autocomplete="off"></div>
+        <button class="btn danger sm" type="button" data-act="rec-erase">Erase their details</button>
+      </details>
+    </div>`;
+}
+function patientForm(p) {
+  const f = (id, label, v, extra = "") => `<div class="field"><label for="pe-${id}">${label}</label><input class="input" id="pe-${id}" value="${esc(v || "")}" ${extra}></div>`;
+  return `<div class="drawer-h"><div><div class="caps">Edit details</div><h2 style="margin-top:6px">${esc(p.name)}</h2></div>${closeX}</div>
+  <form class="drawer-b" id="pe-form">
+    <div class="row2">${f("name", "Full name", p.name, 'maxlength="80" required')}${f("dob", "Date of birth", p.dob, 'type="date" min="1900-01-01" max="2026-10-12"')}</div>
+    ${f("addr", "First line of the address", p.addr, 'maxlength="120" required')}
+    <div class="field">${DomiAreas.picker(S.areas || [], "pe-pc", p.pc)}</div>
+    <div class="row2">${f("phone", "Phone", p.phone, 'inputmode="tel" required')}
+      <div class="field"><label for="pe-contact">How to reach them</label><select class="input" id="pe-contact"><option value="Text" ${p.contact === "Text" ? "selected" : ""}>Text (needs a mobile)</option><option value="Call" ${p.contact === "Call" ? "selected" : ""}>Phone, don't text</option></select></div></div>
+    ${f("email", "Email", p.email, 'type="email" maxlength="120"')}
+    ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
+    ${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}
+    ${f("specs", "Glasses", p.specs, 'maxlength="80"')}
+    <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
+    <div class="drawer-f" style="margin:8px -22px -22px"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
+  </form>`;
+}
+
+/* ---------- Moving a visit to another time ---------- */
+function moveDrawer(d) {
+  const a = S.appts.find((x) => x.id === d.id); if (!a) return "";
+  const p = pat(a.patientId), c = cln(a.clinicianId), o = d.data;
+  const slots = !o ? `<p class="muted">Finding times…</p>` : o.slots.length
+    ? `<div class="offers">${o.slots.map((x, i) => { const k = cln(x.clinicianId); return `<div class="offer ${i === 0 ? "accepted" : ""}"><div class="oh"><span style="display:flex;gap:10px;align-items:center"><span class="avatar sm" style="background:${k.color}">${initials(k.name)}</span><span><b class="mono">${x.day === 0 ? "Today" : esc(dayName(x.day))} · ${esc(x.label)}</b><div class="muted" style="font-size:12.5px">${esc(k.name)}</div></span></span>${i === 0 ? `<span class="badge b-ok">Best fit</span>` : `<span class="badge b-plain">+${x.extraDrive} min</span>`}</div>
+      <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}</div>
+      <div class="oa"><button class="btn sm" type="button" data-act="move-to" data-c="${x.clinicianId}" data-d="${x.day}" data-s="${x.start}">${icon("check")}Move to ${x.day === 0 ? "" : esc(dayName(x.day).slice(0, 3)) + " "}${esc(x.label.slice(0, 5))}</button></div></div>`; }).join("")}</div>`
+    : `<div class="callout apricot">${icon("clock")}<div><b>No other time this week fits</b><div style="margin-top:2px">Cancel the visit and add ${esc(first(p.name))} to the waiting list instead.</div></div></div>`;
+  return `<div class="drawer-h"><div><div class="caps">Move a visit</div><h2 style="margin-top:6px">${esc(p.name)}</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <p class="muted" style="margin:0 0 14px;font-size:13.5px">Now ${a.day ? esc(dayName(a.day)) : "today"} at ${hm(a.start)} with ${esc(c.name)} (${T(a.type).name.toLowerCase()}). ${p.contact === "Call" ? `${esc(first(p.name))} asked to be phoned, so ring them with the new time.` : `${esc(first(p.name))} gets one text with the new time.`}${T(a.type).pvn ? " The PCSE notification moves with it, and an NHS sight test only goes 48 hours or more ahead." : ""}</p>
+      ${slots}
+    </div>`;
+}
+
+/* ---------- A free slot: who could take it, and booking whoever the office rings ---------- */
+function gapDrawer(d) {
+  const g = d.data;
+  if (!g) return `<div class="drawer-h"><div><div class="caps">Free slot</div><h2 style="margin-top:6px">Finding who fits…</h2></div>${closeX}</div>`;
+  const ok = g.candidates.filter((x) => x.ok), rest = g.candidates.filter((x) => !x.ok).slice(0, 4);
+  const card = (x) => { const p = pat(x.patientId); return `<div class="offer ${x.byPhone ? "" : ""}"><div class="oh"><span><b>${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span></span>${x.byPhone ? `<span class="badge b-apricot">${icon("phone")}Phone them</span>` : `<span class="badge b-plain">${x.score} pts</span>`}</div>
+    <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}</div>
+    <div class="oa">${x.byPhone ? `<a class="btn secondary sm" href="tel:${esc(p.phone.replace(/\s/g, ""))}">${icon("phone")}<span class="mono">${esc(p.phone)}</span></a>` : ""}<button class="btn sm" type="button" data-act="gap-book" data-slot="${g.slotId}" data-w="${x.waitlistId}">${icon("check")}${x.byPhone ? "They said yes: book" : "Book " + esc(first(x.name))}</button></div></div>`; };
+  return `<div class="drawer-h"><div><div class="caps">${esc(g.clinician)} · ${whenLabel(g.day, g.start)}</div><h2 style="margin-top:6px">Fill this slot</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <p class="muted" style="margin:0 0 14px;font-size:13.5px">${g.window} min free. Ring anyone below and book them here: they're texted the time (unless they asked for calls), ${esc(first(g.clinician))}'s phone updates, and anyone with an offer out hears it's gone.${g.offeredTo.length ? ` Waiting on a text reply from ${esc(g.offeredTo.join(" and "))}.` : ""}</p>
+      ${ok.length ? `<div class="offers">${ok.slice(0, 8).map(card).join("")}</div>` : `<div class="callout apricot">${icon("clock")}<div><b>Nobody on the waiting list fits</b><div style="margin-top:2px">Use Book a visit to put in someone new.</div></div></div>`}
+      ${rest.length ? `<details style="margin-top:16px"><summary class="muted">Who doesn't fit, and why</summary><ul class="mini">${rest.map((x) => `<li><b>${esc(x.name)}</b><div>${esc(x.reason)}</div></li>`).join("")}</ul></details>` : ""}
+    </div>`;
+}
+
+/* ---------- The team: clinicians, office accounts, working hours ---------- */
+const QUARTERS = []; for (let m = 9 * 60; m <= 17 * 60; m += 15) QUARTERS.push(m);
+const hoursText = (h) => (META.days || []).map((d, i) => h[i] ? (h[i][0] === META.dayStart && h[i][1] === META.dayEnd ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || "Mon–Fri, 09:00–17:00";
+function teamDrawer(d) {
+  const t = d.data;
+  if (!t) return `<div class="drawer-h"><div><div class="caps">The practice</div><h2 style="margin-top:6px">Team</h2></div>${closeX}</div><div class="drawer-b"><p class="muted">Loading…</p></div>`;
+  if (d.edit) return d.edit.kind === "clin" ? clinicianForm(t, d.edit.id) : staffForm(t, d.edit.id);
+  const person = (x, kind) => `<li class="${x.active ? "" : "off"}"><span class="avatar sm" style="background:${x.color || "#5B6770"}">${initials(x.name)}</span>
+    <span class="who"><b>${esc(x.name)}</b>${x.active ? "" : ` <span class="badge b-plain">Switched off</span>`}<span class="muted">${kind === "clin" ? `${esc(x.role)} · ${esc(x.areaName)}` : esc(x.title || "Office")}${x.email ? ` · ${esc(x.email)}` : ""}</span>${kind === "clin" ? `<span class="muted">${esc(hoursText(x.hours))}</span>` : ""}</span>
+    <span class="acts">${x.active ? `<button class="btn secondary sm" type="button" data-act="tm-edit" data-k="${kind}" data-id="${x.id}">Edit</button>` : ""}<button class="btn ghost sm" type="button" data-act="tm-active" data-k="${kind}" data-id="${x.id}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off" : "Switch on"}</button></span></li>`;
+  return `<div class="drawer-h"><div><div class="caps">The practice</div><h2 style="margin-top:6px">Team</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <div class="panel-h" style="padding:0 0 8px"><h3 class="caps" style="margin:0">Clinicians</h3><button class="btn sm" type="button" data-act="tm-edit" data-k="clin">${icon("plus")}Add a clinician</button></div>
+      <ul class="team">${t.clinicians.map((c) => person(c, "clin")).join("")}</ul>
+      <div class="panel-h" style="padding:18px 0 8px"><h3 class="caps" style="margin:0">Office</h3><button class="btn sm" type="button" data-act="tm-edit" data-k="staff">${icon("plus")}Add an office account</button></div>
+      <ul class="team">${t.staff.map((u) => person(u, "staff")).join("")}</ul>
+      <div class="callout plain" style="margin-top:18px">${icon("shield")}<div>Everyone signs in with a password and a code from an authenticator app. Switching someone off signs them out on every device at once; their history stays.<div class="muted" style="margin-top:4px">In this demo, new accounts use the demo password. In the live system they're emailed an invitation to set their own.</div></div></div>
+    </div>`;
+}
+function clinicianForm(t, id) {
+  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: (META.days || []).map(() => [META.dayStart, META.dayEnd]) };
+  const opts = (sel) => QUARTERS.map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
+  const f = (k, label, v, extra = "") => `<div class="field"><label for="tm-${k}">${label}</label><input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
+  return `<div class="drawer-h"><div><div class="caps">${id ? "Edit clinician" : "New clinician"}</div><h2 style="margin-top:6px">${esc(c.name || "Add a clinician")}</h2></div>${closeX}</div>
+  <form class="drawer-b" id="tm-clin" data-id="${esc(id || "")}">
+    <div class="row2">${f("name", "Full name", c.name, 'maxlength="60" required')}<div class="field"><label for="tm-role">Role</label><select class="input" id="tm-role">${t.roles.map((r) => `<option ${r === c.role ? "selected" : ""}>${r}</option>`).join("")}</select></div></div>
+    <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:44px;padding:4px"></div></div>
+    ${f("area", "Area name", c.areaName, 'maxlength="60" placeholder="e.g. Bolton & Bury"')}
+    <div class="row2">${f("patch", "Postcode areas they cover", c.patch.join(", "), 'placeholder="BL1, BL2, BL3"')}${f("near", "Will also go to", c.near.join(", "), 'placeholder="BL4, M8"')}</div>
+    ${f("base", "Starts the day from (postcode)", c.base, 'placeholder="BL1 5DN"')}
+    <div class="caps" style="margin:8px 0 8px">Working hours</div>
+    <div class="hours">${(META.days || []).map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(d.slice(0, 3))}</label>
+      <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : META.dayStart)}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : META.dayEnd)}</select></div>`; }).join("")}</div>
+    <p class="muted" style="font-size:12.5px;margin:8px 0 0">Untick a day for a day off. Bookings, refills and route planning stay inside these hours. If booked visits fall outside new hours, Domi says which, so they can be moved first.</p>
+    <div class="drawer-f" style="margin:16px -22px -22px"><button class="btn ghost" type="button" data-act="tm-back">Back</button><button class="btn" type="submit">${icon("check")}${id ? "Save" : "Add and create their sign-in"}</button></div>
+  </form>`;
+}
+function staffForm(t, id) {
+  const u = t.staff.find((x) => x.id === id) || { name: "", title: "", email: "" };
+  return `<div class="drawer-h"><div><div class="caps">${id ? "Edit office account" : "New office account"}</div><h2 style="margin-top:6px">${esc(u.name || "Add an office account")}</h2></div>${closeX}</div>
+  <form class="drawer-b" id="tm-staff" data-id="${esc(id || "")}">
+    <div class="field"><label for="ts-name">Full name</label><input class="input" id="ts-name" value="${esc(u.name)}" maxlength="60" required></div>
+    <div class="field"><label for="ts-title">Job title</label><input class="input" id="ts-title" value="${esc(u.title || "")}" maxlength="60" placeholder="Receptionist"></div>
+    <div class="field"><label for="ts-email">Signs in with (email)</label><input class="input" id="ts-email" type="email" value="${esc(u.email)}" required></div>
+    <p class="muted" style="font-size:12.5px">Office accounts see every patient and every round, so give one only to people who run the diary.</p>
+    <div class="drawer-f" style="margin:16px -22px -22px"><button class="btn ghost" type="button" data-act="tm-back">Back</button><button class="btn" type="submit">${icon("check")}${id ? "Save" : "Add"}</button></div>
+  </form>`;
+}
+const download = (name, text, type) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
 /* ---------- Invoices ---------- */
 function invoicesDrawer(d) {
   const st = S.settings, P = st.prices || {};
@@ -1187,7 +1377,7 @@ function qrModal() {
   if (p) { try { const q = qrcode(0, "M"); q.addData(p.url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; } }
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">This demo</div><h2 style="margin-top:6px;font-size:30px">Open on your phone</h2></div>${closeX}</div>
     <p class="muted" style="margin:8px 0 0">Scan with your phone's camera. It signs the phone in to this same demo, so changes here appear there instantly.</p>
-    <div class="field" style="margin-top:16px"><label for="qr-as">Sign the phone in as</label><select class="input" id="qr-as">${META.demoUsers.filter((u) => u.role === "clinician").map((u) => `<option value="${u.id}" ${u.id === as ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></div>
+    <div class="field" style="margin-top:16px"><label for="qr-as">Sign the phone in as</label><select class="input" id="qr-as">${clinUsers().map((u) => `<option value="${u.id}" ${u.id === as ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></div>
     ${p ? (qr ? `<div class="qr">${qr}</div>` : `<p class="err">The QR code couldn't load. Sign in on the phone with the code below instead.</p>`) : `<div class="qr wait">${icon("spin")}</div>`}
     <p class="muted" style="text-align:center;font-size:12.5px;margin:4px 0 0">${icon("shield")} Demo shortcut: a one-time link that works once, for 10 minutes. <button class="linkish" type="button" data-act="new-pair">New link</button></p>
     <div class="code">${esc(S.sandbox)}</div>
@@ -1322,6 +1512,58 @@ document.addEventListener("click", async (e) => {
       }
       case "mode": await api("PUT", "/api/settings", { mode: el.dataset.v }); await load(); break;
       case "open-appt": openDrawer({ kind: "appt", id: el.dataset.id }); break;
+      /* The office runs everything: records, visits, gaps, the team */
+      case "patients": openDrawer({ kind: "patients", q: "" }); break;
+      case "open-rec": await openRecord(el.dataset.id); break;
+      case "rec-edit": UI.drawer.edit = true; renderDrawer(); break;
+      case "rec-edit-cancel": UI.drawer.edit = false; renderDrawer(); break;
+      case "rec-export": {
+        const d = UI.drawer, data = await api("GET", `/api/patients/${d.id}/export`);
+        download(`${d.rec.name.replace(/[^A-Za-z]+/g, "-").toLowerCase()}-records.json`, JSON.stringify(data, null, 2), "application/json");
+        toast("Downloaded. Send it securely, never by ordinary email."); break;
+      }
+      case "rec-erase": {
+        const d = UI.drawer, v = ($("#erase-name") || {}).value || "";
+        el.disabled = true;
+        await api("POST", `/api/patients/${d.id}/erase`, { confirm: v });
+        closeDrawer(); await load(); toast("Their details have been erased"); break;
+      }
+      case "book-for": UI.book = { patientId: el.dataset.id }; openDrawer({ kind: "book" }); break;
+      case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) renderDrawer(); break; }
+      case "move-to": {
+        el.disabled = true;
+        const r = await api("POST", `/api/appointments/${UI.drawer.id}/move`, { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s) });
+        closeDrawer(); UI.view = "day"; UI.day = r.day; await load();
+        toast(`${r.patient} moved to ${r.day ? r.dayLabel + " " : "today "}${r.label.slice(0, 5)} with ${first(r.clinician)}${r.texted ? ". They've been texted." : ". Ring them with the new time."}`); break;
+      }
+      case "cancel-link": {
+        const { url } = await api("POST", `/api/appointments/${el.dataset.id}/cancel-link`);
+        if (!url) { toast("The link isn't ready yet. Reload the page and try again.", true); break; }
+        try { await navigator.clipboard.writeText(url); toast("Cancellation link copied. Send it to the family: it cancels this visit only."); } catch (err) { window.prompt("Copy the cancellation link:", url); }
+        break;
+      }
+      case "record": {
+        el.disabled = true;
+        const r = await api("POST", `/api/appointments/${el.dataset.id}/record`, { outcome: el.dataset.v, note: ($("#rec-note") || {}).value || "", rebook: !!($("#rec-rebook") || {}).checked });
+        closeDrawer(); await load();
+        toast(r.status === "done" ? (r.invoice ? `Recorded as completed. Invoice ${r.invoice.number} raised.` : "Recorded as completed") : r.rebooked ? "Recorded: nobody in. Back on the waiting list." : "Recorded: nobody in"); break;
+      }
+      case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) renderDrawer(); break; }
+      case "gap-book": {
+        el.disabled = true;
+        const r = await api("POST", `/api/gaps/${el.dataset.slot}/book`, { waitlistId: el.dataset.w });
+        closeDrawer(); await load(); toast(`${r.patient} booked for ${r.day ? dayName(r.day) + " " : ""}${hm(r.start)} with ${first(r.clinician)}`); break;
+      }
+      case "team": { const d = { kind: "team", data: null }; openDrawer(d); d.data = await api("GET", "/api/team"); if (UI.drawer === d) renderDrawer(); break; }
+      case "tm-edit": UI.drawer.edit = { kind: el.dataset.k, id: el.dataset.id || null }; renderDrawer(); break;
+      case "tm-back": UI.drawer.edit = null; renderDrawer(); break;
+      case "tm-active": {
+        const on = el.dataset.v === "1", url = el.dataset.k === "clin" ? `/api/team/clinicians/${el.dataset.id}/active` : `/api/team/staff/${el.dataset.id}/active`;
+        if (!on && !confirm("Switch this account off? They'll be signed out on every device.")) break;
+        el.disabled = true;
+        await api("POST", url, { active: on });
+        UI.drawer.data = await api("GET", "/api/team"); await load(); toast(on ? "Switched back on" : "Switched off and signed out everywhere"); break;
+      }
       case "do-cancel": {
         el.disabled = true;
         const r = await api("POST", "/api/appointments/" + el.dataset.id + "/cancel", { reason: $("#reason").value });
@@ -1402,6 +1644,30 @@ document.addEventListener("submit", async (e) => {
       const best = document.querySelector("#book-form .offer"); if (best) best.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
+    if (e.target.id === "pe-form") {
+      const v = (id) => ($("#pe-" + id) || {}).value || "";
+      const d = UI.drawer;
+      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
+      d.edit = false; d.rec = await api("GET", "/api/patients/" + d.id + "?background=1"); await load();
+      toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
+      return;
+    }
+    if (e.target.id === "tm-clin") {
+      const v = (id) => ($("#tm-" + id) || {}).value || "";
+      const hours = (META.days || []).map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
+      const id = e.target.dataset.id || undefined;
+      await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
+      UI.drawer.edit = null; UI.drawer.data = await api("GET", "/api/team"); await load();
+      toast(id ? "Saved" : "Clinician added. They can sign in now.");
+      return;
+    }
+    if (e.target.id === "tm-staff") {
+      const id = e.target.dataset.id || undefined;
+      await api("POST", "/api/team/staff", { id, name: $("#ts-name").value, title: $("#ts-title").value, email: $("#ts-email").value });
+      UI.drawer.edit = null; UI.drawer.data = await api("GET", "/api/team"); await load();
+      toast(id ? "Saved" : "Office account added. They can sign in now.");
+      return;
+    }
     if (e.target.id === "wl-form") {
       await api("POST", "/api/waitlist", { patientId: $("#wl-p").value, name: $("#wl-name").value, pc: DomiAreas.read(document, "wl-pc"), addr: $("#wl-addr").value, phone: $("#wl-phone").value, type: $("#wl-type").value, prio: $("#wl-prio").value, avail: $("#wl-avail").value, shortNotice: $("#wl-short").value === "1" });
       closeDrawer(); await load(); toast("Added to the waiting list");
@@ -1441,7 +1707,10 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; renderDrawer(); }
   } catch (err) { fail(err); }
 });
-document.addEventListener("input", (e) => { if (e.target.id === "psearch") { UI.q = e.target.value; render(); } });
+document.addEventListener("input", (e) => {
+  if (e.target.id === "psearch") { UI.q = e.target.value; render(); }
+  if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; renderDrawer(); }
+});
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.drawer) closeDrawer(); });
 // Keep the screen at a fixed size: Safari ignores user-scalable=no, so stop pinch here (double-tap zoom is off via CSS touch-action).
 ["gesturestart", "gesturechange", "gestureend"].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));

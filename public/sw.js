@@ -1,7 +1,7 @@
 /* Domi service worker: keeps the app itself on the phone so it opens without signal.
    Patient data is not cached here. The app keeps today's round itself, and wipes it on sign-out. */
 "use strict";
-const CACHE = "domi-shell-v3";
+const CACHE = "domi-shell-v4";
 const SHELL = ["/", "/app.js", "/areas.js", "/app.css", "/fonts/fonts.css", "/vendor/qrcode-generator-1.4.4.js", "/vendor/leaflet-1.9.4/leaflet.js", "/vendor/leaflet-1.9.4/leaflet.css", "/logo.svg", "/logo-lockup.svg", "/favicon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

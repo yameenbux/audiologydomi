@@ -620,3 +620,33 @@ button.rm-row:hover { background: var(--subtle) }
 .rm-drive svg { width: 14px; height: 14px; color: var(--muted); grid-row: span 2 } .rm-drive small { grid-column: 2; color: var(--muted); font-weight: 400; font-size: 11px }
 .rm-legs li.done .rm-what b { color: var(--muted) }
 .route-card .rm-legs li { display: block }
+
+/* ---------- The office runs everything: patients, visits, gaps, the team ---------- */
+.plist-o { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px }
+.plist-o button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left; border: 0; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); border-radius: 12px; padding: 10px 12px; color: inherit; font: inherit; cursor: pointer }
+.plist-o button:hover { box-shadow: inset 0 0 0 1.5px var(--forest) }
+.plist-o button > span:first-child { display: flex; flex-direction: column; min-width: 0 }
+.plist-o .muted { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.plist-o .tags, .team .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none }
+.mini { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px }
+.mini li div { color: var(--muted); margin-top: 2px }
+.gdpr { margin-top: 22px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); padding: 12px 14px; font-size: 13.5px }
+.gdpr summary { cursor: pointer; font-weight: 600; display: flex; gap: 8px; align-items: center }
+.gdpr p { margin: 10px 0 }
+.appt-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px }
+.chk { display: flex; gap: 8px; align-items: center; font-size: 13.5px; cursor: pointer }
+.chk input { width: 18px; height: 18px; accent-color: var(--forest) }
+.team { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.team li { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line) }
+.team li.off { opacity: .6 }
+.team .who { display: flex; flex-direction: column; min-width: 0; flex: 1 }
+.team .who .muted { font-size: 12.5px }
+.hours { display: grid; gap: 6px }
+.hrow { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center }
+.off-hours { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(135deg, var(--subtle) 0 6px, transparent 6px 12px); opacity: .9; pointer-events: none; display: flex; align-items: center; justify-content: center }
+.off-hours span { font-size: 12px; color: var(--muted); background: var(--surface); padding: 2px 8px; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--line) }
+.blk.gap { cursor: pointer }
+.blk.gap:hover { box-shadow: inset 0 0 0 1.5px var(--forest) }
+.blk.missed { background: var(--subtle); box-shadow: none; opacity: .72 }
+.wk-cell.off { justify-content: center; align-items: center; background: repeating-linear-gradient(135deg, var(--subtle) 0 6px, transparent 6px 12px); cursor: default }
+.wk-cell.off:hover { box-shadow: inset 0 0 0 1px var(--line); transform: none }

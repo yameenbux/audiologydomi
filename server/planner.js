@@ -62,9 +62,11 @@ function bestOrder(from, vs, to, drive) {
  * @param {(a: string, b: string) => number} p.drive   minutes by car between two postcodes
  * @param {(a: string, b: string) => number} [p.miles]
  * @param {number} [p.now]               demo time in minutes, for today; omit for a later day
+ * @param {number} [p.dayStart]          when the clinician starts that day (default 9:00)
+ * @param {number} [p.dayEnd]            when they finish (default 17:00)
  * Returns the planned visits with their old and new times, and the driving before and after.
  */
-function planDay({ base, visits, drive, miles = () => 0, now = null }) {
+function planDay({ base, visits, drive, miles = () => 0, now = null, dayStart = DAY_START, dayEnd = DAY_END }) {
   const byTime = visits.slice().sort((a, b) => a.start - b.start);
   const fixed = byTime.filter((v) => v.status !== "booked");
   const free = byTime.filter((v) => v.status === "booked");
@@ -72,7 +74,7 @@ function planDay({ base, visits, drive, miles = () => 0, now = null }) {
 
   const lastFixed = fixed[fixed.length - 1];
   const from = lastFixed ? lastFixed.pc : base;
-  let t = lastFixed ? lastFixed.start + lastFixed.dur : DAY_START;
+  let t = lastFixed ? lastFixed.start + lastFixed.dur : dayStart;
   if (now != null) t = Math.max(t, now + NOTICE);
 
   const amOrder = bestOrder(from, am, pm.length ? null : base, drive);
@@ -87,12 +89,12 @@ function planDay({ base, visits, drive, miles = () => 0, now = null }) {
   for (const [half, seq, slots] of [["am", amOrder, am.map((v) => v.start).sort((a, b) => a - b)], ["pm", pmOrder, pm.map((v) => v.start).sort((a, b) => a - b)]]) {
     seq.forEach((v, i) => {
       const d = drive(at, v.pc);
-      // The first visit of the day can start at 9:00: the drive from home happens before the working day.
-      const reach = at === base && !lastFixed && t === DAY_START ? DAY_START : t + d;
-      let start = ROUND5(Math.max(reach, half === "pm" ? NOON : DAY_START, slots[i]));
+      // The first visit of the day can start when the working day does: the drive from home happens before it.
+      const reach = at === base && !lastFixed && t === dayStart ? dayStart : t + d;
+      let start = ROUND5(Math.max(reach, half === "pm" ? NOON : dayStart, slots[i]));
       if (now != null) start = Math.max(start, ROUND5(now + NOTICE));
       if (half === "am" && start >= NOON) warnings.push(`${v.name} would start after midday`);
-      if (start + v.dur > DAY_END) warnings.push(`${v.name} would finish after ${Math.floor(DAY_END / 60)}:00`);
+      if (start + v.dur > dayEnd) warnings.push(`${v.name} would finish after ${String(Math.floor(dayEnd / 60)).padStart(2, "0")}:${String(dayEnd % 60).padStart(2, "0")}`);
       planned.push({ id: v.id, name: v.name, pc: v.pc, dur: v.dur, from: v.start, start, drive: d, moved: start !== v.start });
       t = start + v.dur; at = v.pc;
     });

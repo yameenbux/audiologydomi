@@ -21,16 +21,21 @@ const PUBLIC = path.join(__dirname, "..", "public");
 
 /* ---------- Sessions: server-side, referenced by an HttpOnly cookie (see auth.js) ---------- */
 const pub = (u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId });
+/** An account in a practice's own database (the office can add and switch off accounts), or null. */
+const account = (sb, id) => { const r = sandbox.run(sb, () => db.prepare("SELECT * FROM users WHERE id = ?").get(String(id || ""))); return r ? map.user(r) : null; };
 /** Who is calling: their session, their demo, the person signed in, and who they're viewing as. */
 function verify(req) {
   const s = auth.getSession(auth.readCookie(req));
   if (!s) return null;
   const sb = sandbox.get(s.sbId);
-  const real = USERS.find((x) => x.id === s.uid), eff = USERS.find((x) => x.id === (s.actingAs || s.uid));
-  if (!sb || !real || !eff) { auth.endSession(s.id, "demo expired"); return null; }
+  const real = sb && account(sb, s.uid), eff = sb && account(sb, s.actingAs || s.uid);
+  if (!sb || !real || !real.active) { auth.endSession(s.id, sb ? "account switched off" : "demo expired"); return null; }
+  if (!eff || !eff.active) { s.actingAs = null; return verify(req); }
   sb.lastSeen = Date.now();
   return { sb, session: s, real: pub(real), user: pub(eff) };
 }
+/** End every session an account has in this practice: they've just been switched off. */
+const signOutEverywhere = (sb, uid, why) => auth.sessionsFor(sb.id).filter((s) => s.uid === uid || s.actingAs === uid).forEach((s) => (s.uid === uid ? auth.endSession(s.id, why) : (s.actingAs = null)));
 // Short public handle for a session, so the office can see and end sessions without ever seeing a token.
 const handle = (s) => crypto.createHash("sha256").update(s.id).digest("base64url").slice(0, 12);
 
@@ -117,7 +122,8 @@ route("POST", "/api/auth/password", { public: true }, async (req, body) => {
   if (!sb) throw new svc.HttpError(404, "That demo has expired. Start a new one.");
   return sandbox.run(sb, async () => {
     const email = String(body.email || "").trim().toLowerCase();
-    const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    const found = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    const row = found && found.active ? found : null; // a switched-off account behaves like an unknown one
     const now = Date.now();
     if (row && row.locked_until > now) throw new svc.HttpError(429, `Too many wrong attempts. This account is locked for ${Math.ceil((row.locked_until - now) / 60e3)} more min.`);
     // Unknown emails are checked against a real hash too, so timing doesn't reveal which accounts exist.
@@ -160,7 +166,7 @@ route("POST", "/api/auth/code", { public: true }, (req, body) => {
     const s = auth.createSession({ sbId: sb.id, uid: row.id, kind: "password", ua: req.headers["user-agent"] });
     req.cookies.push(auth.sessionCookie(req, s.id));
     svc.audit(row.name, "auth.login", row.id, "Signed in with password and two-factor code");
-    return { sandbox: sb.id, user: pub(USERS.find((u) => u.id === row.id)) };
+    return { sandbox: sb.id, user: pub(map.user(row)) };
   });
 });
 
@@ -189,8 +195,8 @@ route("POST", "/api/auth/logout", {}, (req, body, user) => {
 // The office can look at the app as any clinician sees it, without their password. Audited.
 route("POST", "/api/auth/view-as", {}, (req, body) => {
   if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Only the office can switch views.");
-  const target = USERS.find((u) => u.id === String(body.userId || ""));
-  if (!target) throw new svc.HttpError(400, "Unknown user.");
+  const target = account(req.auth.sb, body.userId);
+  if (!target || !target.active) throw new svc.HttpError(400, "Unknown user.");
   req.auth.session.actingAs = target.id === req.auth.real.id ? null : target.id;
   if (target.id !== req.auth.real.id) svc.audit(req.auth.real.name, "auth.view-as", target.id, `Viewing the app as ${target.name}`);
   return { user: pub(target) };
@@ -200,8 +206,8 @@ route("POST", "/api/auth/view-as", {}, (req, body) => {
 route("POST", "/api/auth/pair", {}, (req, body) => {
   if (!auth.DEMO) throw new svc.HttpError(404, "No such endpoint.");
   if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Office staff only.");
-  const target = USERS.find((u) => u.id === String(body.userId || "") && u.role === "clinician");
-  if (!target) throw new svc.HttpError(400, "Choose a clinician.");
+  const target = account(req.auth.sb, body.userId);
+  if (!target || target.role !== "clinician" || !target.active) throw new svc.HttpError(400, "Choose a clinician.");
   const t = auth.newPairing(req.auth.sb.id, target.id, req.auth.real.id);
   svc.audit(req.auth.real.name, "auth.pair", target.id, `Created a one-time phone sign-in link for ${target.name}`);
   return { token: t, expiresIn: 600 };
@@ -213,14 +219,15 @@ route("POST", "/api/auth/pair/redeem", { public: true }, (req, body) => {
   if (!p || !sb) throw new svc.HttpError(401, "That link has been used or has expired. Show a new QR code on the office screen.");
   const s = auth.createSession({ sbId: sb.id, uid: p.uid, kind: "paired", ua: req.headers["user-agent"] });
   req.cookies.push(auth.sessionCookie(req, s.id));
-  const u = USERS.find((x) => x.id === p.uid);
+  const u = account(sb, p.uid);
+  if (!u || !u.active) throw new svc.HttpError(401, "That account has been switched off.");
   sandbox.run(sb, () => svc.audit(u.name, "auth.login", u.id, "Signed in on a phone with a one-time link from the office"));
   return { sandbox: sb.id, user: pub(u) };
 });
 
 // Signed-in devices in this practice, and remote sign-out (a lost phone).
 const sessionList = (who) => auth.sessionsFor(who.sb.id).map((s) => ({
-  id: handle(s), name: USERS.find((u) => u.id === s.uid).name, kind: s.kind, created: s.created, lastSeen: s.lastSeen,
+  id: handle(s), name: (account(who.sb, s.uid) || { name: "Former account" }).name, kind: s.kind, created: s.created, lastSeen: s.lastSeen,
   device: /iPhone|Android|Mobile/.test(s.ua) ? "Phone" : "Computer", current: s.id === who.session.id,
 }));
 route("GET", "/api/auth/sessions", {}, (req) => {
@@ -232,13 +239,13 @@ route("POST", "/api/auth/sessions/:id/revoke", {}, (req, body, user, { id }) => 
   const s = auth.sessionsFor(req.auth.sb.id).find((x) => handle(x) === id);
   if (!s) throw new svc.HttpError(404, "That session has already ended.");
   auth.endSession(s.id, "signed out by the office");
-  const u = USERS.find((x) => x.id === s.uid);
+  const u = account(req.auth.sb, s.uid) || { id: s.uid, name: "a former account" };
   svc.audit(req.auth.real.name, "auth.revoke", u.id, `Signed ${u.name} out remotely`);
   return { ok: true };
 });
 
 route("GET", "/api/state", {}, (req, body, user) => {
-  const clinicians = db.prepare("SELECT * FROM clinicians ORDER BY id").all().map(map.clinician);
+  const clinicians = db.prepare("SELECT * FROM clinicians ORDER BY rowid").all().map(map.clinician);
   const isAdmin = user.role === "admin";
   const appts = (isAdmin ? db.prepare("SELECT * FROM appointments ORDER BY start_min").all() : db.prepare("SELECT * FROM appointments WHERE clinician_id = ? ORDER BY start_min").all(user.clinicianId)).map(map.appt);
   const me = !isAdmin && clinicians.find((c) => c.id === user.clinicianId);
@@ -251,9 +258,11 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
   const pcse = isAdmin ? svc.pcseList() : [];
   const referrals = isAdmin ? db.prepare("SELECT * FROM referrals ORDER BY status = 'new' DESC, id DESC").all().map(map.referral) : [];
+  // Everyone who signs in, for the office's clinician switcher and phone sign-in. No emails or secrets.
+  const staff = req.auth.real.role === "admin" ? db.prepare("SELECT * FROM users WHERE active = 1 ORDER BY role DESC, name").all().map(map.user).map((u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId, title: u.title, color: u.color })) : [];
   const sb = sandbox.current();
   return {
-    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null,
+    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, staff,
     metrics: isAdmin ? svc.metrics() : null, settings: sb.settings, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region),
   };
 });
@@ -288,6 +297,34 @@ route("POST", "/api/appointments/:id/cancel", {}, (req, body, user, { id }) => {
 });
 
 route("POST", "/api/waitlist", {}, (req, body, user) => { needAdmin(user); return svc.addToWaitlist(body, user); });
+
+/* ---------- The office runs everything: patient records, visits, the team ---------- */
+route("PUT", "/api/patients/:id", {}, (req, body, user, { id }) => { needAdmin(user); return svc.updatePatient(id, body, user); });
+// UK GDPR: a copy of everything held about a patient (subject access), and erasure on request.
+route("GET", "/api/patients/:id/export", {}, (req, body, user, { id }) => { needAdmin(user); return svc.exportPatient(id, user); });
+route("POST", "/api/patients/:id/erase", {}, (req, body, user, { id }) => { needAdmin(user); return svc.erasePatient(id, body, user); });
+route("POST", "/api/appointments/:id/move-options", {}, (req, body, user, { id }) => { needAdmin(user); return svc.moveOptions(id, body); });
+route("POST", "/api/appointments/:id/move", {}, (req, body, user, { id }) => { needAdmin(user); return svc.moveAppointment(id, body, user); });
+route("POST", "/api/appointments/:id/record", {}, (req, body, user, { id }) => { needAdmin(user); return svc.recordOutcome(id, body, user); });
+route("POST", "/api/appointments/:id/cancel-link", {}, (req, body, user, { id }) => { needAdmin(user); return svc.officeCancelLink(id, user); });
+// A freed slot: who could take it, and booking the person the office has just rung.
+route("GET", "/api/gaps/:id", {}, (req, body, user, { id }) => { needAdmin(user); return svc.gapCandidates(id); });
+route("POST", "/api/gaps/:id/book", {}, (req, body, user, { id }) => { needAdmin(user); return svc.bookCandidate(id, body.waitlistId, user); });
+route("GET", "/api/team", {}, (req, body, user) => { needAdmin(user); return svc.teamList(); });
+route("POST", "/api/team/clinicians", {}, (req, body, user) => { needAdmin(user); return svc.saveClinician(body, user); });
+route("POST", "/api/team/clinicians/:id/active", {}, (req, body, user, { id }) => {
+  needAdmin(user);
+  const r = svc.setClinicianActive(id, body.active === true, user);
+  if (!body.active && r.userId) signOutEverywhere(req.auth.sb, r.userId, "account switched off");
+  return r;
+});
+route("POST", "/api/team/staff", {}, (req, body, user) => { needAdmin(user); return svc.saveStaff(body, user); });
+route("POST", "/api/team/staff/:id/active", {}, (req, body, user, { id }) => {
+  if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Office staff only.");
+  const r = svc.setStaffActive(id, body.active === true, req.auth.real);
+  if (!body.active) signOutEverywhere(req.auth.sb, r.userId, "account switched off");
+  return r;
+});
 
 // Booking: ranked slots across every round for one patient, then book the chosen one.
 route("POST", "/api/slots", {}, (req, body, user) => { needAdmin(user); return svc.findSlots(body); });
@@ -330,6 +367,9 @@ route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { c
 route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user, { code }) => { limitPublic(req, "refer", 10); return sandbox.run(practice(code), () => svc.submitReferral(body)); });
 route("POST", "/api/referrals/:id/accept", {}, (req, body, user, { id }) => { needAdmin(user); return svc.acceptReferral(id, body, user); });
 route("POST", "/api/referrals/:id/decline", {}, (req, body, user, { id }) => { needAdmin(user); return svc.declineReferral(id, body.reason, user); });
+// The cancellation link a patient's family can use instead of texting: /cancel/<practice code>/<token>.
+route("GET", "/api/public/:code/visit/:token", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "visit", 30); const sb = practice(code); return sandbox.run(sb, () => ({ practice: sb.settings.practice, brand: brands.pub(sb.brand), ...svc.publicVisit(token) })); });
+route("POST", "/api/public/:code/visit/:token/cancel", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "cancel", 10); return sandbox.run(practice(code), () => svc.publicCancel(token, body)); });
 route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => { limitPublic(req, "book", 10); return sandbox.run(practice(code), () => svc.publicBook(body)); });
 
 // Invoices: raised automatically when a visit is completed.
@@ -346,7 +386,8 @@ route("GET", "/api/invoices/:id", {}, (req, body, user, { id }) => {
 route("GET", "/api/reports/week", {}, (req, body, user) => { needAdmin(user); return svc.weekReport(); });
 
 // Recalls: text the patient a booking link, or take them off the list.
-const publicBase = (req) => process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${req.headers.host}`;
+// The address the office is using (so a custom domain is kept), unless PUBLIC_URL pins one.
+const publicBase = (req) => process.env.PUBLIC_URL || (req.headers.host ? `${String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https" ? "https" : "http"}://${req.headers.host}` : process.env.RENDER_EXTERNAL_URL);
 route("POST", "/api/recalls/:id/text", {}, (req, body, user, { id }) => { needAdmin(user); return svc.textRecall(id, `${publicBase(req)}/book/${sandbox.current().id}`, user); });
 // Patient import: preview first (nothing saved), then commit. Office only, like every other change to patient records.
 route("POST", "/api/import/preview", {}, (req, body, user) => { needAdmin(user); return svc.previewImport(body); });
@@ -440,6 +481,7 @@ function serveStatic(req, res) {
   if (p === "/under-the-hood") p = "/under-the-hood.html";
   if (p === "/brand") p = "/brand.html";
   if (p.startsWith("/refer/")) p = "/refer.html"; // the practice's referral form: /refer/<practice code>
+  if (p.startsWith("/cancel/")) p = "/cancel.html"; // a visit's cancellation link: /cancel/<practice code>/<token>
   if (p === "/book" || p.startsWith("/book/")) p = "/book.html"; // a practice's patient booking page: /book/<practice code>
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
@@ -499,6 +541,7 @@ const server = http.createServer(async (req, res) => {
     if (!r.public && !who) throw new svc.HttpError(401, "You've been signed out. Sign in again.");
     const body = req.method === "GET" ? {} : await readBody(req, url.pathname.startsWith("/api/import/") ? 4e6 : 1e5); // a spreadsheet of patients is bigger than any other request
     req.auth = who; req.cookies = [];
+    if (who) who.sb.base = publicBase(req); // links in texts (cancellation links) point back at this address
     const data = who && !r.raw ? await sandbox.run(who.sb, () => r.handler(req, body, who.user, params)) : await r.handler(req, body, who && who.user, params);
     send(res, 200, data, req.cookies);
   } catch (err) {
