@@ -701,7 +701,9 @@ function routeMap(r, { height = 300 } = {}) {
 const pinHtml = (label, cls, color) => `<span class="pin ${cls}" style="--pin:${color}">${label}</span>`;
 function buildMap(el, r) {
   const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.25, attributionControl: true });
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' })
+  // OpenStreetMap refuses tiles to requests that don't say which site they're for, and Domi's pages send no
+  // referrer by default. Tiles alone send the site's origin (never a page address).
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", referrerPolicy: "origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' })
     .on("tileerror", () => { tileFailures++; }).addTo(map);
   map.attributionControl.setPrefix(false);
   const col = r.clinician.color, base = [r.base.lat, r.base.lon], pts = r.stops.map((s) => [s.lat, s.lon]);
