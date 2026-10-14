@@ -303,9 +303,20 @@
   .tag-soon { color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
   .extras-note { text-align: center; color: var(--soft); font-size: 15px; max-width: 720px; margin: 22px auto 0; }
 
+  /* Book a demo: what the call covers on the left, the form on the right; stacked on phones */
+  .demo-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin-top: 40px; align-items: start; }
+  @media (max-width: 900px) { .demo-grid { grid-template-columns: 1fr; gap: 28px; } }
+  .demo-lede { color: var(--soft); margin: 0 0 22px; }
+  .demo-list { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 12px; }
+  .demo-list li { display: flex; gap: 12px; align-items: flex-start; }
+  .demo-list svg { flex: none; width: 22px; height: 22px; margin-top: 2px; padding: 3px; border-radius: 50%; color: var(--paper); background: var(--mint); }
+  .demo-list b { color: var(--ink); }
+  .demo-shot { margin: 0; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
+  .demo-shot img { display: block; width: 100%; height: auto; }
+  .demo-alt { color: var(--soft); font-size: 15px; margin: 16px 0 0; }
+  .btn-wide { width: 100%; justify-content: center; }
   /* Contact form */
-  .contact-lede { text-align: center; color: var(--soft); max-width: 60ch; margin: 14px auto 0; }
-  .enquiry { max-width: 760px; margin: 32px auto 0; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; }
+  .enquiry { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; }
   .f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
   @media (max-width: 640px) { .f-row { grid-template-columns: 1fr; } .enquiry { padding: 20px; } }
   .f { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; min-width: 0; }
@@ -350,7 +361,7 @@
         <p class="lede rise">Domi is the diary for healthcare that comes to the patient’s home: eye care, hearing, foot care, dental, physio and nursing. When a patient cancels, it texts the best-matched person on your waiting list, books the first yes, and plans each clinician’s route.</p>
         <div class="ctas rise">
           <a class="btn btn-main" href="%%DEMO_URL%%" rel="noopener">Try the live demo</a>
-          <a class="btn btn-line" href="#contact">Book a walkthrough</a>
+          <a class="btn btn-line" href="#contact">Book a demo</a>
         </div>
         <p class="proof rise">Laptop, tablet and phone · Nothing to install · Built for home visits</p>
         <p class="wake rise">The demo uses invented patients. If nobody has opened it for a while, it takes about a minute to wake.</p>
@@ -650,38 +661,57 @@
       </div>
       <div class="contact">
         <h3>Still have a question?</h3>
-        <p><a href="#contact">Send us a message</a> or email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. You’ll hear back from the person who builds Domi.</p>
+        <p><a href="#contact">Use the form below</a> or email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. You’ll hear back from the person who builds Domi.</p>
       </div>
     </div>
   </section>
 
   <section id="contact" class="contact-section">
     <div class="wrap">
-      <p class="kicker">Contact</p>
-      <h2>Book a walkthrough, or ask us anything.</h2>
-      <p class="contact-lede">Tell us a little about your service and we’ll show you Domi with your own visit types and towns. You’ll hear back from the person who builds it.</p>
-      <form class="enquiry" id="enquiry" action="https://api.web3forms.com/submit" method="POST" novalidate data-key="%%WEB3FORMS_KEY%%" data-email="%%EMAIL%%">
-        <input type="hidden" name="access_key" value="%%WEB3FORMS_KEY%%">
-        <input type="hidden" name="subject" value="Domi enquiry from the website">
-        <input type="hidden" name="from_name" value="Domi website">
-        <input type="hidden" name="redirect" value="%%SITE_URL%%/thanks/">
-        <!-- Spam trap: people never see or fill this box; bots that fill every field are dropped. -->
-        <input type="checkbox" name="botcheck" class="trap" tabindex="-1" autocomplete="off" aria-hidden="true">
-        <div class="f-row">
-          <div class="f"><label for="e-name">Your name</label><input id="e-name" name="name" autocomplete="name" required maxlength="80"><p class="f-err" id="e-name-err" hidden></p></div>
-          <div class="f"><label for="e-email">Email</label><input id="e-email" name="email" type="email" autocomplete="email" required maxlength="120"><p class="f-err" id="e-email-err" hidden></p></div>
+      <p class="kicker">Book a demo</p>
+      <h2>See Domi running your own diary.</h2>
+      <div class="demo-grid">
+        <div class="demo-info">
+          <p class="demo-lede">Tell us a little about your service and we'll show you Domi set up for the way you work. You'll hear back within a working day from the person who builds it.</p>
+          <ul class="demo-list">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>A <b>20-minute video call</b> with the person who builds Domi</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>Your own <b>visit types, towns and team</b> set up before we talk</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>A cancelled visit <b>refilled from your waiting list</b> by text, live</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>Each clinician's day <b>planned as a route</b>, with the driving saved</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>How your <b>spreadsheet, forms and patient list</b> move across</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span><b>Founding pricing</b>, fixed for two years, if you join now</span></li>
+          </ul>
+          <figure class="demo-shot"><img src="shots/device-laptop.webp" width="1400" height="820" alt="Domi on a laptop refilling an 11:00 slot: suitable patients ranked with their reasons, and the top three offered the slot by text at once." loading="lazy" decoding="async"></figure>
+          <p class="demo-alt">Rather look first? <a href="%%DEMO_URL%%" rel="noopener">Try the live demo</a> with sample patients, or email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>.</p>
         </div>
-        <div class="f-row">
-          <div class="f"><label for="e-org">Practice or organisation <span>(optional)</span></label><input id="e-org" name="organisation" autocomplete="organization" maxlength="120"></div>
+        <form class="enquiry" id="enquiry" action="https://api.web3forms.com/submit" method="POST" novalidate data-key="%%WEB3FORMS_KEY%%" data-email="%%EMAIL%%">
+          <input type="hidden" name="access_key" value="%%WEB3FORMS_KEY%%">
+          <input type="hidden" name="subject" value="Domi demo request from the website">
+          <input type="hidden" name="from_name" value="Domi website">
+          <input type="hidden" name="redirect" value="%%SITE_URL%%/thanks/">
+          <!-- Spam trap: people never see or fill this box; bots that fill every field are dropped. -->
+          <input type="checkbox" name="botcheck" class="trap" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <div class="f"><label for="e-name">Full name</label><input id="e-name" name="name" autocomplete="name" required maxlength="80"><p class="f-err" id="e-name-err" hidden></p></div>
+          <div class="f"><label for="e-email">Work email</label><input id="e-email" name="email" type="email" autocomplete="email" required maxlength="120"><p class="f-err" id="e-email-err" hidden></p></div>
           <div class="f"><label for="e-phone">Phone <span>(optional)</span></label><input id="e-phone" name="phone" type="tel" autocomplete="tel" maxlength="20" inputmode="tel"><p class="f-err" id="e-phone-err" hidden></p></div>
-        </div>
-        <div class="f"><label for="e-sector">What do you provide? <span>(optional)</span></label>
-          <select id="e-sector" name="sector"><option value="">Choose…</option><option>Domiciliary eye care</option><option>Hearing care</option><option>Foot care</option><option>Dental care at home</option><option>Physiotherapy and rehab</option><option>Home blood tests</option><option>Nursing at home</option><option>Therapy assessments</option><option>Something else</option></select></div>
-        <div class="f"><label for="e-msg">How can we help?</label><textarea id="e-msg" name="message" rows="5" required minlength="10" maxlength="3000" placeholder="For example: we're three optometrists in Bolton and spend hours on rounds and cancellations."></textarea><p class="f-err" id="e-msg-err" hidden></p></div>
-        <p class="f-note">We’ll use your details only to reply. See our <a href="/privacy/">privacy policy</a>.</p>
-        <p class="f-err f-form" id="e-form-err" role="alert" hidden></p>
-        <button class="btn btn-main" type="submit">Send message</button>
-      </form>
+          <div class="f-row">
+            <div class="f"><label for="e-org">Practice</label><input id="e-org" name="organisation" autocomplete="organization" required maxlength="120"><p class="f-err" id="e-org-err" hidden></p></div>
+            <div class="f"><label for="e-role">Your role <span>(optional)</span></label><input id="e-role" name="role" autocomplete="organization-title" maxlength="80" placeholder="e.g. Owner"></div>
+          </div>
+          <div class="f-row">
+            <div class="f"><label for="e-sector">Your service <span>(optional)</span></label>
+              <select id="e-sector" name="sector"><option value="">Choose…</option><option>Domiciliary eye care</option><option>Hearing care</option><option>Foot care</option><option>Dental care at home</option><option>Physiotherapy and rehab</option><option>Home blood tests</option><option>Nursing at home</option><option>Therapy assessments</option><option>Something else</option></select></div>
+            <div class="f"><label for="e-size">Clinicians who visit <span>(optional)</span></label>
+              <select id="e-size" name="clinicians"><option value="">Choose…</option><option>Just me</option><option>2 to 5</option><option>6 to 15</option><option>More than 15</option></select></div>
+          </div>
+          <div class="f"><label for="e-heard">How did you hear about us? <span>(optional)</span></label>
+            <select id="e-heard" name="heard"><option value="">Choose…</option><option>An email from us</option><option>Search engine</option><option>LinkedIn</option><option>A colleague or another practice</option><option>Something else</option></select></div>
+          <div class="f"><label for="e-msg">Anything we should know? <span>(optional)</span></label><textarea id="e-msg" name="message" rows="3" maxlength="3000" placeholder="For example: we're three optometrists in Bolton and spend hours on rounds and cancellations."></textarea></div>
+          <p class="f-note">We'll use your details only to arrange the demo and reply. No mailing list. See our <a href="/privacy/">privacy policy</a>.</p>
+          <p class="f-err f-form" id="e-form-err" role="alert" hidden></p>
+          <button class="btn btn-main btn-wide" type="submit">Book my demo</button>
+        </form>
+      </div>
     </div>
   </section>
 </main>
@@ -704,7 +734,7 @@
       'e-name': function (v) { return v.trim().length < 2 ? 'Please enter your name.' : ''; },
       'e-email': function (v) { return !v.trim() ? 'Please enter your email address.' : /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v.trim()) ? '' : 'That email address doesn’t look right. Check it for typos.'; },
       'e-phone': function (v) { var d = v.replace(/[\s()+-]/g, ''); return !d || /^\d{10,13}$/.test(d) ? '' : 'Please enter a phone number with 10 to 13 digits, or leave it blank.'; },
-      'e-msg': function (v) { return v.trim().length < 10 ? 'Please tell us a little more (at least 10 characters).' : ''; }
+      'e-org': function (v) { return v.trim().length < 2 ? 'Please enter the name of your practice.' : ''; }
     };
     function check(id) {
       var el = document.getElementById(id), msg = checks[id](el.value), err = document.getElementById(id + '-err');
@@ -727,8 +757,8 @@
       if (form.botcheck.checked || Date.now() - started < 4000) { location.href = '/thanks/'; return; }
       var data = new FormData(form);
       if (!key) {
-        var body = 'Name: ' + data.get('name') + '\nEmail: ' + data.get('email') + '\nOrganisation: ' + (data.get('organisation') || '') + '\nPhone: ' + (data.get('phone') || '') + '\nService: ' + (data.get('sector') || '') + '\n\n' + data.get('message');
-        location.href = 'mailto:' + to + '?subject=' + encodeURIComponent('Domi enquiry') + '&body=' + encodeURIComponent(body);
+        var body = 'Name: ' + data.get('name') + '\nEmail: ' + data.get('email') + '\nOrganisation: ' + (data.get('organisation') || '') + '\nPhone: ' + (data.get('phone') || '') + '\nRole: ' + (data.get('role') || '') + '\nService: ' + (data.get('sector') || '') + '\nClinicians: ' + (data.get('clinicians') || '') + '\nHeard via: ' + (data.get('heard') || '') + '\n\n' + (data.get('message') || '');
+        location.href = 'mailto:' + to + '?subject=' + encodeURIComponent('Domi demo request') + '&body=' + encodeURIComponent(body);
         return;
       }
       var btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Sending…';
@@ -736,7 +766,7 @@
         .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || 'failed'); }); })
         .then(function () { location.href = '/thanks/'; })
         .catch(function () {
-          btn.disabled = false; btn.textContent = 'Send message';
+          btn.disabled = false; btn.textContent = 'Book my demo';
           formErr.innerHTML = 'Sorry, that didn’t send. Please try again, or email <a href="mailto:' + to + '">' + to + '</a>.'; formErr.hidden = false;
         });
     });
