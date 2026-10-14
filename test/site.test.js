@@ -33,9 +33,11 @@ const build = (env) => {
   return { out, read: (f) => fs.readFileSync(path.join(out, f), "utf8"), done: () => fs.rmSync(out, { recursive: true, force: true }) };
 };
 
-test("privacy, terms, thank-you and not-found pages: titles, descriptions, previews, breadcrumbs and working links", () => {
+const SECTORS = ["domiciliary-opticians", "audiology", "podiatry", "physiotherapy"];
+
+test("privacy, terms, thank-you, not-found and sector pages: titles, descriptions, previews, breadcrumbs and working links", () => {
   const b = build({});
-  for (const f of ["privacy/index.html", "terms/index.html", "thanks/index.html", "404.html"]) {
+  for (const f of ["privacy/index.html", "terms/index.html", "thanks/index.html", "404.html", ...SECTORS.map((s) => s + "/index.html")]) {
     const html = b.read(f);
     assert.match(html, /<title>[^<]+ · Domi<\/title>/, f);
     assert.match(html, /<meta name="description" content="[^"]{40,}">/, f);
@@ -51,7 +53,13 @@ test("privacy, terms, thank-you and not-found pages: titles, descriptions, previ
   assert.match(b.read("privacy/index.html"), /"@type":"BreadcrumbList"/);
   assert.match(b.read("terms/index.html"), /og:title" content="Terms and conditions · Domi"/);
   const sitemap = b.read("sitemap.xml");
-  assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", "https://domi.example/privacy/", "https://domi.example/terms/"]);
+  assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", ...SECTORS.slice().sort().map((s) => `https://domi.example/${s}/`), "https://domi.example/privacy/", "https://domi.example/terms/"]);
+  // The homepage links to each sector page, and each one says what isn't built yet
+  for (const s of SECTORS) {
+    assert.match(b.read("index.html"), new RegExp(`href="/${s}/"`), s);
+    assert.match(b.read(s + "/index.html"), /Not built yet/, s);
+    assert.match(b.read(s + "/index.html"), /"@type":"FAQPage"/, s);
+  }
   assert.match(b.read("robots.txt"), /Sitemap: https:\/\/domi\.example\/sitemap\.xml/);
   b.done();
 });
