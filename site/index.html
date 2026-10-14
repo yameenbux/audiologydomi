@@ -296,6 +296,7 @@
   .sector .who { margin: 0 0 10px; color: var(--amber); font-size: 14.5px; font-weight: 600; }
   .sector p { margin: 0; font-size: 15.5px; }
   .sector .gap { display: block; margin-top: 10px; color: var(--soft); font-size: 14px; }
+  .sector .more { display: inline-block; margin-top: 12px; font-weight: 600; font-size: 15px; }
   .tag-set { color: var(--ink); background: rgba(234,244,239,.08); border: 1px solid var(--line); }
   .sect-fine { max-width: 760px; margin: 22px auto 0; text-align: center; }
   @media (max-width: 960px) { .sectors { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sector.lead { grid-column: 1 / -1; } }
@@ -315,6 +316,14 @@
   .demo-shot img { display: block; width: 100%; height: auto; }
   .demo-alt { color: var(--soft); font-size: 15px; margin: 16px 0 0; }
   .btn-wide { width: 100%; justify-content: center; }
+  /* Switching: four numbered steps */
+  .move { counter-reset: m; list-style: none; margin: 36px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 960px) { .move { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 620px) { .move { grid-template-columns: 1fr; } }
+  .move li { counter-increment: m; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px; }
+  .move li::before { content: counter(m); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--forest-2); color: var(--on-forest); font-weight: 700; margin-bottom: 12px; }
+  .move h3 { font-size: 19px; margin: 0 0 6px; }
+  .move p { margin: 0; color: var(--soft); font-size: 15.5px; }
   /* Contact form */
   .enquiry { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; }
   .f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
@@ -390,15 +399,15 @@
       <p class="sect-lead">Every home-visit service has the same hard part: a round of patients spread across towns, cancellations that leave a gap nobody can fill in time, and referrals arriving on paper. Domi does that part. Each service then gets its own visit types, rules and records.</p>
       <ul class="sectors">
         <li class="sector lead"><span class="tag tag-now">Built for it</span><h3>Domiciliary eye care</h3><p class="who">Mobile and domiciliary opticians · the live demo is set up as one</p>
-          <p>NHS sight tests only offered 48 hours or more ahead, so PCSE can be told, with a list of notifications to lodge or cancel. Eye tests go to optometrists, never dispensing opticians. Glasses deliveries and repairs fill same-day gaps. Prescriptions on the clinician's phone.</p></li>
+          <p>NHS sight tests only offered 48 hours or more ahead, so PCSE can be told, with a list of notifications to lodge or cancel. Eye tests go to optometrists, never dispensing opticians. Glasses deliveries and repairs fill same-day gaps. Prescriptions on the clinician's phone. <a class="more" href="/domiciliary-opticians/">Domi for domiciliary opticians →</a></p></li>
         <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Hearing care</h3><p class="who">Audiologists and hearing aid dispensers</p>
-          <p>Hearing tests, fittings, wax removal and aid reviews as visit types, with cancellations refilled and routes planned. Audiogram records are set up with you. <span class="gap">Not built: Noah 4 integration.</span></p></li>
+          <p>Hearing tests, fittings, wax removal and aid reviews as visit types, with cancellations refilled and routes planned. <span class="gap">Not built yet: audiograms on the record, and Noah integration.</span> <a class="more" href="/audiology/">Domi for audiology →</a></p></li>
         <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Foot care</h3><p class="who">Podiatrists, chiropodists and foot health practitioners</p>
-          <p>Nail-care rounds fill whole days, so a cancellation is lost income and a lost slot. Domi refills it and keeps the round tight. <span class="gap">Coming next: repeating visits every 6 to 8 weeks. Until then each visit is booked on its own.</span></p></li>
+          <p>Nail-care rounds fill whole days, so a cancellation is lost income and a lost slot. Domi refills it and keeps the round tight. <span class="gap">Coming next: repeating visits every 6 to 8 weeks. Until then each visit is booked on its own.</span> <a class="more" href="/podiatry/">Domi for podiatry and foot care →</a></p></li>
         <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Dental care at home</h3><p class="who">Domiciliary dentists and hygienists</p>
           <p>Visits to homes and care homes, with carers, access and capacity noted on the record, and each day's route planned for the least driving. <span class="gap">Not built: dental charting.</span></p></li>
         <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Physiotherapy and rehab</h3><p class="who">Home physios, including after a hospital discharge</p>
-          <p>Short-notice patients slot straight into cancelled visits, and the referral form takes discharges from family or ward staff. <span class="gap">Coming next: a course of sessions booked in one go.</span></p></li>
+          <p>Short-notice patients slot straight into cancelled visits, and the referral form takes discharges from family or ward staff. <span class="gap">Coming next: a course of sessions booked in one go.</span> <a class="more" href="/physiotherapy/">Domi for physiotherapy →</a></p></li>
         <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Home blood tests</h3><p class="who">Mobile phlebotomists</p>
           <p>Fasting patients marked mornings-only stay in the morning when routes are planned, and anyone who can't be texted is phoned. <span class="gap">Not built: a lab drop-off as a stop on the route.</span></p></li>
         <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Nursing at home</h3><p class="who">Private and community nurses: wound care, injections, catheters</p>
@@ -588,6 +597,20 @@
     </div>
   </section>
 
+  <section id="switch">
+    <div class="wrap">
+      <p class="kicker">Switching to Domi</p>
+      <h2>Moving across from spreadsheets and paper.</h2>
+      <p class="sect-lead">You don't retype anything, and you don't switch until your team is ready.</p>
+      <ol class="move">
+        <li><h3>Send us what you have</h3><p>Your spreadsheet, a practice-system export or the paper diary. Column headings first, so we can plan the move before any patient data changes hands.</p></li>
+        <li><h3>We check every row</h3><p>The import flags postcodes that are really town names, duplicates, patients with only a landline and missing details, so nothing goes in wrong.</p></li>
+        <li><h3>We set it up for you</h3><p>Your visit types, the towns you cover, your team and their working hours, and your logo on everything patients see.</p></li>
+        <li><h3>Try it, then switch</h3><p>Your team runs real days alongside the old way until they're happy. Most practices are live in about four weeks.</p></li>
+      </ol>
+    </div>
+  </section>
+
   <section id="promise">
     <div class="wrap promise">
       <div class="promise-head">
@@ -719,6 +742,7 @@
 <footer>
   <div class="wrap">
     <p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p>
+    <p>Domi for <a href="/domiciliary-opticians/">domiciliary opticians</a> · <a href="/audiology/">audiology</a> · <a href="/podiatry/">podiatry</a> · <a href="/physiotherapy/">physiotherapy</a></p>
     <p><a href="/privacy/">Privacy policy</a> · <a href="/terms/">Terms and conditions</a> · <a href="#contact">Contact</a></p>
   </div>
 </footer>
