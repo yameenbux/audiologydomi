@@ -1146,7 +1146,7 @@ function workingHours(v) {
   return v.map((h, i) => {
     if (h == null) return null;
     const [s, e] = [Number(h[0]), Number(h[1])];
-    if (!(s % 15 === 0 && e % 15 === 0 && s >= DAY_START && e <= DAY_END && e - s >= 60)) throw new HttpError(400, `${DAYS[i].slice(0, 3)}: hours must be between 09:00 and 17:00, at least an hour, in quarter hours.`);
+    if (!(s % 15 === 0 && e % 15 === 0 && s >= DAY_START && e <= DAY_END && e - s >= 60)) throw new HttpError(400, `${DAYS[i].slice(0, 3)}: hours must be between ${hm(DAY_START)} and ${hm(DAY_END)}, at least an hour, in quarter hours.`);
     return [s, e];
   });
 }

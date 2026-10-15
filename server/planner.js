@@ -63,7 +63,7 @@ function bestOrder(from, vs, to, drive) {
  * @param {(a: string, b: string) => number} [p.miles]
  * @param {number} [p.now]               demo time in minutes, for today; omit for a later day
  * @param {number} [p.dayStart]          when the clinician starts that day (default 9:00)
- * @param {number} [p.dayEnd]            when they finish (default 17:00)
+ * @param {number} [p.dayEnd]            when they finish (default DAY_END, 17:30)
  * Returns the planned visits with their old and new times, and the driving before and after.
  */
 function planDay({ base, visits, drive, miles = () => 0, now = null, dayStart = DAY_START, dayEnd = DAY_END }) {

@@ -2,7 +2,7 @@
 // Shared domain vocabulary. Served to the browser via GET /api/meta so both sides agree.
 
 const DAY_START = 9 * 60;
-const DAY_END = 17 * 60;
+const DAY_END = 17 * 60 + 30; // 17:30, when Home Visiting Optics finish
 
 // optom: only an optometrist can do it (a dispensing optician can't test eyes).
 // pvn: an NHS sight test, so PCSE must be told about the visit in advance (see PVN_NOTICE_MIN).
