@@ -419,7 +419,7 @@ route("POST", "/api/invoices/:id/void", {}, (req, body, user, { id }) => { needA
 route("GET", "/api/invoices/:id", {}, (req, body, user, { id }) => {
   needAdmin(user);
   const inv = svc.getInvoice(id), p = svc.getPatient(inv.patientId);
-  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: sandbox.current().settings.practice, addr: "Sample practice, Leeds", email: "hello@practice.example" } };
+  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: sandbox.current().settings.practice, addr: sandbox.current().brand.phone ? null : "Sample practice, Leeds", email: sandbox.current().brand.email || "hello@practice.example", phone: sandbox.current().brand.phone || null } };
 });
 
 // Mileage and utilisation for the week, per clinician and day.

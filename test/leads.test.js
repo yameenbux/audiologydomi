@@ -42,7 +42,8 @@ test("a lead from the ad: saved for the office, thanked by email with the office
   assert.ok(r.data.emailed);
   assert.match(r.data.email.body, /^Hi Margaret,/);
   assert.match(r.data.email.body, /office hours are Monday to Friday, 8\.30am to 4\.30pm\./, "the office's own hours, without a doubled full stop");
-  assert.match(r.data.email.body, /01204 292 005/, "the practice's phone number");
+  assert.match(r.data.email.body, /call us on 01204 292 005 or email info@homevisitingoptics\.co\.uk\./, "the practice's phone and email");
+  assert.strictEqual(before.settings.officeHours, "Monday to Friday, 9am to 5.30pm", "their opening hours, from their website");
   assert.match(r.data.email.subject, /Home Visiting Optics/);
 
   const s = (await call("GET", "/api/state", office.token)).data;
