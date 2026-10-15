@@ -186,7 +186,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["patient.updated", "appointment.moved", "team.updated", "refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "reset"];
+const EVENTS = ["patient.updated", "appointment.moved", "team.updated", "refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "lead.updated", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -210,6 +210,7 @@ function onEvent(type, e) {
     return;
   }
   if (type === "referral.updated" && e.fresh) toast("New referral from the website form");
+  if (type === "lead.updated" && e.fresh) toast("New lead from your Facebook ad: thank-you email sent");
   if (type === "appointment.booked" && e.online) toast(`Booked online by the patient: ${e.patient}, ${dayName(e.day)} ${hm(e.start)} (+${e.extraDrive} min driving)`);
   if (type === "refill.started") {
     if (e.cancelled && e.cancelled.byText) toast(`${e.cancelled.patient} texted to cancel. Refilling ${hm(e.start)}.`);
@@ -388,6 +389,7 @@ function officeView() {
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
         </section>
+        ${leadsPanel()}
         ${referralsPanel()}
         ${pcsePanel()}
         ${recallsPanel()}
@@ -399,6 +401,59 @@ function officeView() {
         </section>
       </aside>
     </div></div>`;
+}
+/** How long a new lead has been waiting for a call, on the demo clock. */
+const leadWait = (l) => { const m = Math.max(0, (S.now || 0) - l.atMin); return m < 1 ? "just now" : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${Math.floor(m / 1440)} day${m >= 2880 ? "s" : ""}`; };
+const LEAD_BADGE = { new: "b-apricot", contacted: "b-forest", booked: "b-ok", closed: "b-plain" };
+/** Leads from the practice's Facebook ads: people asking to be called. Each is emailed a thank-you as it arrives. */
+function leadsPanel() {
+  const all = S.leads || [], fresh = all.filter((l) => l.status === "new"), open = all.filter((l) => l.status === "new" || l.status === "contacted");
+  const done = all.length - open.length;
+  return `<section class="panel" aria-label="Facebook leads">
+    <div class="panel-h"><h2>Facebook leads</h2><span class="sub">${fresh.length ? `${fresh.length} to call` : "All called"}</span></div>
+    <p class="panel-note">From the form on your Facebook ads. Each person was emailed a thank-you with your office hours the moment they sent it. Call them, then mark what happened.</p>
+    <div style="padding:0 18px 8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary sm" type="button" data-act="adform">${icon("send")}Send a test lead</button><button class="btn ghost sm" type="button" data-act="lead-email">${icon("msg")}The thank-you email</button></div>
+    ${open.length ? `<ul class="recalls">${open.map((l) => {
+      const wait = l.status === "new" ? Math.max(0, (S.now || 0) - l.atMin) : 0;
+      return `<li><div style="min-width:0"><div class="nm">${esc(l.name)} <span class="badge ${LEAD_BADGE[l.status]}">${esc(S.leadStatus[l.status])}</span>${l.patientId ? ` <span class="badge b-plain">Existing patient</span>` : ""}</div>
+      <div class="meta"><span class="mono">${esc(l.phone || l.email || "")}</span>${l.pc ? `<span>${esc(l.pc)}</span>` : ""}${l.status === "new" ? `<span class="${wait > 60 ? "late" : ""}">Waiting ${leadWait(l)}</span>` : `<span>${esc(l.handledBy || "")} · ${esc(l.handledAt || "")}</span>`}</div></div>
+      <div class="ra"><button class="btn ${l.status === "new" ? "" : "secondary "}sm" type="button" data-act="lead" data-id="${l.id}">Open</button></div></li>`; }).join("")}</ul>` : `<div class="empty"><b>No leads waiting</b>New ones from your ads appear here straight away.</div>`}
+    ${done ? `<p class="panel-note" style="padding-bottom:14px">${done} dealt with (booked or not interested).</p>` : ""}
+  </section>`;
+}
+function leadDrawer(d) {
+  const l = (S.leads || []).find((x) => x.id === d.id);
+  if (!l) return "";
+  const mail = (S.leadEmails || []).find((m) => m.leadId === l.id);
+  const p = l.patientId && S.patients.find((x) => x.id === l.patientId);
+  const row = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+  return `<div class="drawer-h"><div><div class="caps">Facebook lead · ${esc(l.at)}${l.campaign ? ` · ${esc(l.campaign)}` : ""}</div><h2 style="margin-top:6px">${esc(l.name)}</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      ${l.status === "new" ? `<div class="callout apricot" style="margin-bottom:14px">${icon("clock")}<div><b>Waiting ${leadWait(l)} for a call</b><div style="margin-top:2px">People who are called within the hour are far more likely to book.</div></div></div>` : ""}
+      ${p ? `<div class="callout" style="margin-bottom:14px">${icon("users")}<div><b>Already a patient</b><div style="margin-top:2px">${esc(p.name)}, ${esc(p.pc)}. <button class="linkish" type="button" data-act="open-p" data-id="${p.id}">Open their record</button></div></div></div>` : ""}
+      <dl class="kv">${row("Phone", l.phone ? `<a class="mono" href="tel:${esc(l.phone.replace(/\s/g, ""))}">${esc(l.phone)}</a> <button class="btn ghost sm" type="button" data-act="copy" data-v="${esc(l.phone)}">${icon("copy")}Copy</button>` : "None given")}
+        ${row("Email", esc(l.email || "None given"))}${row("Postcode", esc(l.pc || ""))}${l.answers.map(([q, a]) => row(esc(q), esc(a))).join("")}</dl>
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="caps" style="margin-bottom:8px">Thank-you email ${mail ? `· sent at ${esc(mail.at)}` : ""}</div>
+      ${mail ? `<div class="mailcard"><div class="mail-h"><b>${esc(mail.subject)}</b><span class="muted">To ${esc(mail.to)}</span></div><div class="mail-b">${esc(mail.body)}</div></div>`
+        : `<p class="muted" style="margin:0">No email address was given, so no thank-you email went. Call them instead.</p>`}
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="field"><label for="ld-note">Note from the call</label><textarea class="input" id="ld-note" rows="3" placeholder="e.g. Spoke to her daughter. Wants a morning visit next week.">${esc(l.note || "")}</textarea></div>
+      ${l.handledBy ? `<p class="muted" style="font-size:13px;margin:6px 0 0">Last updated by ${esc(l.handledBy)} at ${esc(l.handledAt)}.</p>` : ""}
+    </div>
+    <div class="drawer-f" style="flex-wrap:wrap">${["contacted", "booked", "closed"].map((k) => `<button class="btn ${k === "booked" ? "" : k === "closed" ? "ghost" : "secondary"}" type="button" data-act="lead-status" data-id="${l.id}" data-v="${k}" aria-pressed="${l.status === k}">${k === "booked" ? icon("check") : k === "contacted" ? icon("phone") : ""}${k === "contacted" ? "Called" : esc(S.leadStatus[k])}</button>`).join("")}</div>`;
+}
+/** What every lead is emailed, and the office hours in it, which the office can change. */
+function leadEmailDrawer() {
+  const pv = S.leadPreview || { subject: "", body: "" };
+  return `<div class="drawer-h"><div><div class="caps">Facebook leads</div><h2 style="margin-top:6px">The thank-you email</h2></div>${closeX}</div>
+    <div class="drawer-b">
+      <p class="muted" style="margin:0 0 14px">Sent automatically the moment someone fills in the form on your ad, if they give an email address. It comes from your practice, not from Domi.</p>
+      <div class="field"><label for="ld-hours">Office hours, as they appear in the email</label><input class="input" id="ld-hours" maxlength="120" value="${esc(S.settings.officeHours || "")}"></div>
+      <div style="margin:8px 0 18px"><button class="btn secondary sm" type="button" data-act="lead-hours">Save office hours</button></div>
+      <div class="caps" style="margin-bottom:8px">What they receive</div>
+      <div class="mailcard"><div class="mail-h"><b>${esc(pv.subject)}</b><span class="muted">From ${esc(S.settings.practice)}</span></div><div class="mail-b">${esc(pv.body)}</div></div>
+    </div>`;
 }
 /** Referrals from the website form, waiting for the office to accept or decline. */
 function referralsPanel() {
@@ -685,6 +740,8 @@ function renderDrawer() {
   else if (d.kind === "route") inner = routeDrawer(d.data);
   else if (d.kind === "plans") inner = plansDrawer(d);
   else if (d.kind === "referral") inner = referralDrawer(d);
+  else if (d.kind === "lead") inner = leadDrawer(d);
+  else if (d.kind === "lead-email") inner = leadEmailDrawer(d);
   else if (d.kind === "booklink") inner = bookLinkModal();
   else if (d.kind === "report") inner = reportDrawer(d.data);
   else if (d.kind === "invoices") inner = invoicesDrawer(d.data);
@@ -1464,6 +1521,21 @@ document.addEventListener("click", async (e) => {
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "referlink": openDrawer({ kind: "booklink", refer: true }); break;
       case "referral": openDrawer({ kind: "referral", id: el.dataset.id }); break;
+      case "lead": openDrawer({ kind: "lead", id: el.dataset.id }); break;
+      case "lead-email": openDrawer({ kind: "lead-email" }); break;
+      case "adform": window.open(`/ad-form/${S.sandbox}`, "_blank", "noopener"); break;
+      case "lead-status": {
+        el.disabled = true;
+        await api("POST", `/api/leads/${el.dataset.id}/status`, { status: el.dataset.v, note: ($("#ld-note") || {}).value });
+        await load(); closeDrawer(); toast(el.dataset.v === "booked" ? "Marked as booked" : el.dataset.v === "closed" ? "Marked as not interested" : "Marked as called");
+        break;
+      }
+      case "lead-hours": {
+        el.disabled = true;
+        await api("PUT", "/api/settings", { officeHours: ($("#ld-hours") || {}).value });
+        await load(); renderDrawer(); toast("Office hours saved. New thank-you emails will use them.");
+        break;
+      }
       case "ref-accept": {
         el.disabled = true;
         const body = { type: ($("#rf-type") || {}).value, prio: ($("#rf-prio") || {}).value, anyway: el.dataset.anyway === "1" };

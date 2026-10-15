@@ -57,4 +57,29 @@ function verifyTwilio(signature, path, params) {
   return expected.length === signature.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }
 
-module.exports = { sendSms, recordInbound, verifyTwilio, provider, e164 };
+// Email: like texts, kept in the sandbox's outbox unless a sending service is set up. Set RESEND_API_KEY and
+// EMAIL_FROM (an address on a domain verified with Resend, with its SPF and DKIM records) to send for real.
+const resendKey = process.env.RESEND_API_KEY, emailFrom = process.env.EMAIL_FROM;
+const emailProvider = resendKey && emailFrom ? "resend" : "outbox";
+async function deliverEmail(to, subject, text, replyTo) {
+  if (emailProvider !== "resend") return { providerId: "outbox-" + crypto.randomUUID().slice(0, 8) };
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST", headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: emailFrom, to: [to], subject, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.message || `Resend returned ${res.status}`);
+  return { providerId: json.id };
+}
+/** Record an email now; send it once the surrounding transaction commits, as sendSms does. */
+function sendEmail({ to, name, subject, body, kind, leadId = null, replyTo = null }) {
+  const row = db.prepare("INSERT INTO emails (to_addr, to_name, subject, body, kind, lead_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id")
+    .get(to, name, subject, body, kind, leadId, sandbox.stamp().slice(0, 5));
+  const sb = sandbox.current();
+  const note = (providerId) => { try { sandbox.run(sb, () => db.prepare("UPDATE emails SET provider_id = ? WHERE id = ?").run(providerId, row.id)); } catch {} };
+  const job = () => deliverEmail(to, subject, body, replyTo).then(({ providerId }) => note(providerId), (err) => note("failed: " + err.message));
+  if (sb.pending) sb.pending.sends.push(job); else job();
+  return row.id;
+}
+
+module.exports = { sendSms, sendEmail, recordInbound, verifyTwilio, provider, emailProvider, e164 };

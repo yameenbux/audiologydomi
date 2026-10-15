@@ -102,6 +102,18 @@ CREATE TABLE IF NOT EXISTS referrals (
   entitlement TEXT NOT NULL DEFAULT '[]', need TEXT NOT NULL, avail TEXT NOT NULL DEFAULT 'any', urgent INTEGER NOT NULL DEFAULT 0,
   notes TEXT, patient_id TEXT REFERENCES patients(id), decided_by TEXT, decline_reason TEXT
 );
+-- Leads from the practice's Facebook ads (or any ad form): someone asked to be called. Not a patient yet; the office
+-- phones them and marks what happened. The thank-you email each one gets is kept in emails.
+CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, created_min INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','booked','closed')),
+  source TEXT NOT NULL DEFAULT 'facebook', campaign TEXT, name TEXT NOT NULL, phone TEXT, email TEXT, pc TEXT,
+  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id)
+);
+CREATE TABLE IF NOT EXISTS emails (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, to_addr TEXT NOT NULL, to_name TEXT, subject TEXT NOT NULL, body TEXT NOT NULL,
+  kind TEXT NOT NULL, lead_id TEXT, provider_id TEXT, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT NOT NULL,
   action TEXT NOT NULL, entity TEXT, detail TEXT
@@ -118,7 +130,7 @@ const USERS = [
   { id: "u-c3", email: "priya@airevalleyeyecare.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Optometrist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
+const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
 function openDb(brand = brands.get()) {
@@ -263,11 +275,31 @@ function seed(db, brand) {
        ["rf3", "self", null, null, "Brenda Crossley", "1948-08-21", "19 Brook Street, Leeds", "LS15 8BX", "07700 900952", "Severe arthritis in my hips", ["60+"], "repair", "pm", 0, "Arm snapped off my varifocals."]];
   R.forEach(([id, from_kind, from_name, from_phone, name, dob, addr, pc, phone, eligibility, entitlement, need, avail, urgent, notes], i) =>
     ins("referrals", { id, created_at: ["07:42", "08:15", "09:58"][i], from_kind, from_name, from_phone, name, dob, addr, pc, phone, eligibility, entitlement, need, avail, urgent, notes }));
+  // Leads from the practice's Facebook ad overnight and this morning, each already sent the thank-you email.
+  const AD = "Free NHS eye test at home";
+  const LEADS = region === "nw"
+    ? [["ld1", "08:12", 492, "new", "Joan Whittle", "07700 900960", "joan.whittle@example.com", "BL2 3AB", [["Who is the eye test for?", "My mum"], ["When did they last have an eye test?", "Over 2 years ago"]]],
+       ["ld2", "09:31", 571, "new", "Derek Lord", "07700 900961", "derek.lord@example.com", "WN5 0JN", [["Who is the eye test for?", "Me"], ["When did they last have an eye test?", "I don't know"]]],
+       ["ld3", "Yesterday 16:40", -440, "contacted", "Pauline Haworth", "07700 900962", "p.haworth@example.com", "BB2 4PL", [["Who is the eye test for?", "My dad"], ["When did they last have an eye test?", "1 to 2 years ago"]], "Left a voicemail at 9:15. Try again after 2pm."]]
+    : [["ld1", "08:12", 492, "new", "Joan Whittle", "07700 900960", "joan.whittle@example.com", "LS16 7AB", [["Who is the eye test for?", "My mum"], ["When did they last have an eye test?", "Over 2 years ago"]]],
+       ["ld2", "09:31", 571, "new", "Derek Lord", "07700 900961", "derek.lord@example.com", "LS17 6JN", [["Who is the eye test for?", "Me"], ["When did they last have an eye test?", "I don't know"]]],
+       ["ld3", "Yesterday 16:40", -440, "contacted", "Pauline Haworth", "07700 900962", "p.haworth@example.com", "LS15 8PL", [["Who is the eye test for?", "My dad"], ["When did they last have an eye test?", "1 to 2 years ago"]], "Left a voicemail at 9:15. Try again after 2pm."]];
+  LEADS.forEach(([id, created_at, created_min, status, name, phone, email, pc, answers, note]) => {
+    ins("leads", { id, created_at, created_min, status, source: "facebook", campaign: AD, name, phone, email, pc, answers: JSON.stringify(answers), note: note || null, handled_by: note ? "Sarah Lane" : null, handled_at: note ? "09:15" : null });
+    const subject = `Thank you for getting in touch with ${brand.practice}`;
+    ins("emails", { to_addr: email, to_name: name, subject, body: leadEmail(name, brand.practice, brand.phone || null, "Monday to Friday, 9am to 5pm"), kind: "lead.thanks", lead_id: id, provider_id: "outbox-seed", created_at: created_at.replace(/^Yesterday /, "") });
+  });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
 
 sandbox.setOpener(openDb);
+
+/** The email someone gets the moment their ad form arrives. Office hours come from the practice's settings. */
+function leadEmail(name, practice, phone, hours) {
+  const first = String(name).trim().split(/\s+/)[0];
+  return `Hi ${first},\n\nThank you for your time. A member of our team will be in touch soon to talk about a home visit.\n\nOur office hours are ${hours}.${phone ? ` If you need us sooner, you can call us on ${phone}.` : ""}\n\nBest wishes,\n${practice}`;
+}
 
 // Row mappers: database shape → API shape
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
@@ -282,7 +314,9 @@ const map = {
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   pcse: (r) => ({ id: r.id, action: r.action, patientId: r.patient_id, appointmentId: r.appointment_id, day: r.day, start: r.start_min, status: r.status, at: r.created_at, by: r.done_by }),
   referral: (r) => ({ id: r.id, at: r.created_at, status: r.status, fromKind: r.from_kind, fromName: r.from_name, fromPhone: r.from_phone, name: r.name, dob: r.dob, addr: r.addr, pc: r.pc, phone: r.phone, eligibility: r.eligibility, entitlement: J(r.entitlement, []), need: r.need, avail: r.avail, urgent: !!r.urgent, notes: r.notes, patientId: r.patient_id, decidedBy: r.decided_by, declineReason: r.decline_reason }),
+  lead: (r) => ({ id: r.id, at: r.created_at, atMin: r.created_min, status: r.status, source: r.source, campaign: r.campaign, name: r.name, phone: r.phone, email: r.email, pc: r.pc, answers: J(r.answers, []), note: r.note, handledBy: r.handled_by, handledAt: r.handled_at, patientId: r.patient_id }),
+  email: (r) => ({ id: r.id, to: r.to_addr, name: r.to_name, subject: r.subject, body: r.body, kind: r.kind, leadId: r.lead_id, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, openDb, map, TABLES, USERS, emailFor, DEFAULT_HOURS };
+module.exports = { db, openDb, map, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };
