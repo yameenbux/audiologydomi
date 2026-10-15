@@ -19,7 +19,7 @@ let openDb = null; // injected by db.js to avoid a require cycle
 // The default practice is invented for the demo (server/brands.js); a branded demo uses the practice's own name.
 const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60,
   // Given in the thank-you email each ad lead gets, so they know when the office will call.
-  officeHours: "Monday to Friday, 9am to 5pm",
+  officeHours: brand.officeHours || "Monday to Friday, 9am to 5pm",
   // Price per visit type, in pounds. 0 = no invoice to the patient: NHS sight tests are claimed from the NHS
   // on a GOS 6 form, and glasses are charged when they're ordered (or paid for with an NHS voucher).
   prices: { sight: 0, exam: 65, dispense: 0, repair: 15, follow: 35 } });

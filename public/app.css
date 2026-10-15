@@ -128,7 +128,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 @media (max-width: 900px) { .signin { grid-template-columns: minmax(0, 1fr) } .signin-brand { padding-block: 40px } .features { display: none } }
 
 /* Office */
-.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 22px }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 20px }
 .page-head h1 { font-size: clamp(34px, 4vw, 48px); line-height: 1 }
 .page-head p { margin: 8px 0 0; color: var(--muted); max-width: 58ch }
 .quick-stats { display: flex; gap: 28px }
@@ -146,7 +146,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .income .fee input:focus { outline: none }
 @media (max-width: 1100px) { .income { grid-template-columns: repeat(2, minmax(0, 1fr)) } .income .fee { grid-column: 1 / -1; flex-direction: row; align-items: center } }
 
-.grid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 22px; align-items: start }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 22px; align-items: start }
 @media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr) } }
 .panel { background: var(--surface); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--line); min-width: 0 }
 .panel-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; flex-wrap: wrap }
@@ -501,7 +501,14 @@ a.btn { text-decoration: none }
 .invs .ia { display: flex; flex-direction: column; align-items: flex-end; gap: 4px }
 .invs .ib { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center }
 .invs select { border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: 10px; padding: 6px 8px; background: var(--surface); font: inherit; font-size: 13px }
-.tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px }
+.tools { display: inline-flex; flex-wrap: wrap; margin: 0 0 22px; background: var(--surface); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); padding: 4px }
+.tools .tg { display: inline-flex; flex-wrap: wrap }
+.tools .tg + .tg { border-left: 1px solid var(--line); margin-left: 4px; padding-left: 4px }
+.tools button { border: 0; background: transparent; display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 10px; font: 600 13px var(--f-ui); color: var(--muted); cursor: pointer; white-space: nowrap }
+.tools button svg { width: 16px; height: 16px }
+.tools button:hover { background: var(--subtle); color: var(--ink) }
+.tools button:focus-visible { outline: 2px solid var(--forest); outline-offset: 1px }
+.tools .soon-pill { margin-left: 2px }
 
 /* Offline */
 .offline-bar { display: flex; gap: 10px; align-items: flex-start; background: var(--warn-soft); color: var(--ink); border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px }
@@ -678,3 +685,51 @@ button.rm-row:hover { background: var(--subtle) }
 .mailcard .mail-h .muted { font-size: 12.5px }
 .mailcard .mail-b { padding: 14px; white-space: pre-wrap; font-size: 14px; line-height: 1.55 }
 .drawer-f [aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--forest) }
+
+/* ---------- Needs you today: what a person must do, above the diary ---------- */
+.needs { margin: 0 0 22px }
+.needs-h { margin: 0 0 10px 2px }
+.needs-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px }
+.need { display: flex; align-items: center; gap: 14px; text-align: left; border: 0; background: var(--surface); border-radius: 16px; padding: 14px 16px; box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; color: var(--ink); font: inherit; position: relative; transition: box-shadow .15s, transform .15s }
+.need:hover { box-shadow: inset 0 0 0 1.5px var(--forest); transform: translateY(-1px) }
+.need:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px }
+.need[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--forest) }
+.need .nn { flex: none; min-width: 44px; height: 44px; padding: 0 8px; border-radius: 12px; background: var(--forest-soft); color: var(--forest); display: grid; place-items: center; font: 600 24px/1 var(--f-ui); font-variant-numeric: tabular-nums }
+.need .nn svg { width: 20px; height: 20px }
+.need .nw { display: flex; flex-direction: column; gap: 2px; min-width: 0 }
+.need .nw b { font-size: 14px; line-height: 1.25 }
+.need .nw span { font-size: 12.5px; color: var(--muted); line-height: 1.3 }
+.need.hot .nn { background: var(--apricot); color: #fff }
+.need.hot .nw span { color: var(--apricot-ink) }
+.need.clear .nn { background: var(--ok-soft); color: var(--ok) }
+.need.clear .nw b { color: var(--muted); font-weight: 600 }
+@media (max-width: 1240px) { .needs-row { grid-template-columns: repeat(3, minmax(0, 1fr)) } }
+@media (max-width: 760px) { .needs-row { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px } .need { flex: 0 0 78%; scroll-snap-align: start } }
+
+/* ---------- The work tray: one tab at a time, the height of the screen ---------- */
+.tray { position: sticky; top: 16px; height: min(900px, calc(100vh - 32px)); min-height: 560px; display: grid; grid-template-columns: 78px minmax(0, 1fr); background: var(--surface); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; min-width: 0 }
+.tray-rail { display: flex; flex-direction: column; gap: 4px; padding: 10px 7px; background: var(--subtle); border-right: 1px solid var(--line) }
+.tray-rail button { position: relative; border: 0; background: transparent; border-radius: 12px; padding: 11px 2px 9px; display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--muted); font: 600 11.5px var(--f-ui); cursor: pointer }
+.tray-rail button svg { width: 20px; height: 20px }
+.tray-rail button:hover { color: var(--ink); background: color-mix(in srgb, var(--surface) 60%, transparent) }
+.tray-rail button[aria-selected="true"] { background: var(--surface); color: var(--forest); box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line) }
+.tray-rail button:focus-visible { outline: 2px solid var(--forest); outline-offset: 1px }
+.tray-rail .tc { position: absolute; top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--forest); color: var(--on-forest); font: 700 10.5px/18px var(--f-ui); text-align: center; font-variant-numeric: tabular-nums }
+.tray-rail .tc.hot { background: var(--apricot); color: #fff }
+.tray-body { overflow-y: auto; overscroll-behavior: contain; min-width: 0 }
+.tray-body > .panel { background: transparent; box-shadow: none; border-radius: 0 }
+.tray-body > .panel + .panel { border-top: 1px solid var(--line) }
+.tray-body > .panel > .panel-h:first-child { position: sticky; top: 0; z-index: 2; background: var(--surface); padding-top: 18px }
+.tray-body .feed { max-height: none }
+@media (max-width: 1100px) {
+  .tray { position: static; height: 680px; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) }
+  .tray-rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 7px }
+  .tray-rail button { flex: 1 0 74px }
+}
+@media (max-width: 560px) {
+  .tools { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -4px }
+  .tools::-webkit-scrollbar { display: none }
+  .tools .tg { flex-wrap: nowrap }
+  .quick-stats { gap: 18px }
+  .qs span { white-space: nowrap }
+}

@@ -38,7 +38,8 @@ function normalise(input) {
 }
 
 const thanksSubject = () => `Thank you for getting in touch with ${settings().practice}`;
-const thanksBody = (name) => leadEmail(name, settings().practice, brands.pub(sandbox.current().brand).phone, settings().officeHours);
+const contact = () => brands.pub(sandbox.current().brand);
+const thanksBody = (name) => leadEmail(name, settings().practice, contact().phone, settings().officeHours, contact().email);
 
 /** A new lead: saved, matched to an existing patient by phone or email, and thanked by email. */
 function receive(input) {
@@ -52,7 +53,7 @@ function receive(input) {
     db.prepare("INSERT INTO leads (id, created_at, created_min, source, campaign, name, phone, email, pc, answers, patient_id) VALUES (?, ?, ?, 'facebook', ?, ?, ?, ?, ?, ?, ?)")
       .run(id, sandbox.stamp().slice(0, 5), sandbox.nowMin(), l.campaign, l.name, l.phone, l.email, l.pc, JSON.stringify(l.answers), match ? match.id : null);
     const mail = l.email ? { subject: thanksSubject(), body: thanksBody(l.name) } : null;
-    if (mail) sendEmail({ to: l.email, name: l.name, ...mail, kind: "lead.thanks", leadId: id });
+    if (mail) sendEmail({ to: l.email, name: l.name, ...mail, kind: "lead.thanks", leadId: id, replyTo: contact().email }); // replies go to the practice
     audit("Ad form", "lead.received", id, l.campaign ? `From the ad "${l.campaign}"` : "From an ad form"); // no personal details in the audit line
     bus.emit({ type: "lead.updated", leadId: id, fresh: true });
     return { ok: true, id, emailed: !!mail, email: mail }; // the email is the sender's own, so the test ad form can show it

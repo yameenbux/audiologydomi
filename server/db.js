@@ -287,7 +287,7 @@ function seed(db, brand) {
   LEADS.forEach(([id, created_at, created_min, status, name, phone, email, pc, answers, note]) => {
     ins("leads", { id, created_at, created_min, status, source: "facebook", campaign: AD, name, phone, email, pc, answers: JSON.stringify(answers), note: note || null, handled_by: note ? "Sarah Lane" : null, handled_at: note ? "09:15" : null });
     const subject = `Thank you for getting in touch with ${brand.practice}`;
-    ins("emails", { to_addr: email, to_name: name, subject, body: leadEmail(name, brand.practice, brand.phone || null, "Monday to Friday, 9am to 5pm"), kind: "lead.thanks", lead_id: id, provider_id: "outbox-seed", created_at: created_at.replace(/^Yesterday /, "") });
+    ins("emails", { to_addr: email, to_name: name, subject, body: leadEmail(name, brand.practice, brand.phone || null, brand.officeHours || "Monday to Friday, 9am to 5pm", brand.email || null), kind: "lead.thanks", lead_id: id, provider_id: "outbox-seed", created_at: created_at.replace(/^Yesterday /, "") });
   });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
@@ -296,9 +296,9 @@ function seed(db, brand) {
 sandbox.setOpener(openDb);
 
 /** The email someone gets the moment their ad form arrives. Office hours come from the practice's settings. */
-function leadEmail(name, practice, phone, hours) {
+function leadEmail(name, practice, phone, hours, email) {
   const first = String(name).trim().split(/\s+/)[0];
-  return `Hi ${first},\n\nThank you for your time. A member of our team will be in touch soon to talk about a home visit.\n\nOur office hours are ${hours}.${phone ? ` If you need us sooner, you can call us on ${phone}.` : ""}\n\nBest wishes,\n${practice}`;
+  return `Hi ${first},\n\nThank you for your time. A member of our team will be in touch soon to talk about a home visit.\n\nOur office hours are ${hours}.${phone || email ? ` If you need us sooner, you can ${[phone && `call us on ${phone}`, email && `email ${email}`].filter(Boolean).join(" or ")}.` : ""}\n\nBest wishes,\n${practice}`;
 }
 
 // Row mappers: database shape → API shape

@@ -19,7 +19,9 @@ const BRANDS = {
     wordmark: "Home Visiting Optics", tagline: "Quality vision care wherever you are",
     // From their website: Outfit throughout, a bright blue, a navy bar, white pages, pill-shaped buttons.
     theme: { font: "Outfit", primary: "#0089CF", navy: "#0B3B7C", ink: "#041223" },
-    phone: "01204 292 005", website: "https://www.homevisitingoptics.co.uk/",
+    // Contact details and opening hours, from their website's contact page.
+    phone: "01204 292 005", mobile: "07813 792 478", email: "info@homevisitingoptics.co.uk", website: "https://www.homevisitingoptics.co.uk/",
+    officeHours: "Monday to Friday, 9am to 5.30pm",
   },
 };
 
@@ -29,6 +31,6 @@ const BRANDS = {
 const SITE = process.env.MARKETING_URL || "https://domi.ysbdesigns.uk/";
 const get = (id) => BRANDS[String(id || "").toLowerCase()] || BRANDS[String(process.env.DEFAULT_BRAND || "").toLowerCase()] || BRANDS.domi;
 /** What the browser may know about a brand (everything here is already public on the practice's website). */
-const pub = (b) => ({ id: b.id, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, website: b.website || null, site: SITE });
+const pub = (b) => ({ id: b.id, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, mobile: b.mobile || null, email: b.email || null, website: b.website || null, site: SITE });
 
 module.exports = { BRANDS, get, pub };
