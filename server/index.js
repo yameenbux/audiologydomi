@@ -264,6 +264,8 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const recalls = isAdmin ? db.prepare("SELECT * FROM recalls ORDER BY due_day").all().map(map.recall) : [];
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
   const pcse = isAdmin ? svc.pcseList() : [];
+  const pvn = svc.pvnStatus(); // each NHS visit's PCSE notification, so the clinician can see it before testing
+  for (const a of appts) if (D.TYPES[a.type] && D.TYPES[a.type].pvn) a.pvn = pvn[a.id] || null;
   const referrals = isAdmin ? db.prepare("SELECT * FROM referrals ORDER BY status = 'new' DESC, id DESC").all().map(map.referral) : [];
   const leadsState = isAdmin ? { leads: leads.leadList(), leadEmails: leads.leadEmails(), leadStatus: leads.STATUS, leadPreview: leads.preview() } : { leads: [] };
   // Everyone who signs in, for the office's clinician switcher and phone sign-in. No emails or secrets.
@@ -271,7 +273,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const sb = sandbox.current();
   return {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
-    metrics: isAdmin ? svc.metrics() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
+    metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
 
@@ -290,6 +292,7 @@ route("POST", "/api/patients/:id/notes", {}, (req, body, user, { id }) => {
 });
 
 route("POST", "/api/appointments/:id/status", {}, (req, body, user, { id }) => svc.setStatus(id, body.status, user));
+route("POST", "/api/appointments/:id/not-done", {}, (req, body, user, { id }) => svc.notDone(id, body, user));
 
 route("POST", "/api/appointments/:id/seen", {}, (req, body, user, { id }) => {
   db.prepare("UPDATE appointments SET seen = 1 WHERE id = ? AND (clinician_id = ? OR ? = 'admin')").run(id, user.clinicianId, user.role);
@@ -637,7 +640,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 const sweeper = setInterval(() => {
-  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); } catch (e) { console.error("sweep failed", sb.id, e); } });
+  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); svc.sweepRecalls(); } catch (e) { console.error("sweep failed", sb.id, e); } });
 }, 5000);
 sweeper.unref();
 

@@ -45,6 +45,24 @@ function sendSms({ to, name, body, kind, toClinicianId = null, fromClinicianId =
   return row.id;
 }
 
+/**
+ * How many billed parts a text is: 160 characters in one, then 153 a part. A character outside the basic GSM set
+ * (an emoji, curly quotes) makes it 70, then 67, which is why Domi's wording sticks to plain characters.
+ */
+const GSM = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà", GSM_EXT = "^{}\\[~]|€";
+function segments(text) {
+  const chars = [...String(text || "")];
+  const unicode = chars.some((c) => !GSM.includes(c) && !GSM_EXT.includes(c));
+  const len = unicode ? chars.length : chars.reduce((n, c) => n + (GSM_EXT.includes(c) ? 2 : 1), 0);
+  return len === 0 ? 0 : unicode ? (len <= 70 ? 1 : Math.ceil(len / 67)) : len <= 160 ? 1 : Math.ceil(len / 153);
+}
+/** Texts sent to patients so far (messages to clinicians' phones are free and not counted), in billed parts. */
+function textUsage(pencePerPart = 5) {
+  const rows = db.prepare("SELECT body FROM messages WHERE direction = 'out' AND phone IS NOT NULL AND phone != 'clinician'").all();
+  const parts = rows.reduce((n, r) => n + segments(r.body), 0);
+  return { texts: rows.length, parts, pencePerPart, pence: parts * pencePerPart };
+}
+
 function recordInbound({ phone, name, body }) {
   return db.prepare("INSERT INTO messages (direction, to_name, phone, body, kind, created_at) VALUES ('in', ?, ?, ?, 'reply', ?) RETURNING id").get(name, phone, body, sandbox.stamp()).id;
 }
@@ -82,4 +100,4 @@ function sendEmail({ to, name, subject, body, kind, leadId = null, replyTo = nul
   return row.id;
 }
 
-module.exports = { sendSms, sendEmail, recordInbound, verifyTwilio, provider, emailProvider, e164 };
+module.exports = { segments, textUsage, sendSms, sendEmail, recordInbound, verifyTwilio, provider, emailProvider, e164 };

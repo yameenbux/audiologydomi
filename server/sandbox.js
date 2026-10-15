@@ -30,6 +30,8 @@ const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "o
   dayStart: DAY_START, dayEnd: DAY_END,
   // Which kinds of visit patients can book for themselves on the booking page.
   online: ["sight", "exam", "repair", "follow"],
+  // Recall texts go out on their own, at this time each day, to patients due within a fortnight who take texts.
+  autoRecalls: true, recallAt: 10 * 60,
   // Facebook leads. The key goes in the practice's own connector link (Zapier, Make); the Meta details are
   // for Facebook's own lead notifications. Secrets stay on the server: see publicSettings.
   leadsKey: crypto.randomBytes(18).toString("base64url"),
@@ -73,7 +75,7 @@ function reset(sb) {
   sb.db = openDb(sb.brand);
   sb.settings = defaults(sb.brand);
   sb.t0 = Date.now();
-  sb.remindedDay = 0;
+  sb.remindedDay = 0; sb.recalledDay = 0;
 }
 
 const run = (sb, fn) => als.run(sb, fn);

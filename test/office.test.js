@@ -225,3 +225,60 @@ test("the office adds a patient by hand; the essentials are required and nobody 
   const clin = await signIn("amira@airevalleyeyecare.example", o.sandbox);
   if (clin.token) assert.strictEqual((await call("POST", "/api/patients", clin.token, { name: "X Y", addr: "1 Road", pc: "LS16", phone: "07700 900111" })).status, 403);
 });
+
+test("a clinician marks a visit they couldn't do: reason on the record, PCSE notice withdrawn, back on the waiting list", async () => {
+  const o = await office();
+  const st = await state(o.token);
+  const visit = st.appts.find((a) => a.day === 0 && a.type === "sight" && a.status === "booked" && a.start > st.now);
+  assert.ok(visit, "an NHS sight test later today");
+  assert.strictEqual(visit.pvn, "lodged", "demo visits were notified to PCSE before the demo");
+  const clinId = visit.clinicianId, email = { c1: "amira", c2: "tom", c3: "priya" }[clinId] + "@airevalleyeyecare.example";
+  const clin = await signIn(email, o.sandbox);
+  const mine = (await state(clin.token)).appts.find((a) => a.id === visit.id);
+  assert.strictEqual(mine.pvn, "lodged", "the clinician can see it too");
+  // Not before the visit has started
+  assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody" })).status, 409);
+  await call("POST", `/api/appointments/${visit.id}/status`, clin.token, { status: "enroute" });
+  assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "lunch" })).status, 400);
+  const r = await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody", note: "Rang twice, no answer" });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+  assert.strictEqual(r.data.status, "missed");
+  assert.ok(r.data.rebooked);
+  const after = await state(o.token);
+  assert.ok(after.waitlist.some((w) => w.patientId === visit.patientId && w.status === "waiting"), "back on the waiting list");
+  assert.ok(after.pcse.some((t) => t.appointmentId === visit.id && t.action === "cancel" && t.status === "todo"), "the office is told to withdraw PCSE's notification");
+  assert.strictEqual(after.appts.find((a) => a.id === visit.id).pvn, "cancelled");
+  const rec = (await call("GET", `/api/patients/${visit.patientId}`, o.token)).data;
+  assert.ok(rec.history.some((h) => /Nobody in when .* called at .*Rang twice/.test(h.body)));
+  // Another clinician can't mark it, and it can't be marked twice
+  assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody" })).status, 409);
+});
+
+test("recalls text themselves at the practice's recall time; phone-only patients stay for the office; consent fields saved", async () => {
+  const o = await office();
+  const before = await state(o.token);
+  assert.strictEqual(before.settings.autoRecalls, true);
+  // The demo clock starts after the recall time, so the first sweep has sent them
+  const svc = require("../server/service"), sandbox = require("../server/sandbox");
+  const sb = sandbox.get(o.sandbox);
+  sandbox.run(sb, () => svc.sweepRecalls());
+  const st = await state(o.token);
+  const due = st.recalls.filter((r) => r.dueDay <= 14 && r.status !== "dismissed");
+  for (const r of due) {
+    const p = st.patients.find((x) => x.id === r.patientId);
+    assert.strictEqual(r.status, p.contact === "Text" ? "texted" : "due", `${p.name} (${p.contact})`);
+  }
+  const sent = st.messages.filter((m) => m.kind === "recall");
+  assert.ok(sent.length >= 1 && sent.every((m) => /\/book\//.test(m.body)), "with the booking link");
+  assert.ok(sent.every((m) => !/ nhs /.test(m.body)), "NHS keeps its capitals");
+  // Only once a day
+  sandbox.run(sb, () => svc.sweepRecalls());
+  assert.strictEqual((await state(o.token)).messages.filter((m) => m.kind === "recall").length, sent.length);
+  // Power of attorney and consent to talk to family
+  const r = await call("PUT", "/api/patients/p4", o.token, { poa: "Daughter Karen Hill, 07700 900777", share: "yes" });
+  assert.deepStrictEqual(r.data.changed, ["power of attorney", "consent to talk to family"]);
+  assert.strictEqual((await call("PUT", "/api/patients/p4", o.token, { share: "maybe" })).status, 400);
+  const p = (await call("GET", "/api/patients/p4", o.token)).data;
+  assert.strictEqual(p.poa, "Daughter Karen Hill, 07700 900777");
+  assert.strictEqual(p.share, "yes");
+});
