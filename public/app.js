@@ -31,7 +31,7 @@ function applyBrand(b) {
   document.title = b.logo ? `${b.practice} · Diary` : "Domi";
   window.DomiPowered(b);
 }
-const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null };
+const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null, tray: "wait" };
 let DEMO_SB = null;
 try { DEMO_SB = localStorage.getItem("domi-demo"); localStorage.removeItem("domi-token"); } catch (e) {}
 const rememberDemo = (c) => { DEMO_SB = c; try { c ? localStorage.setItem("domi-demo", c) : localStorage.removeItem("domi-demo"); } catch (e) {} };
@@ -348,7 +348,7 @@ function officeView() {
     <div class="page-head">
       <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
         <p>${(() => { const n = onBoard(0).filter((c) => (c.hours || [])[0] !== null).length; return n === 1 ? "One clinician" : (["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"][n] || n) + " clinicians"; })()} on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
-        <div class="tools"><button class="btn secondary sm" type="button" data-act="patients">${icon("users")}Patients</button><button class="btn secondary sm" type="button" data-act="team">${icon("shield")}Team &amp; hours</button><button class="btn secondary sm" type="button" data-act="booklink">${icon("qr")}Patient booking page</button><button class="btn secondary sm" type="button" data-act="report">${icon("car")}Mileage &amp; utilisation</button><button class="btn secondary sm" type="button" data-act="invoices">${icon("note")}Invoices</button>${soon("stock", "Stock &amp; repairs", "db")}<button class="btn secondary sm" type="button" data-act="plans">${icon("pin")}Plan routes</button><button class="btn secondary sm" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary sm" type="button" data-act="roadmap">${icon("next")}What's coming</button></div></div>
+        </div>
       <div class="quick-stats">
         <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
         <div class="qs"><b>${all.length}</b><span>home visits</span></div>
@@ -356,6 +356,10 @@ function officeView() {
         <div class="qs"><b>${waiting.length}</b><span>waiting list</span></div>
       </div>
     </div>
+    <div class="tools" role="toolbar" aria-label="Office tools">
+      <span class="tg"><button type="button" data-act="patients">${icon("users")}Patients</button><button type="button" data-act="import">${icon("copy")}Import</button><button type="button" data-act="team">${icon("shield")}Team &amp; hours</button></span>
+      <span class="tg"><button type="button" data-act="plans">${icon("pin")}Plan routes</button><button type="button" data-act="report">${icon("car")}Mileage</button><button type="button" data-act="invoices">${icon("note")}Invoices</button></span>
+      <span class="tg"><button type="button" data-act="booklink">${icon("qr")}Booking page</button>${soon("stock", "Stock", "db", "")}<button type="button" data-act="roadmap">${icon("next")}What's coming</button></span></div>
     <section class="income" aria-label="Income recovered">
       <div><div class="big">${money(m.recovered)}</div><div class="lab">recovered this week from cancelled visits</div></div>
       <div class="kpi"><b>${m.refilled}<span style="font-size:18px;opacity:.7"> / ${m.cancellations}</span></b><div class="lab">cancellations refilled</div></div>
@@ -363,6 +367,7 @@ function officeView() {
       <div class="kpi"><b>${money(m.atRisk)}</b><div class="lab">still unfilled</div></div>
       <div class="fee"><span>Your fee per visit</span><label>£<input id="fee" data-keep type="number" min="0" max="2000" step="5" value="${m.fee}" aria-label="Fee per visit in pounds"></label><span style="opacity:.7">Example figure. Set your own.</span></div>
     </section>
+    ${needsYou()}
     <div class="grid">
       <section class="panel" aria-label="Diaries">
         <div class="panel-h"><h2>Diaries</h2>
@@ -373,8 +378,13 @@ function officeView() {
         </div>
         <div class="board-wrap" data-scroll="board">${board(nowM)}</div>`}
       </section>
-      <aside class="rail">
-        <section class="panel" aria-label="Waiting list">
+      ${tray()}
+    </div></div>`;
+}
+/* ---------- The work tray: everything beside the diary, one tab at a time ---------- */
+function waitingPanel() {
+  const st = S.settings;
+  return `<section class="panel" aria-label="Waiting list">
           <div class="panel-h"><h2>Waiting list</h2><button class="btn sm" data-act="add-wl" type="button">${icon("plus")}Add</button></div>
           <div class="mode"><div class="caps">When a visit is cancelled</div>
             <div class="seg" role="group" aria-label="Refill mode">
@@ -388,19 +398,58 @@ function officeView() {
           </div>
           <div class="hr"></div>
           <ul class="wl">${S.waitlist.map(wlItem).join("")}</ul>
-        </section>
-        ${leadsPanel()}
-        ${referralsPanel()}
-        ${pcsePanel()}
-        ${recallsPanel()}
-        ${remindersPanel()}
+        </section>`;
+}
+function textsPanel() {
+  return `${remindersPanel()}
         <section class="panel" aria-label="Texts">
           <div class="panel-h"><h2>Texts</h2><span class="sub">${S.messages.length} today · ${META.smsProvider === "twilio" ? "sending live" : "demo outbox"}</span></div>
           ${S.messages.length ? `<div class="feed" data-scroll="feed">${S.messages.map(smsBubble).join("")}</div>`
             : `<div class="empty"><b>No texts yet</b>Click a booked visit in a diary to cancel it, or to play the patient texting CANCEL.</div>`}
-        </section>
-      </aside>
-    </div></div>`;
+        </section>`;
+}
+/** Each tab: what it holds, how many need the office, and whether that number is urgent. */
+function trayTabs() {
+  const n = (a) => a.length;
+  const leads = (S.leads || []).filter((l) => l.status === "new");
+  const oldest = leads.reduce((m, l) => Math.max(m, (S.now || 0) - l.atMin), 0);
+  return [
+    { k: "wait", label: "Waiting", ic: "users", count: n(S.waitlist.filter((w) => w.status !== "booked")), body: waitingPanel },
+    { k: "leads", label: "Leads", ic: "send", count: n(leads), hot: oldest > 60, body: leadsPanel },
+    { k: "refs", label: "Referrals", ic: "note", count: n((S.referrals || []).filter((r) => r.status === "new")), hot: (S.referrals || []).some((r) => r.status === "new" && r.urgent), body: referralsPanel },
+    { k: "recalls", label: "Recalls", ic: "cal", count: n((S.recalls || []).filter((r) => r.status !== "dismissed" && r.status !== "booked")), body: recallsPanel },
+    { k: "pcse", label: "PCSE", ic: "shield", count: n((S.pcse || []).filter((t) => t.status === "todo")), body: pcsePanel },
+    { k: "texts", label: "Texts", ic: "msg", count: n(S.messages.filter((m) => m.dir === "in" && !m.read)), body: textsPanel },
+  ];
+}
+function tray() {
+  const tabs = trayTabs(), cur = tabs.find((t) => t.k === UI.tray) || tabs[0];
+  const body = cur.body() || `<div class="empty"><b>Nothing here yet</b>${cur.k === "pcse" ? "Booking an NHS sight test adds the notification to lodge." : "New items appear here as they arrive."}</div>`;
+  return `<aside class="tray" aria-label="Work tray">
+    <nav class="tray-rail" role="tablist" aria-label="Work tray sections">${tabs.map((t) => `<button type="button" role="tab" data-act="tray" data-v="${t.k}" aria-selected="${t === cur}" aria-controls="tray-body">${icon(t.ic)}<span class="tl">${t.label}</span>${t.count ? `<span class="tc ${t.hot ? "hot" : ""}">${t.count}</span>` : ""}</button>`).join("")}</nav>
+    <div class="tray-body" id="tray-body" role="tabpanel" data-scroll="tray-${cur.k}">${body}</div>
+  </aside>`;
+}
+/** What needs a person today, above the diary. Each card opens its tab in the tray. */
+function needsYou() {
+  const leads = (S.leads || []).filter((l) => l.status === "new");
+  const oldest = leads.reduce((m, l) => Math.max(m, (S.now || 0) - l.atMin), 0);
+  const refs = (S.referrals || []).filter((r) => r.status === "new");
+  const pcse = (S.pcse || []).filter((t) => t.status === "todo");
+  const recalls = (S.recalls || []).filter((r) => r.status !== "dismissed" && r.status !== "booked");
+  const overdue = recalls.filter((r) => r.dueDay < 0).length;
+  const tomorrow = S.appts.filter((a) => (a.day || 0) === 1 && a.status === "booked"), unreminded = tomorrow.filter((a) => !a.reminded).length;
+  const ago = (m) => m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+  const cards = [
+    { k: "leads", none: "No leads waiting", n: leads.length, what: leads.length === 1 ? "lead to call" : "leads to call", note: leads.length ? `Oldest waiting ${ago(oldest)}` : "Everyone's been called", hot: oldest > 60 },
+    { k: "refs", none: "No new referrals", n: refs.length, what: refs.length === 1 ? "referral to look at" : "referrals to look at", note: refs.some((r) => r.urgent) ? "One says their sight has changed" : refs.length ? "From your website form" : "All dealt with", hot: refs.some((r) => r.urgent) },
+    { k: "recalls", none: "No recalls due", n: recalls.length, what: recalls.length === 1 ? "recall due" : "recalls due", note: overdue ? `${overdue} overdue` : "Offered cancelled visits nearby", hot: false },
+    { k: "pcse", none: "PCSE is up to date", n: pcse.length, what: pcse.length === 1 ? "PCSE notice to lodge" : "PCSE notices to lodge", note: pcse.length ? "48 hours before each NHS test" : "Nothing to lodge", hot: false },
+    { k: "texts", none: tomorrow.length ? "Tomorrow is reminded" : "No visits tomorrow", n: unreminded, what: unreminded === 1 ? "reminder for tomorrow" : "reminders for tomorrow", note: S.settings.reminders ? `Sent at ${hm(S.settings.reminderAt)}` : "Reminders are off", hot: false },
+  ];
+  return `<section class="needs" aria-label="Needs you today"><div class="needs-h caps">Needs you today</div>
+    <div class="needs-row">${cards.map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}">
+      <span class="nn">${c.n ? c.n : icon("check")}</span><span class="nw"><b>${c.n ? c.what : c.none}</b><span>${esc(c.note)}</span></span></button>`).join("")}</div></section>`;
 }
 /** How long a new lead has been waiting for a call, on the demo clock. */
 const leadWait = (l) => { const m = Math.max(0, (S.now || 0) - l.atMin); return m < 1 ? "just now" : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${Math.floor(m / 1440)} day${m >= 2880 ? "s" : ""}`; };
@@ -1522,6 +1571,11 @@ document.addEventListener("click", async (e) => {
       case "referlink": openDrawer({ kind: "booklink", refer: true }); break;
       case "referral": openDrawer({ kind: "referral", id: el.dataset.id }); break;
       case "lead": openDrawer({ kind: "lead", id: el.dataset.id }); break;
+      case "tray": {
+        UI.tray = el.dataset.v; render();
+        if (el.dataset.jump) { const t = $(".tray"); if (t && t.getBoundingClientRect().top < 0 || (t && t.getBoundingClientRect().top > innerHeight - 200)) t.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); }
+        break;
+      }
       case "lead-email": openDrawer({ kind: "lead-email" }); break;
       case "adform": window.open(`/ad-form/${S.sandbox}`, "_blank", "noopener"); break;
       case "lead-status": {
