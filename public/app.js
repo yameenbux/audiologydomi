@@ -18,15 +18,17 @@ function applyBrand(b) {
   BRAND_ID = b.id;
   if (b.theme) document.documentElement.dataset.brand = b.id; else delete document.documentElement.dataset.brand;
   const lock = document.querySelector(".lockup");
-  if (lock && lock.dataset.brand !== b.id) {
-    lock.dataset.brand = b.id;
+  const key = [b.id, b.logo, b.practice].join("|");
+  if (lock && lock.dataset.key !== key) {
+    lock.dataset.brand = b.id; lock.dataset.key = key;
     lock.setAttribute("aria-label", b.practice);
     lock.innerHTML = b.logo
       ? `<img class="brand-logo" src="${esc(b.logo)}" alt="${esc(b.logoAlt)}" referrerpolicy="no-referrer"><span class="by">Powered by Domi</span>`
+      : b.theme ? `<span class="wm keep"><b>${esc(b.practice)}</b><span>${esc(String(b.tagline || "").toUpperCase())}</span></span>`
       : `<img src="/logo.svg" alt=""><span class="wm"><b>Domi</b><span>EYE CARE AT HOME</span></span>`;
     // If their site can't be reached, show their name rather than a broken image.
     const img = lock.querySelector(".brand-logo");
-    if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm keep"><b>${esc(b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
+    if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm keep"><b>${esc(b.practice || b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
   }
   document.title = b.logo ? `${b.practice} · Diary` : "Domi";
   window.DomiPowered(b);
@@ -595,7 +597,7 @@ function smsBubble(m) {
 /** Clinicians on the diary: everyone working, plus anyone who has left but still has visits that day. */
 const onBoard = (day) => S.clinicians.filter((c) => c.active !== false || S.appts.some((a) => a.clinicianId === c.id && (a.day || 0) === day && active(a)));
 function board(nowM) {
-  const PX = 1.4, DS = META.dayStart, DE = META.dayEnd, H = (DE - DS) * PX;
+  const PX = 1.4, DS = dayS(), DE = dayE(), H = (DE - DS) * PX;
   const team = onBoard(UI.day);
   let ticks = "";
   for (let m = DS; m <= DE; m += 60) ticks += `<div class="tick mono" style="top:${(m - DS) * PX}px">${hm(m)}</div>`;
@@ -635,10 +637,10 @@ function board(nowM) {
 
 /* Week at a glance: each clinician's load per day; click a day to open it. */
 function weekView() {
-  const WORK = META.dayEnd - META.dayStart;
+  const WORK = dayE() - dayS();
   const cells = S.clinicians.filter((c) => c.active !== false).map((c) => `<div class="wk-row"><div class="col-h" style="border:0;padding:0"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div><div class="nm">${esc(c.first || c.name)}</div><div class="rl">${esc(c.areaName)}</div></div></div>
     ${(META.days || []).map((d, i) => {
-      const h = (c.hours || [])[i] === undefined ? [META.dayStart, META.dayEnd] : c.hours[i];
+      const h = (c.hours || [])[i] === undefined ? [dayS(), dayE()] : c.hours[i];
       const list = dayAppts(c.id, i), mins = list.reduce((t, a) => t + T(a.type).dur + (a.drive || 0), 0), pct = h ? Math.min(100, Math.round(mins / (h[1] - h[0]) * 100)) : 0;
       if (!h && !list.length) return `<div class="wk-cell off"><span class="wk-sub">Day off</span></div>`;
       const fresh = list.filter((a) => a.moved || a.bookedMin != null).length;
@@ -782,6 +784,7 @@ function parseRoute() {
   if (page === "patients") return { page: "patients" };
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
+  if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
 }
 const go = (path) => { location.hash = "/" + path; };
@@ -794,6 +797,10 @@ async function syncPage() {
     if (fresh) UI.pg = { kind: "patient", id: r.id, rec: null, edit: false };
     UI.pg.tab = r.tab;
     if (!UI.pg.edit) UI.pg.rec = await api("GET", `/api/patients/${encodeURIComponent(r.id)}${fresh ? "" : "?background=1"}`).catch(() => UI.pg.rec || { missing: true });
+  } else if (r.page === "settings") {
+    if (!UI.pg || UI.pg.kind !== "settings") UI.pg = { kind: "settings", edit: true, msgs: null };
+    if (r.sec === "hours") UI.pg.team = await api("GET", "/api/team").catch(() => UI.pg.team);
+    if (r.sec === "messages") UI.pg.msgs = await api("GET", "/api/settings/messages").catch(() => UI.pg.msgs);
   } else if (r.page === "newpatient") {
     if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true };
   } else if (r.page === "team" || r.page === "person") {
@@ -821,7 +828,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -833,7 +840,7 @@ function sideNav() {
   return `<nav class="side" aria-label="Office">
     <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${act("plans", "pin", "Plan routes")}${act("report", "car", "Mileage")}${act("invoices", "note", "Invoices")}</div>
-    <div class="side-sec"><div class="side-h">Practice</div>${act("import", "copy", "Import patients")}${act("booklink", "qr", "Booking page")}${soon("stock", "Stock", "db", "nav-i")}${act("roadmap", "next", "What's coming")}</div>
+    <div class="side-sec"><div class="side-h">Practice</div>${act("import", "copy", "Import patients")}${act("booklink", "qr", "Booking page")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
   </nav>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
@@ -845,6 +852,7 @@ const nextVisit = (pid) => S.appts.filter((a) => a.patientId === pid && OPEN.inc
 const whenShort = (a) => `${a.day ? esc(dayName(a.day).slice(0, 3)) : "Today"} ${hm(a.start)}`;
 
 /* ---------- Patients ---------- */
+const PAGE = 25; // patients shown at a time; a practice moving from Opticabase may bring thousands
 function patientsPage() {
   const all = S.patients.filter((p) => !p.erased);
   const waiting = new Set(S.waitlist.filter((w) => w.status !== "booked").map((w) => w.patientId));
@@ -862,13 +870,13 @@ function patientsPage() {
       <div class="tbl-tools"><div class="search-w">${icon("search")}<input class="input" id="pg-q" data-keep type="search" placeholder="Search by name, postcode, phone or date of birth" autocomplete="off" value="${esc(UI.pq || "")}" aria-label="Search patients"></div>
         <span class="muted tbl-count">${list.length === all.length ? `${all.length} patients` : `${list.length} of ${all.length}`}</span></div>
       ${list.length ? `<div class="tbl-wrap"><table class="ptable"><thead><tr><th scope="col">Patient</th><th scope="col">Area</th><th scope="col">Contact</th><th scope="col">Next visit</th><th scope="col"><span class="sr">Status</span></th></tr></thead><tbody>
-        ${list.map((p) => { const a = nextVisit(p.id); return `<tr data-act="go" data-v="patients/${esc(p.id)}">
+        ${list.slice(0, UI.plimit || PAGE).map((p) => { const a = nextVisit(p.id); return `<tr data-act="go" data-v="patients/${esc(p.id)}">
           <td><a class="pn" href="#/patients/${esc(p.id)}"><span class="avatar sm soft">${initials(p.name)}</span><span><b>${esc(p.name)}</b><span class="muted">${p.age ? `Age ${p.age} · ` : ""}${esc(p.addr)}</span></span></a></td>
           <td><b class="mono">${esc(p.pc)}</b><span class="muted">${esc(townOf(p.pc))}</span></td>
           <td><span class="mono">${esc(p.phone || "–")}</span><span class="muted">${p.contact === "Call" ? "Phone, don't text" : "Texts"}</span></td>
           <td>${a ? `<b>${whenShort(a)}</b><span class="muted">${esc(T(a.type).name)}</span>` : `<span class="muted">Nothing booked</span>`}</td>
           <td class="st">${waiting.has(p.id) ? `<span class="badge b-apricot">Waiting</span>` : ""}${recall.has(p.id) ? `<span class="badge b-forest">Recall</span>` : ""}${p.alerts.length ? `<span class="badge b-plain" title="${esc(p.alerts.join(". "))}">Notes</span>` : ""}</td></tr>`; }).join("")}
-        </tbody></table></div>`
+        </tbody></table></div>${list.length > (UI.plimit || PAGE) ? `<div class="tbl-more"><span class="muted">Showing ${UI.plimit || PAGE} of ${list.length}</span><button class="btn secondary" type="button" data-act="pmore">Show ${Math.min(PAGE, list.length - (UI.plimit || PAGE))} more</button></div>` : ""}`
       : `<div class="empty"><b>Nobody matches</b>Try a surname, a postcode like BL1, or the last digits of a phone number.</div>`}
     </section></div>`;
 }
@@ -922,6 +930,97 @@ function patientPage() {
   return `<div class="pg">${crumbs}${hero}${g.edit ? "" : nav}${body}</div>`;
 }
 /** The edit form's fields, shared by the record page and the side panel. */
+
+/* ---------- Settings: the practice's details and rules, which the rest of Domi reads ---------- */
+const SET_SECS = [
+  { k: "practice", icon: "shield", label: "Practice details", sub: "Name, contact details, logo" },
+  { k: "hours", icon: "clock", label: "Opening hours", sub: "When the diary runs" },
+  { k: "visits", icon: "cal", label: "Visits & prices", sub: "Prices and online booking" },
+  { k: "refill", icon: "bolt", label: "Cancellations & reminders", sub: "How gaps are filled" },
+  { k: "messages", icon: "msg", label: "What patients receive", sub: "Texts and emails" },
+];
+const uses = (list) => `<div class="uses"><span class="caps">Used in</span>${list.map((x) => `<span class="use">${x}</span>`).join("")}</div>`;
+const setFoot = (label = "Save changes") => `<div class="form-f sticky"><button class="btn" type="submit">${icon("check")}${label}</button></div>`;
+const sf = (id, label, v, extra = "", hint = "") => `<div class="field"><label for="set-${id}">${label}</label><input class="input" id="set-${id}" value="${esc(v == null ? "" : v)}" ${hint ? `aria-describedby="set-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="set-${id}-h">${hint}</span>` : ""}</div>`;
+const timeOpts = (sel, from, to) => quarters(from, to).map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
+
+/** A day from 07:00 to 20:00 with the practice's hours shaded and each clinician's working day on top. */
+function hoursPreview(s, e) {
+  const L = 7 * 60, R = 20 * 60, pc = (m) => ((m - L) / (R - L)) * 100;
+  const clin = (UI.pg && UI.pg.team ? UI.pg.team.clinicians : []).filter((c) => c.active);
+  const ticks = [8, 10, 12, 14, 16, 18].map((h) => `<span class="hp-t" style="left:${pc(h * 60)}%">${String(h).padStart(2, "0")}:00</span>`).join("");
+  const row = (c) => { const h = (c.hours || []).filter(Boolean); if (!h.length) return ""; const a = Math.min(...h.map((x) => x[0])), b = Math.max(...h.map((x) => x[1])); const bad = a < s || b > e;
+    const over = [a < s ? [a, s] : null, b > e ? [e, b] : null].filter(Boolean).map(([x, y]) => `<i class="bad" style="left:${pc(x)}%;right:${100 - pc(y)}%"></i>`).join("");
+    return `<div class="hp-r"><span class="hp-n">${esc(c.first || c.name)}</span><span class="hp-track"><i style="left:${pc(a)}%;right:${100 - pc(b)}%;background:${c.color}"></i>${over}</span><span class="hp-v ${bad ? "late" : "muted"}">${hm(a)}–${hm(b)}${bad ? " · clash" : ""}</span></div>`; };
+  return `<div class="hp" aria-hidden="true"><div class="hp-r hp-main"><span class="hp-n">Practice</span><span class="hp-track"><i style="left:${pc(s)}%;right:${100 - pc(e)}%"></i>${ticks}</span><span class="hp-v"><b>${hm(s)}–${hm(e)}</b></span></div>${clin.map(row).join("")}</div>`;
+}
+
+function settingsPage() {
+  const st = S.settings, sec = UI.route.sec || "practice", b = S.brand || {};
+  const nav = `<nav class="set-nav" aria-label="Settings sections">${SET_SECS.map((x) => `<a href="#/settings/${x.k}" ${x.k === sec ? 'aria-current="page"' : ""}>${icon(x.icon)}<span><b>${x.label}</b><span>${x.sub}</span></span></a>`).join("")}</nav>`;
+  let body = "";
+  if (sec === "practice") {
+    body = `<form id="set-practice" class="pg-form" novalidate>
+      <section class="card"><div class="card-h"><h2>Your practice</h2><p>How patients, families and referrers see you.</p></div>
+        ${sf("practice", "Practice name", st.practice, 'maxlength="60" required', "Texts are signed with this, and it heads every email, invoice and public page.")}
+        <div class="row2">${sf("phone", "Phone number", st.phone, 'inputmode="tel" maxlength="24"', "Shown on the booking, referral and cancellation pages, and in emails.")}${sf("email", "Email", st.email, 'type="email" maxlength="120"', "Replies to lead emails come here, and it's on every invoice.")}</div>
+        ${sf("hoursText", "Office hours", st.officeHours, 'maxlength="120"', "In words, as patients read it: the thank-you email to every ad lead quotes it.")}
+        ${uses(["Texts", "Lead emails", "Invoices", "Booking page", "Referral form", "Cancellation page"])}</section>
+      <section class="card"><div class="card-h"><h2>Logo</h2><p>Shown at the top of Domi for everyone in the practice.</p></div>
+        <div class="logo-row"><div class="logo-prev" id="logo-prev">${st.logo ? `<img src="${esc(st.logo)}" alt="Current logo" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken')">` : ""}<span>${st.logo ? "This address doesn't load an image" : "No logo: your name is shown instead"}</span></div>
+          <div class="logo-f">${sf("logo", "Logo address", st.logo, 'type="url" maxlength="300" placeholder="https://www.yourpractice.co.uk/logo.png"', "The web address of your logo, for example the one on your own website. Leave empty to show your name.")}</div></div>
+        ${uses(["Top bar", "Booking page", "Referral form"])}</section>
+      ${setFoot()}</form>`;
+  } else if (sec === "hours") {
+    const s = st.dayStart, e = st.dayEnd;
+    body = `<form id="set-hours" class="pg-form" novalidate>
+      <section class="card"><div class="card-h"><h2>When the practice's day runs</h2><p>The diary shows these hours, and every clinician's working hours must fit inside them.</p></div>
+        <div class="row2"><div class="field"><label for="set-ds">Opens</label><select class="input" id="set-ds">${timeOpts(s, 7 * 60, 16 * 60)}</select></div>
+          <div class="field"><label for="set-de">Closes</label><select class="input" id="set-de">${timeOpts(e, 11 * 60, 20 * 60)}</select></div></div>
+        <div id="hp-wrap">${hoursPreview(s, e)}</div>
+        <p class="set-note">Each clinician's own days and hours are set on <a href="#/team">Team &amp; hours</a>. If someone works outside new hours, Domi names them so you can change theirs first, and no booked visit is left outside the diary.</p>
+        ${uses(["Diary", "Clinicians' hours", "Route planning", "Refilling cancellations", "Online booking"])}</section>
+      ${setFoot()}</form>`;
+  } else if (sec === "visits") {
+    const types = Object.entries(META.types || {});
+    body = `<form id="set-visits" class="pg-form" novalidate>
+      <section class="card tbl-card"><div class="card-h" style="padding:20px 22px 0"><h2>Visits and prices</h2><p>The price is what the patient is invoiced when a visit is done. £0 means no invoice: NHS sight tests are claimed on a GOS form, and glasses are charged when ordered.</p></div>
+        <div class="tbl-wrap"><table class="ptable vtable"><thead><tr><th scope="col">Visit</th><th scope="col">Length</th><th scope="col">Price</th><th scope="col">Patients can book online</th></tr></thead><tbody>
+        ${types.map(([k, t]) => { const can = k !== "dispense"; const on = (st.online || []).includes(k); return `<tr><td><b>${esc(t.name)}</b>${t.optom ? `<span class="muted">Optometrists only${t.pvn ? " · PCSE notice 48 hours before" : ""}</span>` : `<span class="muted">Any clinician</span>`}</td>
+          <td><span class="mono">${t.dur} min</span></td>
+          <td><label class="money-in"><span>£</span><input class="input" type="number" min="0" max="5000" step="1" data-price="${k}" value="${Number((st.prices || {})[k] || 0)}" aria-label="Price for ${esc(t.name)}"></label></td>
+          <td>${can ? `<label class="chk"><input type="checkbox" data-online="${k}" ${on ? "checked" : ""}><span>${on ? "Yes" : "No"}</span></label>` : `<span class="muted">Arranged by the practice</span>`}</td></tr>`; }).join("")}
+        </tbody></table></div>
+        <div style="padding:0 22px 20px"><p class="set-note">Lengths are fixed for now, because the refill engine and route planner are tuned to them. Ask us if a visit type needs a different length.</p>${uses(["Invoices", "Booking page", "Today's income figures"])}</div></section>
+      ${setFoot()}</form>`;
+  } else if (sec === "refill") {
+    const mins = [5, 10, 15, 20, 30, 45, 60, 90, 120];
+    body = `<form id="set-refill" class="pg-form" novalidate>
+      <section class="card"><div class="card-h"><h2>When a visit is cancelled</h2><p>Domi picks the best-matched patients on the waiting list: urgency, area, how long they've waited and the extra driving.</p></div>
+        <div class="choice2" role="radiogroup" aria-label="How cancelled visits are filled">
+          <label class="choice"><input type="radio" name="set-mode" value="offer" ${st.mode === "offer" ? "checked" : ""}><span><b>${icon("send")}Text an offer</b><span>Patients reply YES to take it. The best match is asked first; when the visit is close, the top three are asked at once.</span></span></label>
+          <label class="choice"><input type="radio" name="set-mode" value="instant" ${st.mode === "instant" ? "checked" : ""}><span><b>${icon("bolt")}Book instantly</b><span>The best match is booked straight in and told by text. Fastest, but nobody is asked first.</span></span></label></div>
+        <div class="row2" style="margin-top:14px"><div class="field"><label for="set-om">Normal reply window</label><select class="input" id="set-om">${mins.map((m) => `<option value="${m}" ${m === st.offerMinutes ? "selected" : ""}>${m} minutes</option>`).join("")}</select><span class="hint after">Shorter when the visit is close.</span></div>
+          ${sf("fee", "Your fee per visit (£)", st.fee, 'type="number" min="0" max="2000" step="1"', "Used to show what refilled cancellations are worth.")}</div>
+        ${uses(["Waiting list", "Offer texts", "Today's income figures"])}</section>
+      <section class="card"><div class="card-h"><h2>Day-before reminders</h2><p>Each patient gets a text the day before, with a link a relative can use to cancel. A cancellation a day ahead can be refilled; one at the door can't.</p></div>
+        <label class="chk big"><input type="checkbox" id="set-rem" ${st.reminders ? "checked" : ""}><span>Send reminders</span></label>
+        <div class="field" style="max-width:320px;margin-top:12px"><label for="set-ra">Send them at</label><select class="input" id="set-ra">${quarters(8 * 60, 21 * 60).map((m) => `<option value="${m}" ${m === st.reminderAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
+        ${uses(["Reminder texts", "Cancellation links"])}</section>
+      ${setFoot()}</form>`;
+  } else {
+    const m = UI.pg && UI.pg.msgs;
+    body = !m ? `<p class="muted">Loading…</p>` : `<div class="pg-form">
+      <section class="card"><div class="card-h"><h2>Texts</h2><p>Worded from your settings, exactly as patients get them. Change the practice name, hours or reminder time and these change too.</p></div>
+        <div class="msgs">${m.messages.map((x) => `<article class="msg-p"><header><b>${esc(x.title)}</b><span class="muted">${esc(x.when)}</span></header><div class="bubble">${esc(x.body)}</div></article>`).join("")}</div></section>
+      <section class="card"><div class="card-h"><h2>Email to every ad lead</h2><p>Sent the moment someone fills in the form on your Facebook ad. Replies go to ${esc(st.email || "your practice email")}.</p></div>
+        <div class="mailcard"><div class="mail-h"><b>${esc(m.lead.subject)}</b><span class="muted">From ${esc(st.practice)}</span></div><div class="mail-b">${esc(m.lead.body)}</div></div></section>
+      <p class="set-note">The wording itself is set by Domi for now, so every message stays clear and within the rules for texting patients. Ask us if you'd like a line changed.</p></div>`;
+  }
+  return `<div class="pg">${pageHead({ eyebrow: esc(st.practice), title: "Settings", lead: "Your practice's details and rules. Everything here feeds the diary, texts, emails, invoices and the booking page." })}
+    <div class="set-wrap">${nav}<div class="set-body">${body}</div></div></div>`;
+}
+
 /** Adding a patient by hand: someone who phoned, or a referral that came by post. Grouped as the office asks for it. */
 function newPatientPage() {
   const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
@@ -962,7 +1061,7 @@ function patientFormFields(p) {
 }
 
 /* ---------- Team & hours ---------- */
-const weekBar = (h) => `<span class="wkbar" aria-label="${esc(hoursText(h))}">${(META.days || []).map((d, i) => { const x = h[i]; const span = META.dayEnd - META.dayStart; return `<span class="wd" title="${esc(d.slice(0, 3))}: ${x ? `${hm(x[0])}–${hm(x[1])}` : "day off"}"><i style="${x ? `left:${((x[0] - META.dayStart) / span) * 100}%;right:${100 - ((x[1] - META.dayStart) / span) * 100}%` : "display:none"}"></i><em>${esc(d.slice(0, 1))}</em></span>`; }).join("")}</span>`;
+const weekBar = (h) => `<span class="wkbar" aria-label="${esc(hoursText(h))}">${(META.days || []).map((d, i) => { const x = h[i]; const span = dayE() - dayS(); return `<span class="wd" title="${esc(d.slice(0, 3))}: ${x ? `${hm(x[0])}–${hm(x[1])}` : "day off"}"><i style="${x ? `left:${((x[0] - dayS()) / span) * 100}%;right:${100 - ((x[1] - dayS()) / span) * 100}%` : "display:none"}"></i><em>${esc(d.slice(0, 1))}</em></span>`; }).join("")}</span>`;
 function teamPage() {
   const g = UI.pg || {}, t = g.data;
   if (g.edit) return personPage(t, g.edit);
@@ -998,8 +1097,8 @@ function personPage(t, edit) {
         <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
       </form></div>`;
   }
-  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: (META.days || []).map(() => [META.dayStart, META.dayEnd]) };
-  const opts = (sel) => QUARTERS.map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
+  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: (META.days || []).map(() => [dayS(), dayE()]) };
+  const opts = (sel) => quarters().map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
   const f = (k, label, v, extra = "", hint = "") => `<div class="field"><label for="tm-${k}">${label}</label>${hint ? `<span class="hint">${hint}</span>` : ""}<input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
   return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/team", "Team & hours"], ["", c.name || "New clinician"]]), eyebrow: edit.id ? esc(c.role) : "New clinician", title: esc(c.name || "Add a clinician"),
       lead: edit.id ? "Changes reach booking, refills and route planning straight away." : "They can sign in as soon as you save." })}
@@ -1013,7 +1112,7 @@ function personPage(t, edit) {
         ${f("base", "Starts the day from (postcode)", c.base, 'placeholder="BL1 5DN"', "Route planning starts and ends here.")}</section>
       <section class="card"><div class="card-h"><h2>Working hours</h2><p>Untick a day for a day off. If booked visits fall outside new hours, Domi names them so they can be moved first.</p></div>
         <div class="hours lg">${(META.days || []).map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(DAY_LONG[i] || d.slice(0, 3))}</label>
-          <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : META.dayStart)}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : META.dayEnd)}</select></div>`; }).join("")}</div></section>
+          <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : dayS())}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : dayE())}</select></div>`; }).join("")}</div></section>
       ${accessCard(edit, c, "clin")}
       <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
     </form></div>`;
@@ -1604,8 +1703,11 @@ function gapDrawer(d) {
 }
 
 /* ---------- The team: clinicians, office accounts, working hours ---------- */
-const QUARTERS = []; for (let m = 9 * 60; m <= 17 * 60 + 30; m += 15) QUARTERS.push(m); // 09:00 to the end of the day, 17:30
-const hoursText = (h) => (META.days || []).map((d, i) => h[i] ? (h[i][0] === META.dayStart && h[i][1] === META.dayEnd ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || `Mon–Fri, ${hm(META.dayStart)}–${hm(META.dayEnd)}`;
+/** The practice's opening hours, from Settings: the diary shows them and clinicians' hours fit inside them. */
+const dayS = () => (S && S.settings && S.settings.dayStart != null ? S.settings.dayStart : META.dayStart);
+const dayE = () => (S && S.settings && S.settings.dayEnd != null ? S.settings.dayEnd : META.dayEnd);
+const quarters = (from = dayS(), to = dayE()) => { const q = []; for (let m = from; m <= to; m += 15) q.push(m); return q; };
+const hoursText = (h) => (META.days || []).map((d, i) => h[i] ? (h[i][0] === dayS() && h[i][1] === dayE() ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || `Mon–Fri, ${hm(dayS())}–${hm(dayE())}`;
 function teamDrawer(d) {
   const t = d.data;
   if (!t) return `<div class="drawer-h"><div><div class="caps">The practice</div><h2 style="margin-top:6px">Team</h2></div>${closeX}</div><div class="drawer-b"><p class="muted">Loading…</p></div>`;
@@ -1623,8 +1725,8 @@ function teamDrawer(d) {
     </div>`;
 }
 function clinicianForm(t, id) {
-  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: (META.days || []).map(() => [META.dayStart, META.dayEnd]) };
-  const opts = (sel) => QUARTERS.map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
+  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: (META.days || []).map(() => [dayS(), dayE()]) };
+  const opts = (sel) => quarters().map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
   const f = (k, label, v, extra = "") => `<div class="field"><label for="tm-${k}">${label}</label><input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
   return `<div class="drawer-h"><div><div class="caps">${id ? "Edit clinician" : "New clinician"}</div><h2 style="margin-top:6px">${esc(c.name || "Add a clinician")}</h2></div>${closeX}</div>
   <form class="drawer-b" id="tm-clin" data-id="${esc(id || "")}">
@@ -1635,7 +1737,7 @@ function clinicianForm(t, id) {
     ${f("base", "Starts the day from (postcode)", c.base, 'placeholder="BL1 5DN"')}
     <div class="caps" style="margin:8px 0 8px">Working hours</div>
     <div class="hours">${(META.days || []).map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(d.slice(0, 3))}</label>
-      <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : META.dayStart)}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : META.dayEnd)}</select></div>`; }).join("")}</div>
+      <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : dayS())}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : dayE())}</select></div>`; }).join("")}</div>
     <p class="muted" style="font-size:12.5px;margin:8px 0 0">Untick a day for a day off. Bookings, refills and route planning stay inside these hours. If booked visits fall outside new hours, Domi says which, so they can be moved first.</p>
     <div class="drawer-f" style="margin:16px -22px -22px"><button class="btn ghost" type="button" data-act="tm-back">Back</button><button class="btn" type="submit">${icon("check")}${id ? "Save" : "Add and create their sign-in"}</button></div>
   </form>`;
@@ -1755,7 +1857,7 @@ function tick() {
   if (!S) return;
   const n = demoNow();
   document.querySelectorAll("[data-clock]").forEach((e) => { e.textContent = hm(n); });
-  const y = Math.max(0, Math.min((META.dayEnd - META.dayStart) * 1.4, (n - META.dayStart) * 1.4));
+  const y = Math.max(0, Math.min((dayE() - dayS()) * 1.4, (n - dayS()) * 1.4));
   document.querySelectorAll("[data-now]").forEach((e) => { e.style.top = y + "px"; });
 }
 setInterval(() => { tick(); if (UI.drawer && UI.drawer.kind === "flow" && UI.flow && !UI.flow.outcome) renderDrawer(); }, 15000);
@@ -1891,7 +1993,8 @@ document.addEventListener("click", async (e) => {
       case "patients": go("patients"); break;
       case "open-rec": go("patients/" + el.dataset.id); break;
       case "go": go(el.dataset.v); break;
-      case "pf": UI.pf = el.dataset.v; render(); break;
+      case "pf": UI.pf = el.dataset.v; UI.plimit = PAGE; render(); break;
+      case "pmore": UI.plimit = (UI.plimit || PAGE) + PAGE; render(); break;
       case "rec-edit": { const d = ctx("patient"); d.edit = true; rerender(d); break; }
       case "rec-edit-cancel": { const d = ctx("patient"); d.edit = false; rerender(d); break; }
       case "rec-export": {
@@ -2027,6 +2130,20 @@ document.addEventListener("submit", async (e) => {
       await api("POST", `/api/patients/${d.id}/notes`, { body: t.value }); t.value = "";
       d.rec = await api("GET", `/api/patients/${d.id}?background=1`); await load(); toast("Note added"); return;
     }
+    if (e.target.id && e.target.id.startsWith("set-")) {
+      const v = (id) => ($("#set-" + id) || {}).value;
+      const body = {
+        "set-practice": () => ({ practice: v("practice"), phone: v("phone"), email: v("email"), officeHours: v("hoursText"), logo: v("logo") }),
+        "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")) }),
+        "set-visits": () => ({ prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
+        "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")) }),
+      }[e.target.id];
+      if (!body) return;
+      const r = await api("PUT", "/api/settings", body());
+      await load(); render();
+      toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
+      return;
+    }
     if (e.target.id === "np-form") {
       const v = (id) => ($("#np-" + id) || {}).value || "", err = $("#np-err");
       try {
@@ -2094,6 +2211,9 @@ document.addEventListener("change", async (e) => {
     }
     if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; renderDrawer(); }
     if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; renderDrawer(); }
+    if (e.target.id === "set-ds" || e.target.id === "set-de") { $("#hp-wrap").innerHTML = hoursPreview(Number($("#set-ds").value), Number($("#set-de").value)); return; }
+    if (e.target.dataset && e.target.dataset.online) { e.target.nextElementSibling.textContent = e.target.checked ? "Yes" : "No"; return; }
+    if (e.target.id === "set-logo") { const u = e.target.value.trim(), box = $("#logo-prev"); box.classList.remove("broken"); box.innerHTML = /^https:\/\//.test(u) ? `<img src="${esc(u)}" alt="Logo preview" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken')"><span>This address doesn't load an image</span>` : `<span>${u ? "The address must start with https://" : "No logo: your name is shown instead"}</span>`; return; }
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }
     if (e.target.id === "practice-name") { const v = e.target.value.trim(); if (v.length < 2) { e.target.value = S.settings.practice; return; } await api("PUT", "/api/settings", { practice: v }); await load(); toast("Texts now signed " + v); }
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
@@ -2105,7 +2225,7 @@ document.addEventListener("change", async (e) => {
 document.addEventListener("input", (e) => {
   if (e.target.id === "psearch") { UI.q = e.target.value; render(); }
   if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; renderDrawer(); }
-  if (e.target.id === "pg-q") { UI.pq = e.target.value; render(); }
+  if (e.target.id === "pg-q") { UI.pq = e.target.value; UI.plimit = PAGE; render(); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.drawer) closeDrawer(); });
 // Keep the screen at a fixed size: Safari ignores user-scalable=no, so stop pinch here (double-tap zoom is off via CSS touch-action).

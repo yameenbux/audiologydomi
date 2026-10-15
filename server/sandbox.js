@@ -5,6 +5,7 @@
 const { AsyncLocalStorage } = require("node:async_hooks");
 const crypto = require("node:crypto");
 const brands = require("./brands");
+const { DAY_START, DAY_END } = require("./domain");
 
 const als = new AsyncLocalStorage();
 const sandboxes = new Map();
@@ -22,7 +23,13 @@ const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "o
   officeHours: brand.officeHours || "Monday to Friday, 9am to 5pm",
   // Price per visit type, in pounds. 0 = no invoice to the patient: NHS sight tests are claimed from the NHS
   // on a GOS 6 form, and glasses are charged when they're ordered (or paid for with an NHS voucher).
-  prices: { sight: 0, exam: 65, dispense: 0, repair: 15, follow: 35 } });
+  prices: { sight: 0, exam: 65, dispense: 0, repair: 15, follow: 35 },
+  // How patients and families reach the practice: on texts, emails, invoices and the booking page.
+  phone: brand.phone || null, email: brand.email || null, logo: brand.logo || null,
+  // When the practice's day runs. The diary shows these hours and clinicians' hours must fit inside them.
+  dayStart: DAY_START, dayEnd: DAY_END,
+  // Which kinds of visit patients can book for themselves on the booking page.
+  online: ["sight", "exam", "repair", "follow"] });
 
 function newCode() {
   let c;
@@ -74,4 +81,10 @@ const nowMin = (sb = current()) => Math.floor(nowSec(sb) / 60);
 const pad = (n) => String(n).padStart(2, "0");
 const stamp = (sb = current()) => { const s = nowSec(sb); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`; };
 
-module.exports = { create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };
+/** The practice as patients see it: the brand's look, with the name, phone, email and logo the office set. */
+function brandView(sb = current()) {
+  const st = sb.settings;
+  return { ...brands.pub(sb.brand), practice: st.practice, phone: st.phone, email: st.email, logo: st.logo, logoAlt: st.practice };
+}
+
+module.exports = { brandView, create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };

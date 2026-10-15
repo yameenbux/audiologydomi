@@ -269,7 +269,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const sb = sandbox.current();
   return {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
-    metrics: isAdmin ? svc.metrics() : null, settings: sb.settings, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region),
+    metrics: isAdmin ? svc.metrics() : null, settings: sb.settings, brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
 
@@ -337,29 +337,8 @@ route("POST", "/api/team/staff/:id/active", {}, (req, body, user, { id }) => {
 route("POST", "/api/slots", {}, (req, body, user) => { needAdmin(user); return svc.findSlots(body); });
 route("POST", "/api/bookings", {}, (req, body, user) => { needAdmin(user); return svc.bookVisit(body, user); });
 
-route("PUT", "/api/settings", {}, (req, body, user) => {
-  needAdmin(user);
-  const st = sandbox.current().settings;
-  if (body.mode === "offer" || body.mode === "instant") st.mode = body.mode;
-  if (Number(body.offerMinutes) >= 1 && Number(body.offerMinutes) <= 240) st.offerMinutes = Number(body.offerMinutes);
-  if (body.fee !== undefined && Number(body.fee) >= 0 && Number(body.fee) <= 2000) st.fee = Math.round(Number(body.fee));
-  if (typeof body.reminders === "boolean") st.reminders = body.reminders;
-  if (typeof body.practice === "string") {
-    const name = body.practice.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
-    if (name.length >= 2) st.practice = name;
-  }
-  if (body.prices && typeof body.prices === "object") {
-    for (const [k, v] of Object.entries(body.prices)) if (k in st.prices && Number(v) >= 0 && Number(v) <= 5000) st.prices[k] = Math.round(Number(v));
-  }
-  if (typeof body.officeHours === "string") {
-    const h = body.officeHours.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().replace(/\.$/, "").slice(0, 120);
-    if (h.length >= 3) st.officeHours = h;
-  }
-  if (Number(body.reminderAt) >= 8 * 60 && Number(body.reminderAt) <= 21 * 60) st.reminderAt = Math.round(Number(body.reminderAt));
-  svc.audit(user.name, "settings.update", "settings", JSON.stringify(st));
-  bus.emit({ type: "settings.updated", settings: st });
-  return st;
-});
+route("PUT", "/api/settings", {}, (req, body, user) => { needAdmin(user); return svc.saveSettings(body, user); });
+route("GET", "/api/settings/messages", {}, (req, body, user) => { needAdmin(user); return { messages: svc.messagePreviews(), lead: leads.preview() }; });
 
 /* ---------- Patients booking online (public: no sign-in, limited per connection) ---------- */
 const publicHits = new Map();
@@ -372,7 +351,7 @@ setInterval(() => publicHits.clear(), 30 * 60e3).unref();
 const practice = (code) => { const sb = sandbox.get(code); if (!sb) throw new svc.HttpError(404, "This booking link has expired. Please call the practice."); return sb; };
 route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) => {
   const sb = practice(code);
-  return { practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() };
+  return sandbox.run(sb, () => ({ practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL, brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() }));
 });
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
 /**
@@ -405,7 +384,7 @@ route("POST", "/api/leads/:id/status", {}, (req, body, user, { id }) => { needAd
 route("POST", "/api/referrals/:id/accept", {}, (req, body, user, { id }) => { needAdmin(user); return svc.acceptReferral(id, body, user); });
 route("POST", "/api/referrals/:id/decline", {}, (req, body, user, { id }) => { needAdmin(user); return svc.declineReferral(id, body.reason, user); });
 // The cancellation link a patient's family can use instead of texting: /cancel/<practice code>/<token>.
-route("GET", "/api/public/:code/visit/:token", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "visit", 30); const sb = practice(code); return sandbox.run(sb, () => ({ practice: sb.settings.practice, brand: brands.pub(sb.brand), ...svc.publicVisit(token) })); });
+route("GET", "/api/public/:code/visit/:token", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "visit", 30); const sb = practice(code); return sandbox.run(sb, () => ({ practice: sb.settings.practice, brand: sandbox.brandView(sb), ...svc.publicVisit(token) })); });
 route("POST", "/api/public/:code/visit/:token/cancel", { public: true }, (req, body, user, { code, token }) => { limitPublic(req, "cancel", 10); return sandbox.run(practice(code), () => svc.publicCancel(token, body)); });
 route("POST", "/api/public/:code/bookings", { public: true }, (req, body, user, { code }) => {
   limitPublic(req, "book", 10);
@@ -420,7 +399,7 @@ route("POST", "/api/invoices/:id/void", {}, (req, body, user, { id }) => { needA
 route("GET", "/api/invoices/:id", {}, (req, body, user, { id }) => {
   needAdmin(user);
   const inv = svc.getInvoice(id), p = svc.getPatient(inv.patientId);
-  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: sandbox.current().settings.practice, addr: sandbox.current().brand.phone ? null : "Sample practice, Leeds", email: sandbox.current().brand.email || "hello@practice.example", phone: sandbox.current().brand.phone || null } };
+  return { ...inv, patient: { name: p.name, addr: p.addr, pc: p.pc }, practice: { name: sandbox.current().settings.practice, addr: sandbox.current().brand.phone ? null : "Sample practice, Leeds", email: sandbox.current().settings.email || "hello@practice.example", phone: sandbox.current().settings.phone || null } };
 });
 
 // Mileage and utilisation for the week, per clinician and day.
