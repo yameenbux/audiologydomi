@@ -175,7 +175,7 @@ async function load() {
   fetchedAt = Date.now(); UI.offline = false;
   saveOffline(); prefetchRecords();
   if (S.user.clinicianId) UI.lastClin = "u-" + S.user.clinicianId;
-  if (UI.drawer && UI.drawer.kind === "invoices") UI.drawer.data = await api("GET", "/api/invoices").catch(() => UI.drawer.data);
+  const inv = panel("invoices"); if (inv) inv.data = await api("GET", "/api/invoices").catch(() => inv.data);
   if (UI.myRoute && !isAdmin()) UI.myRoute = await api("GET", "/api/route?day=0").catch(() => null);
   if (UI.pid) { try { UI.rec = await api("GET", "/api/patients/" + UI.pid + "?background=1"); } catch (e) { UI.pid = null; UI.rec = null; } }
   const d = UI.drawer;
@@ -184,7 +184,7 @@ async function load() {
   UI.route = parseRoute(); await syncPage();
   if (!pageEditing()) render();
   // A form being filled in isn't redrawn by live updates, so nothing typed or picked is lost.
-  if (UI.drawer && !UI.drawer.edit) renderDrawer();
+  if (UI.drawer && !UI.drawer.edit) redraw();
 }
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
@@ -233,7 +233,7 @@ function onEvent(type, e) {
     toast(`${e.patient} moved forward to ${hm(e.start)}`);
   } else if (type === "slot.unfilled") { f.outcome = "unfilled"; f.why = e.why; }
   else return;
-  if (UI.drawer && UI.drawer.kind === "flow") renderDrawer();
+  if (UI.drawer && UI.drawer.kind === "flow") redraw();
 }
 
 /* ---------- Sign-in: password, then the code from an authenticator app ---------- */
@@ -785,6 +785,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
+  if (["routes", "mileage", "invoices", "import"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -807,6 +808,14 @@ async function syncPage() {
   } else if (r.page === "newpatient") {
     if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true, pre: UI.npPre || {} };
     UI.npPre = null;
+  } else if (r.page === "routes") {
+    if (!UI.pg || UI.pg.kind !== "plans") { UI.pg = { kind: "plans", day: UI.view === "week" ? 1 : UI.day, list: null }; setTimeout(() => loadPlans(UI.pg.day), 0); }
+  } else if (r.page === "mileage") {
+    UI.pg = { kind: "report", data: await api("GET", "/api/reports/week").catch(() => null) };
+  } else if (r.page === "invoices") {
+    UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
+  } else if (r.page === "import") {
+    if (!UI.pg || UI.pg.kind !== "import") { UI.pg = { kind: "import" }; UI.imp = {}; }
   } else if (r.page === "lead") {
     UI.pg = { kind: "lead", id: r.id };
   } else if (r.page === "team" || r.page === "person") {
@@ -834,7 +843,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -845,8 +854,8 @@ function sideNav() {
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
     <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
-    <div class="side-sec"><div class="side-h">Planning</div>${act("plans", "pin", "Plan routes")}${act("report", "car", "Mileage")}${act("invoices", "note", "Invoices")}</div>
-    <div class="side-sec"><div class="side-h">Practice</div>${act("import", "copy", "Import patients")}${act("booklink", "qr", "Booking page")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
   </nav>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
@@ -936,6 +945,25 @@ function patientPage() {
   return `<div class="pg">${crumbs}${hero}${g.edit ? "" : nav}${body}</div>`;
 }
 /** The edit form's fields, shared by the record page and the side panel. */
+
+/* ---------- Planning and practice tools as pages: the same contents as their side panels, laid out full width ---------- */
+const TOOL_LEADS = {
+  plans: "Domi puts each clinician's visits in the order that drives least, from their home base and back. Nothing changes until you apply it, and patients whose time moves are told by text.",
+  report: "How far each clinician drove and how full their days were, from the diary. Download it for mileage claims.",
+  invoices: "Raised automatically when a visit is completed, at your prices in Settings. Mark them paid, void them, or print one.",
+  import: "Bring patients across from Opticabase or any spreadsheet. Every row is checked, duplicates are caught, and nothing is saved until you say so.",
+};
+function toolPage(kind) {
+  const P = UI.pg || {};
+  const html = kind === "plans" ? plansDrawer(P) : kind === "report" ? (P.data ? reportDrawer(P.data) : "") : kind === "invoices" ? (P.data ? invoicesDrawer(P.data) : "") : importDrawer();
+  if (!html) return `<div class="pg"><p class="muted">Loading…</p></div>`;
+  const box = document.createElement("div"); box.innerHTML = html;
+  const h = box.querySelector(".drawer-h"), b = box.querySelector(".drawer-b"), f = box.querySelector(".drawer-f");
+  const caps = h && h.querySelector(".caps") ? h.querySelector(".caps").innerHTML : "", title = h && h.querySelector("h2") ? h.querySelector("h2").innerHTML : "";
+  if (b) { const intro = b.firstElementChild; if (intro && intro.tagName === "P" && intro.classList.contains("muted")) intro.remove(); } // the page lead says it
+  return `<div class="pg tool-pg tool-${kind}">${pageHead({ eyebrow: caps, title, lead: TOOL_LEADS[kind] })}
+    <section class="card tool-card">${b ? b.innerHTML : ""}</section>${f && f.innerHTML.trim() ? `<div class="form-f sticky">${f.innerHTML}</div>` : ""}</div>`;
+}
 
 /* ---------- Facebook leads: the people who asked for a call from the practice's ads ---------- */
 const LEAD_TABS = [["new", "To call"], ["contacted", "Called"], ["booked", "Visit booked"], ["closed", "Not interested"], ["all", "All"]];
@@ -1030,6 +1058,7 @@ const SET_SECS = [
   { k: "visits", icon: "cal", label: "Visits & prices", sub: "Prices and online booking" },
   { k: "refill", icon: "bolt", label: "Cancellations & reminders", sub: "How gaps are filled" },
   { k: "messages", icon: "msg", label: "What patients receive", sub: "Texts and emails" },
+  { k: "booking", icon: "qr", label: "Booking & referral pages", sub: "Links for your website" },
   { k: "facebook", icon: "send", label: "Facebook leads", sub: "Connect your ad forms" },
 ];
 const uses = (list) => `<div class="uses"><span class="caps">Used in</span>${list.map((x) => `<span class="use">${x}</span>`).join("")}</div>`;
@@ -1101,6 +1130,12 @@ function settingsPage() {
         <div class="field" style="max-width:320px;margin-top:12px"><label for="set-ra">Send them at</label><select class="input" id="set-ra">${quarters(8 * 60, 21 * 60).map((m) => `<option value="${m}" ${m === st.reminderAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
         ${uses(["Reminder texts", "Cancellation links"])}</section>
       ${setFoot()}</form>`;
+  } else if (sec === "booking") {
+    const card = (refer) => { const url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`; let qr = ""; try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
+      return `<section class="card link-card"><div class="link-qr">${qr}</div><div class="link-b"><div class="card-h"><h2>${refer ? "Referral form" : "Patient booking page"}</h2><p>${refer ? "For patients, family, carers, care homes and GPs. Link it from your website's Contact page. Referrals arrive on Today, under Referrals, with no emails or documents." : `Patients pick a time themselves. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows anyone else's details. What can be booked is set in <a href="#/settings/visits">Visits &amp; prices</a>.`}</p></div>
+        <div class="copy-row"><input class="input mono" value="${esc(url)}" readonly aria-label="${refer ? "Referral form" : "Booking page"} link"><button class="btn secondary" type="button" data-act="copy" data-v="${esc(url)}">${icon("copy")}Copy</button><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open</a></div>
+        ${uses(refer ? ["Your website", "Referrals on Today"] : ["Your website", "Recall texts", "Leaflets (QR code)"])}</div></section>`; };
+    body = `<div class="pg-form">${card(false)}${card(true)}</div>`;
   } else if (sec === "facebook") {
     body = facebookSection();
   } else {
@@ -1218,8 +1253,12 @@ const accessCard = (edit, x, kind) => edit.id ? `<section class="card"><div clas
   <button class="btn ${x.active ? "ghost danger-t" : "secondary"}" type="button" data-act="tm-active" data-k="${kind}" data-id="${esc(edit.id)}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off and sign out everywhere" : "Switch back on"}</button></section>` : "";
 
 /* ============ Drawers ============ */
-function openDrawer(d) { UI.drawer = d; renderDrawer(); }
+function openDrawer(d) { UI.drawer = d; redraw(); }
 function closeDrawer() { UI.drawer = null; UI.flow = null; UI.book = null; UI.imp = null; /* the file stays only as long as the drawer is open */ $("#drawer-root").innerHTML = ""; }
+/** Redraws the open side panel, or the page when the tool is open as a page. */
+const redraw = () => (UI.drawer ? renderDrawer() : render());
+/** A tool's state, whether it is open as a side panel or as its own page. */
+const panel = (k) => (UI.drawer && UI.drawer.kind === k ? UI.drawer : UI.pg && UI.pg.kind === k ? UI.pg : null);
 function renderDrawer() {
   const d = UI.drawer; if (!d || (!S && d.kind !== "soon")) return;
   let inner = "";
@@ -1443,10 +1482,11 @@ function plansDrawer(d) {
     ${list && list.some((p) => p.changed && !p.applied) ? `<div class="drawer-f"><button class="btn" type="button" data-act="plans-apply-all">${icon("check")}Apply all and text patients</button></div>` : ""}`;
 }
 async function loadPlans(day) {
-  UI.drawer.day = day; UI.drawer.list = null; renderDrawer();
+  const P = panel("plans"); if (!P) return;
+  P.day = day; P.list = null; redraw();
   const cs = S.clinicians;
-  UI.drawer.list = await Promise.all(cs.map((c) => api("GET", `/api/route/plan?clinician=${c.id}&day=${day}`)));
-  renderDrawer();
+  P.list = await Promise.all(cs.map((c) => api("GET", `/api/route/plan?clinician=${c.id}&day=${day}`)));
+  redraw();
 }
 /* ---------- What's coming: placeholders for features not built yet, clearly labelled ---------- */
 // Nothing here pretends to work: each button opens a short note on what's coming. No dates are promised.
@@ -1630,10 +1670,10 @@ function importDrawer() {
 }
 async function importPreview(mapping) {
   const I = UI.imp;
-  I.busy = true; I.err = null; renderDrawer();
+  I.busy = true; I.err = null; redraw();
   try { I.pv = await api("POST", "/api/import/preview", { csv: I.csv, mapping }); }
   catch (e) { I.err = e.message; if (!mapping) I.csv = null; }
-  I.busy = false; renderDrawer();
+  I.busy = false; redraw();
 }
 function bookDrawer() {
   const B = UI.book || (UI.book = {});
@@ -1713,7 +1753,7 @@ function patientsDrawer(d) {
     ${!list.length ? `<div class="empty"><b>Nobody matches</b>Try a surname, a postcode like BL1, or the last digits of a phone number.</div>` : ""}
   </div>`;
 }
-async function openRecord(id) { const d = { kind: "patient", id, rec: null }; openDrawer(d); d.rec = await api("GET", "/api/patients/" + id); if (UI.drawer === d) renderDrawer(); }
+async function openRecord(id) { const d = { kind: "patient", id, rec: null }; openDrawer(d); d.rec = await api("GET", "/api/patients/" + id); if (UI.drawer === d) redraw(); }
 const dobText = (p) => p.dob ? `${new Date(p.dob + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${p.age ? ` (${p.age})` : ""}` : p.age ? `Age ${p.age}` : "Not recorded";
 function patientDrawer(d) {
   const p = d.rec;
@@ -1899,7 +1939,7 @@ function reportDrawer(r) {
         ${c.days.map((d) => `<tr><td>${esc(d.day === 0 ? "Today" : d.dayLabel.slice(0, 3))}</td><td>${d.visits}</td><td><div class="rp-bar"><i style="width:${Math.min(100, d.utilisation)}%"></i></div><span class="mono">${d.utilisation}%</span></td><td class="mono">${d.driveMin ? mins(d.driveMin) : "–"}</td><td class="mono">${d.miles || "–"}</td></tr>`).join("")}
         </tbody></table></section>`).join("")}
       <button class="btn secondary block" type="button" data-act="report-csv">${icon("copy")}Download CSV for mileage claims</button>
-      <p class="muted" style="font-size:12.5px;margin-top:12px">Booked time is against a 9:00–17:00 day. Miles are estimated from distance between postcodes, including the drive from and back to each clinician's base. ${r.ratePence}p a mile is HMRC's approved rate for cars, for the first 10,000 business miles a year.</p>
+      <p class="muted" style="font-size:12.5px;margin-top:12px">Booked time is against each clinician's working hours. Miles are estimated from distance between postcodes, including the drive from and back to each clinician's base. ${r.ratePence}p a mile is HMRC's approved rate for cars, for the first 10,000 business miles a year.</p>
     </div>`;
 }
 function reportCsv(r) {
@@ -1912,7 +1952,7 @@ function reportCsv(r) {
 }
 /** The practice's own booking page, for its website, recall texts and leaflets. */
 function bookLinkModal() {
-  const refer = UI.drawer.refer, url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`;
+  const refer = !!(UI.drawer && UI.drawer.refer), url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`;
   let qr = "";
   try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">For patients${refer ? ", family and carers" : ""}</div><h2 style="margin-top:6px;font-size:30px">${refer ? "Referral form" : "Patient booking page"}</h2></div>${closeX}</div>
@@ -1945,7 +1985,7 @@ async function newPairLink(as) {
     UI.pair = { as, url: `${location.origin}/?pair=${encodeURIComponent(r.token)}`, until: Date.now() + (r.expiresIn - 30) * 1000 };
   } catch (e) { fail(e); UI.pair = null; }
   finally { pairing = false; }
-  if (UI.drawer && UI.drawer.kind === "qr") renderDrawer();
+  if (UI.drawer && UI.drawer.kind === "qr") redraw();
 }
 
 /* ============ Ticking clock ============ */
@@ -1956,7 +1996,7 @@ function tick() {
   const y = Math.max(0, Math.min((dayE() - dayS()) * 1.4, (n - dayS()) * 1.4));
   document.querySelectorAll("[data-now]").forEach((e) => { e.style.top = y + "px"; });
 }
-setInterval(() => { tick(); if (UI.drawer && UI.drawer.kind === "flow" && UI.flow && !UI.flow.outcome) renderDrawer(); }, 15000);
+setInterval(() => { tick(); if (UI.drawer && UI.drawer.kind === "flow" && UI.flow && !UI.flow.outcome) redraw(); }, 15000);
 
 /* ============ Actions ============ */
 async function openPatient(id, apptId) {
@@ -2000,7 +2040,7 @@ document.addEventListener("click", async (e) => {
         break;
       }
       case "auth-back": UI.auth = { step: "password" }; render(); break;
-      case "new-pair": UI.pair = null; renderDrawer(); break;
+      case "new-pair": UI.pair = null; redraw(); break;
       case "close": closeDrawer(); break;
       case "pcse-done": el.disabled = true; await api("POST", `/api/pcse/${el.dataset.id}/done`); await load(); toast("Ticked off"); break;
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
@@ -2008,11 +2048,11 @@ document.addEventListener("click", async (e) => {
       case "soon": openDrawer({ kind: "soon", id: el.dataset.id }); break;
       case "roadmap": openDrawer({ kind: "roadmap" }); break;
       case "invoices": openDrawer({ kind: "invoices", data: await api("GET", "/api/invoices") }); break;
-      case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Marked as paid"); break; }
-      case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Invoice voided"); break;
+      case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); panel("invoices").data = await api("GET", "/api/invoices"); redraw(); toast("Marked as paid"); break; }
+      case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); panel("invoices").data = await api("GET", "/api/invoices"); redraw(); toast("Invoice voided"); break;
       case "inv-print": await printInvoice(el.dataset.id); break;
       case "report": openDrawer({ kind: "report", data: await api("GET", "/api/reports/week") }); break;
-      case "report-csv": reportCsv(UI.drawer.data); toast("CSV downloaded"); break;
+      case "report-csv": reportCsv(panel("report").data); toast("CSV downloaded"); break;
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "referlink": openDrawer({ kind: "booklink", refer: true }); break;
       case "referral": openDrawer({ kind: "referral", id: el.dataset.id }); break;
@@ -2034,22 +2074,22 @@ document.addEventListener("click", async (e) => {
       case "lead-hours": {
         el.disabled = true;
         await api("PUT", "/api/settings", { officeHours: ($("#ld-hours") || {}).value });
-        await load(); renderDrawer(); toast("Office hours saved. New thank-you emails will use them.");
+        await load(); redraw(); toast("Office hours saved. New thank-you emails will use them.");
         break;
       }
       case "ref-accept": {
         el.disabled = true;
         const body = { type: ($("#rf-type") || {}).value, prio: ($("#rf-prio") || {}).value, anyway: el.dataset.anyway === "1" };
         try { const r = await api("POST", `/api/referrals/${el.dataset.id}/accept`, body); await load(); closeDrawer(); toast(`Added to the waiting list${r.texted ? " and texted" : ""}`); }
-        catch (e) { if (/already on Domi/.test(e.message)) { UI.drawer.dup = e.message; renderDrawer(); } else throw e; }
+        catch (e) { if (/already on Domi/.test(e.message)) { UI.drawer.dup = e.message; redraw(); } else throw e; }
         break;
       }
       case "ref-decline": el.disabled = true; await api("POST", `/api/referrals/${el.dataset.id}/decline`, { reason: ($("#rf-why") || {}).value }); await load(); closeDrawer(); toast("Referral declined"); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, el.dataset.d != null ? Number(el.dataset.d) : UI.view === "week" ? 0 : UI.day); break;
       case "map-focus": focusStop(el.dataset.map, Number(el.dataset.i)); break;
-      case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); renderDrawer(); break;
-      case "plan-cancel": UI.drawer.plan = null; renderDrawer(); break;
+      case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); redraw(); break;
+      case "plan-cancel": UI.drawer.plan = null; redraw(); break;
       case "plan-apply": {
         el.disabled = true;
         const r = await api("POST", "/api/route/plan", { clinicianId: el.dataset.c, day: Number(el.dataset.d) });
@@ -2060,7 +2100,7 @@ document.addEventListener("click", async (e) => {
       case "plans-day": await loadPlans(Number(el.dataset.v)); break;
       case "plans-apply": case "plans-apply-all": {
         el.disabled = true;
-        const D = UI.drawer, ids = act === "plans-apply" ? [el.dataset.c] : D.list.filter((p) => p.changed && !p.applied).map((p) => p.clinicianId);
+        const D = panel("plans"), ids = act === "plans-apply" ? [el.dataset.c] : D.list.filter((p) => p.changed && !p.applied).map((p) => p.clinicianId);
         let saved = 0;
         for (const id of ids) { const r = await api("POST", "/api/route/plan", { clinicianId: id, day: D.day }); saved += r.savedMin; const i = D.list.findIndex((p) => p.clinicianId === id); D.list[i] = { ...r, applied: true, changed: 0 }; }
         await load(); toast(`Routes planned: ${mins(saved)} less driving`); break;
@@ -2073,10 +2113,10 @@ document.addEventListener("click", async (e) => {
       }
       case "slot-map": {
         const B = UI.book, i = Number(el.dataset.i);
-        if (B.map && B.map.i === i) { B.map = null; renderDrawer(); break; }
+        if (B.map && B.map.i === i) { B.map = null; redraw(); break; }
         const x = B.results.slots[i], p = B.results.patient;
         const q = new URLSearchParams({ clinician: x.clinicianId, day: x.day, pc: p.pc, start: x.start, type: B.results.type, name: p.name });
-        B.map = { i, data: await api("GET", "/api/route?" + q) }; renderDrawer(); break;
+        B.map = { i, data: await api("GET", "/api/route?" + q) }; redraw(); break;
       }
       case "send-reminders": {
         el.disabled = true;
@@ -2111,7 +2151,7 @@ document.addEventListener("click", async (e) => {
         await load(); toast("Their details have been erased"); break;
       }
       case "book-for": UI.book = { patientId: el.dataset.id }; openDrawer({ kind: "book" }); break;
-      case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) renderDrawer(); break; }
+      case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) redraw(); break; }
       case "move-to": {
         el.disabled = true;
         const r = await api("POST", `/api/appointments/${UI.drawer.id}/move`, { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s) });
@@ -2130,7 +2170,7 @@ document.addEventListener("click", async (e) => {
         closeDrawer(); await load();
         toast(r.status === "done" ? (r.invoice ? `Recorded as completed. Invoice ${r.invoice.number} raised.` : "Recorded as completed") : r.rebooked ? "Recorded: nobody in. Back on the waiting list." : "Recorded: nobody in"); break;
       }
-      case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) renderDrawer(); break; }
+      case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) redraw(); break; }
       case "gap-book": {
         el.disabled = true;
         const r = await api("POST", `/api/gaps/${el.dataset.slot}/book`, { waitlistId: el.dataset.w });
@@ -2158,22 +2198,22 @@ document.addEventListener("click", async (e) => {
       case "add-wl": openDrawer({ kind: "wl" }); break;
       case "book": UI.book = {}; openDrawer({ kind: "book" }); break;
       case "import": UI.imp = {}; openDrawer({ kind: "import" }); break;
-      case "import-again": UI.imp = {}; renderDrawer(); break;
-      case "imp-filter": UI.imp.filter = el.dataset.v; renderDrawer(); break;
+      case "import-again": UI.imp = {}; redraw(); break;
+      case "imp-filter": UI.imp.filter = el.dataset.v; redraw(); break;
       case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
       case "import-commit": {
-        const I = UI.imp; I.busy = true; I.err = null; renderDrawer();
+        const I = UI.imp; I.busy = true; I.err = null; redraw();
         try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast(`${I.done.imported} patients imported`); }
         catch (e) { I.err = e.message; }
-        I.busy = false; renderDrawer(); break;
+        I.busy = false; redraw(); break;
       }
       case "day": UI.view = "day"; UI.day = Number(el.dataset.v); render(); break;
       case "week": UI.view = "week"; render(); break;
-      case "book-again": UI.book = {}; renderDrawer(); break;
+      case "book-again": UI.book = {}; redraw(); break;
       case "book-slot": {
         el.disabled = true;
         const r = await api("POST", "/api/bookings", Object.assign(bookInput(), { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s) }));
-        UI.book = { done: r }; UI.view = "day"; UI.day = r.day || 0; renderDrawer(); toast(`${r.patient} booked: ${r.day ? r.dayLabel + " " : ""}${r.label.slice(0, 5)} with ${first(r.clinician)}`); await load(); break;
+        UI.book = { done: r }; UI.view = "day"; UI.day = r.day || 0; redraw(); toast(`${r.patient} booked: ${r.day ? r.dayLabel + " " : ""}${r.label.slice(0, 5)} with ${first(r.clinician)}`); await load(); break;
       }
       case "book-waitlist": {
         const b = bookInput();
@@ -2222,7 +2262,7 @@ document.addEventListener("submit", async (e) => {
   try {
     if (e.target.id === "book-form") {
       const b = bookInput(); UI.book = Object.assign(UI.book || {}, { patientId: b.patientId });
-      UI.book.results = await api("POST", "/api/slots", b); UI.book.map = null; renderDrawer();
+      UI.book.results = await api("POST", "/api/slots", b); UI.book.map = null; redraw();
       const best = document.querySelector("#book-form .offer"); if (best) best.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
@@ -2308,7 +2348,7 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
     if (e.target.id === "imp-file" && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 3e6) { UI.imp.err = "That file is over 3 MB. Split it into smaller files."; renderDrawer(); return; }
+      if (file.size > 3e6) { UI.imp.err = "That file is over 3 MB. Split it into smaller files."; redraw(); return; }
       UI.imp = { name: file.name, csv: await file.text() };
       await importPreview(null);
     }
@@ -2316,8 +2356,8 @@ document.addEventListener("change", async (e) => {
       const m = UI.imp.pv.mapping.slice(); m[Number(e.target.dataset.i)] = e.target.value || null;
       UI.imp.openMap = true; await importPreview(m);
     }
-    if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; renderDrawer(); }
-    if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; renderDrawer(); }
+    if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; redraw(); }
+    if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; redraw(); }
     if (e.target.id === "set-ds" || e.target.id === "set-de") { $("#hp-wrap").innerHTML = hoursPreview(Number($("#set-ds").value), Number($("#set-de").value)); return; }
     if (e.target.dataset && e.target.dataset.online) { e.target.nextElementSibling.textContent = e.target.checked ? "Yes" : "No"; return; }
     if (e.target.id === "set-logo") { const u = e.target.value.trim(), box = $("#logo-prev"); box.classList.remove("broken"); box.innerHTML = /^https:\/\//.test(u) ? `<img src="${esc(u)}" alt="Logo preview" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken')"><span>This address doesn't load an image</span>` : `<span>${u ? "The address must start with https://" : "No logo: your name is shown instead"}</span>`; return; }
@@ -2326,12 +2366,12 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
     if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
     if (e.target.dataset && e.target.dataset.price) { await api("PUT", "/api/settings", { prices: { [e.target.dataset.price]: Number(e.target.value) } }); await load(); toast("Price saved"); }
-    if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; renderDrawer(); }
+    if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; redraw(); }
   } catch (err) { fail(err); }
 });
 document.addEventListener("input", (e) => {
   if (e.target.id === "psearch") { UI.q = e.target.value; render(); }
-  if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; renderDrawer(); }
+  if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; redraw(); }
   if (e.target.id === "pg-q") { UI.pq = e.target.value; UI.plimit = PAGE; render(); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.drawer) closeDrawer(); });
