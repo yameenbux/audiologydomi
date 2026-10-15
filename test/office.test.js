@@ -206,3 +206,22 @@ test("UK GDPR: export everything held about a patient; erase on request, but nev
   assert.strictEqual((await call("PUT", "/api/patients/p40", o.token, { name: "Back Again" })).status, 409);
   assert.strictEqual((await call("POST", "/api/patients/p40/erase", o.token, { confirm: "Erased patient" })).status, 409);
 });
+
+test("the office adds a patient by hand; the essentials are required and nobody is entered twice", async () => {
+  const o = await office();
+  const before = (await state(o.token)).patients.length;
+  assert.match((await call("POST", "/api/patients", o.token, { name: "Edna Pole", addr: "3 Moor Road" })).data.error, /postcode|phone/);
+  const r = await call("POST", "/api/patients", o.token, { name: "Edna Pole", dob: "1938-04-02", addr: "3 Moor Road", pc: "LS16", phone: "07700 900321", eligibility: "Parkinson's", alerts: "Key safe by the door" });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+  assert.strictEqual(r.data.patient.age, 88);
+  assert.deepStrictEqual(r.data.patient.alerts, ["Key safe by the door"]);
+  assert.strictEqual((await state(o.token)).patients.length, before + 1);
+  const twin = await call("POST", "/api/patients", o.token, { name: "edna pole", addr: "Somewhere else", pc: "LS6", phone: "07700900321" });
+  assert.strictEqual(twin.status, 409);
+  assert.strictEqual(twin.data.patientId, r.data.patient.id, "points to the record already there");
+  assert.match((await call("POST", "/api/patients", o.token, { name: "Ann Nurse", addr: "1 Hill Top", pc: "LS16", phone: "01132 496000" })).data.error, /Texts need a mobile/);
+  const audit = JSON.stringify((await call("GET", "/api/debug/table/audit", o.token)).data);
+  assert.ok(audit.includes("patient.create") && !audit.includes("Edna"), "audited without personal details");
+  const clin = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  if (clin.token) assert.strictEqual((await call("POST", "/api/patients", clin.token, { name: "X Y", addr: "1 Road", pc: "LS16", phone: "07700 900111" })).status, 403);
+});

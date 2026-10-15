@@ -305,6 +305,7 @@ route("POST", "/api/appointments/:id/cancel", {}, (req, body, user, { id }) => {
 route("POST", "/api/waitlist", {}, (req, body, user) => { needAdmin(user); return svc.addToWaitlist(body, user); });
 
 /* ---------- The office runs everything: patient records, visits, the team ---------- */
+route("POST", "/api/patients", {}, (req, body, user) => { needAdmin(user); return svc.createPatient(body, user); });
 route("PUT", "/api/patients/:id", {}, (req, body, user, { id }) => { needAdmin(user); return svc.updatePatient(id, body, user); });
 // UK GDPR: a copy of everything held about a patient (subject access), and erasure on request.
 route("GET", "/api/patients/:id/export", {}, (req, body, user, { id }) => { needAdmin(user); return svc.exportPatient(id, user); });
@@ -624,7 +625,7 @@ const server = http.createServer(async (req, res) => {
     status = err.status || 500;
     if (status === 500) console.error(err);
     if (status === 401 && url.pathname.startsWith("/api/auth/")) noteFailure(req);
-    send(res, status, { error: status === 500 ? "Something went wrong on the server." : err.message });
+    send(res, status, { error: status === 500 ? "Something went wrong on the server." : err.message, ...(status < 500 && err.extra ? err.extra : {}) });
   } finally {
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
     if (who && !url.pathname.startsWith("/api/debug")) {

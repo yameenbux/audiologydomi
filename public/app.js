@@ -26,12 +26,12 @@ function applyBrand(b) {
       : `<img src="/logo.svg" alt=""><span class="wm"><b>Domi</b><span>EYE CARE AT HOME</span></span>`;
     // If their site can't be reached, show their name rather than a broken image.
     const img = lock.querySelector(".brand-logo");
-    if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm"><b>${esc(b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
+    if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm keep"><b>${esc(b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
   }
   document.title = b.logo ? `${b.practice} · Diary` : "Domi";
   window.DomiPowered(b);
 }
-const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null, tray: "wait" };
+const UI = { tab: "today", pid: null, rec: null, q: "", drawer: null, flow: null, lastClin: "u-c1", busy: false, day: 0, view: "day", auth: { step: "password" }, pair: null, tray: "wait", route: { page: "today" }, pg: null, pq: "", pf: "all" };
 let DEMO_SB = null;
 try { DEMO_SB = localStorage.getItem("domi-demo"); localStorage.removeItem("domi-token"); } catch (e) {}
 const rememberDemo = (c) => { DEMO_SB = c; try { c ? localStorage.setItem("domi-demo", c) : localStorage.removeItem("domi-demo"); } catch (e) {} };
@@ -43,7 +43,7 @@ async function api(method, url, body) {
   catch (e) { const err = new Error("No connection. This will work again when you have signal."); err.offline = true; throw err; }
   const data = await res.json().catch(() => ({ error: "The server sent something unexpected." }));
   if (res.status === 401 && !url.startsWith("/api/auth/")) { signedOut(); throw new Error(data.error); }
-  if (!res.ok) throw new Error(data.error || "That didn't work. Try again.");
+  if (!res.ok) throw Object.assign(new Error(data.error || "That didn't work. Try again."), { data, status: res.status });
   return data;
 }
 const fail = (e) => toast(e.message, true);
@@ -179,7 +179,8 @@ async function load() {
   const d = UI.drawer;
   if (d && d.kind === "patient" && !d.edit) d.rec = await api("GET", "/api/patients/" + d.id + "?background=1").catch(() => d.rec);
   if (d && d.kind === "team" && !d.edit) d.data = await api("GET", "/api/team").catch(() => d.data);
-  render();
+  UI.route = parseRoute(); await syncPage();
+  if (!pageEditing()) render();
   // A form being filled in isn't redrawn by live updates, so nothing typed or picked is lost.
   if (UI.drawer && !UI.drawer.edit) renderDrawer();
 }
@@ -282,7 +283,7 @@ function render() {
   $("#role-admin").setAttribute("aria-pressed", isAdmin());
   $("#role-clin").setAttribute("aria-pressed", !isAdmin());
   $("#open-phone").hidden = !isAdmin();
-  paint($("#app"), isAdmin() ? officeView() : clinView());
+  paint($("#app"), isAdmin() ? officeShell() : clinView());
   mountMaps($("#app"));
   tick();
 }
@@ -356,10 +357,6 @@ function officeView() {
         <div class="qs"><b>${waiting.length}</b><span>waiting list</span></div>
       </div>
     </div>
-    <div class="tools" role="toolbar" aria-label="Office tools">
-      <span class="tg"><button type="button" data-act="patients">${icon("users")}Patients</button><button type="button" data-act="import">${icon("copy")}Import</button><button type="button" data-act="team">${icon("shield")}Team &amp; hours</button></span>
-      <span class="tg"><button type="button" data-act="plans">${icon("pin")}Plan routes</button><button type="button" data-act="report">${icon("car")}Mileage</button><button type="button" data-act="invoices">${icon("note")}Invoices</button></span>
-      <span class="tg"><button type="button" data-act="booklink">${icon("qr")}Booking page</button>${soon("stock", "Stock", "db", "")}<button type="button" data-act="roadmap">${icon("next")}What's coming</button></span></div>
     <section class="income" aria-label="Income recovered">
       <div><div class="big">${money(m.recovered)}</div><div class="lab">recovered this week from cancelled visits</div></div>
       <div class="kpi"><b>${m.refilled}<span style="font-size:18px;opacity:.7"> / ${m.cancellations}</span></b><div class="lab">cancellations refilled</div></div>
@@ -479,7 +476,7 @@ function leadDrawer(d) {
   return `<div class="drawer-h"><div><div class="caps">Facebook lead · ${esc(l.at)}${l.campaign ? ` · ${esc(l.campaign)}` : ""}</div><h2 style="margin-top:6px">${esc(l.name)}</h2></div>${closeX}</div>
     <div class="drawer-b">
       ${l.status === "new" ? `<div class="callout apricot" style="margin-bottom:14px">${icon("clock")}<div><b>Waiting ${leadWait(l)} for a call</b><div style="margin-top:2px">People who are called within the hour are far more likely to book.</div></div></div>` : ""}
-      ${p ? `<div class="callout" style="margin-bottom:14px">${icon("users")}<div><b>Already a patient</b><div style="margin-top:2px">${esc(p.name)}, ${esc(p.pc)}. <button class="linkish" type="button" data-act="open-p" data-id="${p.id}">Open their record</button></div></div></div>` : ""}
+      ${p ? `<div class="callout" style="margin-bottom:14px">${icon("users")}<div><b>Already a patient</b><div style="margin-top:2px">${esc(p.name)}, ${esc(p.pc)}. <button class="linkish" type="button" data-act="open-rec" data-id="${p.id}">Open their record</button></div></div></div>` : ""}
       <dl class="kv">${row("Phone", l.phone ? `<a class="mono" href="tel:${esc(l.phone.replace(/\s/g, ""))}">${esc(l.phone)}</a> <button class="btn ghost sm" type="button" data-act="copy" data-v="${esc(l.phone)}">${icon("copy")}Copy</button>` : "None given")}
         ${row("Email", esc(l.email || "None given"))}${row("Postcode", esc(l.pc || ""))}${l.answers.map(([q, a]) => row(esc(q), esc(a))).join("")}</dl>
       <div class="hr" style="margin:18px 0"></div>
@@ -774,6 +771,256 @@ function record(p) {
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
 }
+
+/* ============ Office pages: a menu down the left, and a page for each part of the practice ============ */
+// The address says which page is open (#/patients, #/patients/<id>, #/team, #/team/clin/<id>), so the back button,
+// refreshing and bookmarks all work. Quick actions (a visit, a lead, booking) stay as side panels over the page.
+function parseRoute() {
+  const [page = "", id, sub] = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  if (page === "patients" && id === "new") return { page: "newpatient" };
+  if (page === "patients" && id) return { page: "patient", id, tab: sub || "overview" };
+  if (page === "patients") return { page: "patients" };
+  if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
+  if (page === "team") return { page: "team" };
+  return { page: "today" };
+}
+const go = (path) => { location.hash = "/" + path; };
+/** Keep the open page's own data (a patient's record, the team) in step with the address. */
+async function syncPage() {
+  const r = UI.route;
+  if (!S || !isAdmin()) { UI.pg = null; return; }
+  if (r.page === "patient") {
+    const fresh = !UI.pg || UI.pg.kind !== "patient" || UI.pg.id !== r.id;
+    if (fresh) UI.pg = { kind: "patient", id: r.id, rec: null, edit: false };
+    UI.pg.tab = r.tab;
+    if (!UI.pg.edit) UI.pg.rec = await api("GET", `/api/patients/${encodeURIComponent(r.id)}${fresh ? "" : "?background=1"}`).catch(() => UI.pg.rec || { missing: true });
+  } else if (r.page === "newpatient") {
+    if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true };
+  } else if (r.page === "team" || r.page === "person") {
+    if (!UI.pg || UI.pg.kind !== "team") UI.pg = { kind: "team", data: null, edit: null };
+    const edit = r.page === "person" ? { kind: r.k, id: r.id === "new" ? null : r.id } : null;
+    const changed = JSON.stringify(edit) !== JSON.stringify(UI.pg.edit);
+    UI.pg.edit = edit;
+    if (changed || !edit || !UI.pg.data) UI.pg.data = await api("GET", "/api/team").catch(() => UI.pg.data);
+  } else UI.pg = null;
+}
+/** A form on a page isn't redrawn by live updates, so nothing typed is lost. */
+const pageEditing = () => !!(UI.pg && UI.pg.edit && document.querySelector("#app form"));
+window.addEventListener("hashchange", async () => {
+  UI.route = parseRoute();
+  if (UI.drawer) closeDrawer();
+  if (!S) return;
+  if (UI.pg && UI.pg.kind === "team") UI.pg.edit = undefined; // the address decides
+  await syncPage(); render();
+  window.scrollTo({ top: 0 });
+  const h = document.querySelector("#app h1"); if (h) h.focus({ preventScroll: true });
+});
+/** The drawer or the page a patient or team action belongs to. */
+const ctx = (kind) => (UI.drawer && UI.drawer.kind === kind ? UI.drawer : UI.pg);
+const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render());
+
+function officeShell() {
+  const p = UI.route.page;
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
+}
+function sideNav() {
+  const p = UI.route.page;
+  const on = (k) => k === p || (k === "patients" && (p === "patient" || p === "newpatient")) || (k === "team" && p === "person");
+  const needs = (S.leads || []).filter((l) => l.status === "new").length + (S.referrals || []).filter((r) => r.status === "new").length + (S.pcse || []).filter((t) => t.status === "todo").length;
+  const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
+  const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
+  return `<nav class="side" aria-label="Office">
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${act("plans", "pin", "Plan routes")}${act("report", "car", "Mileage")}${act("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Practice</div>${act("import", "copy", "Import patients")}${act("booklink", "qr", "Booking page")}${soon("stock", "Stock", "db", "nav-i")}${act("roadmap", "next", "What's coming")}</div>
+  </nav>`;
+}
+/** The page heading every office page shares: where you are, what it's for, and its main actions. */
+const pageHead = ({ eyebrow, title, lead, actions = "", crumbs = "" }) => `<header class="pg-h">${crumbs}
+  <div class="pg-ht"><div><div class="caps">${eyebrow}</div><h1 tabindex="-1">${title}</h1>${lead ? `<p>${lead}</p>` : ""}</div>${actions ? `<div class="pg-acts">${actions}</div>` : ""}</div></header>`;
+const crumbsOf = (items) => `<nav class="pg-crumbs" aria-label="Breadcrumb"><ol>${items.map(([href, label], i) => `<li>${i === items.length - 1 ? `<span aria-current="page">${esc(label)}</span>` : `<a href="${href}">${esc(label)}</a>`}</li>`).join("")}</ol></nav>`;
+const townOf = (pc) => { const d = String(pc || "").split(" ")[0].toUpperCase(); const a = (S.areas || []).find((x) => x.districts.includes(d)); return a ? a.town : ""; };
+const nextVisit = (pid) => S.appts.filter((a) => a.patientId === pid && OPEN.includes(a.status)).sort((a, b) => (a.day || 0) - (b.day || 0) || a.start - b.start)[0];
+const whenShort = (a) => `${a.day ? esc(dayName(a.day).slice(0, 3)) : "Today"} ${hm(a.start)}`;
+
+/* ---------- Patients ---------- */
+function patientsPage() {
+  const all = S.patients.filter((p) => !p.erased);
+  const waiting = new Set(S.waitlist.filter((w) => w.status !== "booked").map((w) => w.patientId));
+  const recall = new Set((S.recalls || []).filter((r) => r.status !== "dismissed" && r.status !== "booked").map((r) => r.patientId));
+  const F = { all: () => true, booked: (p) => !!nextVisit(p.id), waiting: (p) => waiting.has(p.id), recall: (p) => recall.has(p.id), phone: (p) => p.contact === "Call" };
+  const f = F[UI.pf] ? UI.pf : "all";
+  const words = String(UI.pq || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const list = all.filter(F[f]).filter((p) => words.every((w) => searchText(p).includes(w))).sort((a, b) => a.name.localeCompare(b.name));
+  const tile = (k, n, label) => `<button type="button" class="stat ${f === k ? "on" : ""}" data-act="pf" data-v="${k}" aria-pressed="${f === k}"><b>${n}</b><span>${label}</span></button>`;
+  return `<div class="pg">${pageHead({ eyebrow: esc(S.settings.practice), title: "Patients",
+      lead: "Everyone you visit, with their next visit, how to reach them and whether they're waiting. Open anyone for their full record.",
+      actions: `<button class="btn secondary" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary" type="button" data-act="book">${icon("cal")}Book a visit</button><a class="btn" href="#/patients/new">${icon("plus")}Add a patient</a>` })}
+    <div class="stats">${tile("all", all.length, "patients")}${tile("booked", all.filter(F.booked).length, "booked this week")}${tile("waiting", all.filter(F.waiting).length, "on the waiting list")}${tile("recall", all.filter(F.recall).length, "due a recall")}${tile("phone", all.filter(F.phone).length, "phone, don't text")}</div>
+    <section class="card tbl-card" aria-label="Patient list">
+      <div class="tbl-tools"><div class="search-w">${icon("search")}<input class="input" id="pg-q" data-keep type="search" placeholder="Search by name, postcode, phone or date of birth" autocomplete="off" value="${esc(UI.pq || "")}" aria-label="Search patients"></div>
+        <span class="muted tbl-count">${list.length === all.length ? `${all.length} patients` : `${list.length} of ${all.length}`}</span></div>
+      ${list.length ? `<div class="tbl-wrap"><table class="ptable"><thead><tr><th scope="col">Patient</th><th scope="col">Area</th><th scope="col">Contact</th><th scope="col">Next visit</th><th scope="col"><span class="sr">Status</span></th></tr></thead><tbody>
+        ${list.map((p) => { const a = nextVisit(p.id); return `<tr data-act="go" data-v="patients/${esc(p.id)}">
+          <td><a class="pn" href="#/patients/${esc(p.id)}"><span class="avatar sm soft">${initials(p.name)}</span><span><b>${esc(p.name)}</b><span class="muted">${p.age ? `Age ${p.age} · ` : ""}${esc(p.addr)}</span></span></a></td>
+          <td><b class="mono">${esc(p.pc)}</b><span class="muted">${esc(townOf(p.pc))}</span></td>
+          <td><span class="mono">${esc(p.phone || "–")}</span><span class="muted">${p.contact === "Call" ? "Phone, don't text" : "Texts"}</span></td>
+          <td>${a ? `<b>${whenShort(a)}</b><span class="muted">${esc(T(a.type).name)}</span>` : `<span class="muted">Nothing booked</span>`}</td>
+          <td class="st">${waiting.has(p.id) ? `<span class="badge b-apricot">Waiting</span>` : ""}${recall.has(p.id) ? `<span class="badge b-forest">Recall</span>` : ""}${p.alerts.length ? `<span class="badge b-plain" title="${esc(p.alerts.join(". "))}">Notes</span>` : ""}</td></tr>`; }).join("")}
+        </tbody></table></div>`
+      : `<div class="empty"><b>Nobody matches</b>Try a surname, a postcode like BL1, or the last digits of a phone number.</div>`}
+    </section></div>`;
+}
+function patientPage() {
+  const g = UI.pg || {}, p = g.rec;
+  const crumbs = crumbsOf([["#/patients", "Patients"], ["", p && !p.missing ? p.name : "Patient"]]);
+  if (!p) return `<div class="pg">${pageHead({ crumbs, eyebrow: "Patient record", title: "Opening…" })}</div>`;
+  if (p.missing) return `<div class="pg">${pageHead({ crumbs, eyebrow: "Patient record", title: "Not found", lead: "This record doesn't exist any more. It may have been erased, or the demo restarted." })}<a class="btn secondary" href="#/patients">${icon("back")}All patients</a></div>`;
+  if (p.erased) return `<div class="pg">${pageHead({ crumbs, eyebrow: "Patient record", title: "Erased patient", lead: "This patient's personal details were erased on request. The anonymous visit history is kept so the diaries and reports still add up." })}</div>`;
+  const visits = S.appts.filter((a) => a.patientId === p.id && OPEN.includes(a.status)).sort((a, b) => a.day - b.day || a.start - b.start);
+  const waits = S.waitlist.filter((w) => w.patientId === p.id && w.status !== "booked");
+  const rec = (S.recalls || []).find((r) => r.patientId === p.id && r.status !== "dismissed");
+  const tabs = [["overview", "Overview"], ["visits", `Visits${visits.length ? ` <span class="tc">${visits.length}</span>` : ""}`], ["history", "Notes &amp; history"], ["data", "Their data"]];
+  const tab = tabs.some(([k]) => k === g.tab) ? g.tab : "overview";
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  const hero = `<section class="pt-hero">
+      <span class="avatar xl" aria-hidden="true">${initials(p.name)}</span>
+      <div class="pt-id"><h1 tabindex="-1">${esc(p.name)}</h1>
+        <p>${p.age ? `${p.age} years · ` : ""}${esc(p.addr)}, ${esc(p.pc)}</p>
+        <div class="tags">${p.contact === "Call" ? `<span class="badge b-plain">${icon("phone")}Phone, don't text</span>` : `<span class="badge b-plain">${icon("msg")}Texts</span>`}${waits.length ? `<span class="badge b-apricot">On the waiting list</span>` : ""}${rec ? `<span class="badge b-forest">Recall due</span>` : ""}${p.alerts.map((a) => `<span class="badge b-warn">${esc(a)}</span>`).join("")}</div></div>
+      <div class="pg-acts">${p.phone ? `<a class="btn secondary" href="tel:${esc(p.phone.replace(/\s/g, ""))}">${icon("phone")}Call</a>` : ""}<button class="btn secondary" type="button" data-act="rec-edit">${icon("note")}Edit details</button><button class="btn" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button></div>
+    </section>`;
+  const nav = `<nav class="pg-tabs" aria-label="Sections of the record">${tabs.map(([k, l]) => `<a href="#/patients/${esc(p.id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>`;
+  let body = "";
+  if (g.edit) body = `<section class="card"><div class="card-h"><h2>Edit details</h2><p>Changes reach the clinician's phone straight away. A new address re-works that round's drive times.</p></div>${patientFormFields(p)}</section>`;
+  else if (tab === "overview") {
+    const a = visits[0];
+    body = `<div class="cards2">
+      <section class="card"><div class="card-h"><h2>Contact</h2></div><dl class="kv lg">${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${row("How to reach them", p.contact === "Call" ? "Phone, don't text" : "Text messages")}${p.email ? row("Email", esc(p.email)) : ""}${row("Next of kin or carer", esc(p.rep || "None recorded"))}</dl></section>
+      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
+      <section class="card"><div class="card-h"><h2>Next visit</h2></div>${a ? `<div class="nv"><b>${a.day ? esc(dayName(a.day)) : "Today"} at ${hm(a.start)}</b><span>${esc(T(a.type).name)} with ${esc((cln(a.clinicianId) || {}).name || "")}</span></div><a class="linkish" href="#/patients/${esc(p.id)}/visits">All visits and actions</a>` : `<p class="muted">Nothing booked.</p><button class="btn secondary sm" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button>`}</section>
+      <section class="card"><div class="card-h"><h2>Waiting list${rec ? " and recall" : ""}</h2></div>${waits.length || rec ? `<ul class="mini">${waits.map((w) => `<li><b>${T(w.type).name}</b> · ${esc(META.prio[w.prio].label)} priority${w.note ? `<div>${esc(w.note)}</div>` : ""}</li>`).join("")}${rec ? `<li><b>Recall</b> · ${esc(rec.reason)}</li>` : ""}</ul><p class="muted" style="font-size:13px;margin:10px 0 0">Offered any cancelled visit nearby that fits.</p>` : `<p class="muted">Not waiting for anything.</p>`}</section>
+    </div>`;
+  } else if (tab === "visits") {
+    body = `<section class="card"><div class="card-h"><h2>Booked visits</h2><p>Move a visit, cancel it, or copy the private link a relative can use to cancel.</p></div>
+      ${visits.length ? `<ul class="vlist">${visits.map((a) => { const c = cln(a.clinicianId); return `<li><span class="vd"><b>${a.day ? esc(dayName(a.day)) : "Today"}</b><span class="mono">${hm(a.start)}</span></span>
+        <span class="vw"><b>${esc(T(a.type).name)}</b><span class="muted">with ${esc(c ? c.name : "")}${a.status !== "booked" ? ` · ${a.status === "live" ? "with the patient now" : "on the way"}` : ""}</span></span>
+        ${a.status === "booked" ? `<span class="acts"><button class="btn ghost sm" type="button" data-act="cancel-link" data-id="${a.id}">${icon("copy")}Family link</button><button class="btn secondary sm" type="button" data-act="open-appt" data-id="${a.id}">Cancel</button><button class="btn sm" type="button" data-act="move" data-id="${a.id}">${icon("cal")}Move</button></span>` : ""}</li>`; }).join("")}</ul>`
+      : `<div class="empty"><b>No visits booked</b><button class="btn sm" type="button" data-act="book-for" data-id="${p.id}" style="margin-top:10px">${icon("plus")}Book a visit</button></div>`}</section>`;
+  } else if (tab === "history") {
+    body = `<section class="card"><div class="card-h"><h2>Add a note</h2><p>Kept on the record and visible to the clinician.</p></div>
+        <form id="pg-note" class="note-f"><textarea class="input" id="pg-note-t" data-keep rows="3" maxlength="1000" placeholder="e.g. Daughter rang: mornings are best from now on." required></textarea><button class="btn" type="submit">${icon("check")}Add note</button></form></section>
+      <section class="card"><div class="card-h"><h2>History</h2></div>${p.history && p.history.length ? `<ol class="timeline">${p.history.map((n) => `<li><div class="tl-h"><b>${esc(n.label)}</b><span class="muted">${esc(n.by || "")}${n.at ? ` · ${esc(n.at)}` : ""}</span></div><div>${esc(n.body)}</div></li>`).join("")}</ol>` : `<p class="muted">Nothing yet.</p>`}</section>`;
+  } else {
+    body = `<div class="cards2"><section class="card"><div class="card-h"><h2>Download everything</h2><p>If ${esc(first(p.name))}, or someone acting for them, asks what you hold (a subject access request), download it all and send it securely.</p></div>
+        <button class="btn secondary" type="button" data-act="rec-export">${icon("copy")}Download their records</button></section>
+      <section class="card danger-card"><div class="card-h"><h2>Erase their details</h2><p>Removes their details for good. Not possible while a visit is booked, or for anyone already seen: clinical and NHS claim records must be kept for at least 7 years.</p></div>
+        <div class="field"><label for="erase-name">Type ${esc(p.name)} to confirm</label><input class="input" id="erase-name" data-keep autocomplete="off"></div>
+        <button class="btn danger" type="button" data-act="rec-erase">Erase their details</button></section></div>`;
+  }
+  return `<div class="pg">${crumbs}${hero}${g.edit ? "" : nav}${body}</div>`;
+}
+/** The edit form's fields, shared by the record page and the side panel. */
+/** Adding a patient by hand: someone who phoned, or a referral that came by post. Grouped as the office asks for it. */
+function newPatientPage() {
+  const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
+  return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/patients", "Patients"], ["", "Add a patient"]]), eyebrow: "New patient", title: "Add a patient",
+      lead: "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
+    <form id="np-form" class="pg-form" novalidate>
+      <section class="card"><div class="card-h"><h2>Who they are</h2></div>
+        <div class="row2">${f("name", "Full name", 'maxlength="80" required autocomplete="off"')}${f("dob", "Date of birth", 'type="date" min="1900-01-01" max="2026-10-12"', "Checked against everyone already on Domi.")}</div></section>
+      <section class="card"><div class="card-h"><h2>Where to visit</h2><p>Drive times, the clinician who covers the area and route planning all come from this.</p></div>
+        ${f("addr", "First line of the address", 'maxlength="120" required placeholder="e.g. 14 Moor Lane, or Flat 2, Rose Court"')}
+        <div class="field">${DomiAreas.picker(S.areas || [], "np-pc", "")}</div></section>
+      <section class="card"><div class="card-h"><h2>How to reach them</h2><p>Reminders and cancellation offers go by text unless they'd rather be phoned.</p></div>
+        <div class="row2">${f("phone", "Phone", 'inputmode="tel" required placeholder="07700 900123"')}
+          <div class="field"><label for="np-contact">How to reach them</label><select class="input" id="np-contact"><option value="Text">Text (needs a mobile)</option><option value="Call">Phone, don't text</option></select></div></div>
+        <div class="row2">${f("email", "Email", 'type="email" maxlength="120"', "Optional.")}${f("rep", "Next of kin or carer, and their number", 'maxlength="120"', "Optional.")}</div></section>
+      <section class="card"><div class="card-h"><h2>Their visit</h2><p>What the clinician needs to know before they knock.</p></div>
+        ${f("elig", "Why they need a home visit", 'maxlength="200" placeholder="e.g. Dementia, or Parkinson\'s"', "The condition itself. The NHS claim needs it, so “housebound” alone isn't enough.")}
+        ${f("specs", "Glasses", 'maxlength="80" placeholder="e.g. Varifocals"')}
+        <div class="field"><label for="np-alerts">Notes for the clinician, one per line</label><textarea class="input" id="np-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door"></textarea></div></section>
+      <div id="np-err" aria-live="polite"></div>
+      <div class="form-f sticky"><a class="btn ghost" href="#/patients">Cancel</a><button class="btn" type="submit">${icon("check")}Add patient</button></div>
+    </form></div>`;
+}
+function patientFormFields(p) {
+  const f = (id, label, v, extra = "") => `<div class="field"><label for="pe-${id}">${label}</label><input class="input" id="pe-${id}" value="${esc(v || "")}" ${extra}></div>`;
+  return `<form id="pe-form" class="pg-form">
+    <div class="row2">${f("name", "Full name", p.name, 'maxlength="80" required')}${f("dob", "Date of birth", p.dob, 'type="date" min="1900-01-01" max="2026-10-12"')}</div>
+    ${f("addr", "First line of the address", p.addr, 'maxlength="120" required')}
+    <div class="field">${DomiAreas.picker(S.areas || [], "pe-pc", p.pc)}</div>
+    <div class="row2">${f("phone", "Phone", p.phone, 'inputmode="tel" required')}
+      <div class="field"><label for="pe-contact">How to reach them</label><select class="input" id="pe-contact"><option value="Text" ${p.contact === "Text" ? "selected" : ""}>Text (needs a mobile)</option><option value="Call" ${p.contact === "Call" ? "selected" : ""}>Phone, don't text</option></select></div></div>
+    ${f("email", "Email", p.email, 'type="email" maxlength="120"')}
+    ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
+    <div class="row2">${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}${f("specs", "Glasses", p.specs, 'maxlength="80"')}</div>
+    <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
+    <div class="form-f"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
+  </form>`;
+}
+
+/* ---------- Team & hours ---------- */
+const weekBar = (h) => `<span class="wkbar" aria-label="${esc(hoursText(h))}">${(META.days || []).map((d, i) => { const x = h[i]; const span = META.dayEnd - META.dayStart; return `<span class="wd" title="${esc(d.slice(0, 3))}: ${x ? `${hm(x[0])}–${hm(x[1])}` : "day off"}"><i style="${x ? `left:${((x[0] - META.dayStart) / span) * 100}%;right:${100 - ((x[1] - META.dayStart) / span) * 100}%` : "display:none"}"></i><em>${esc(d.slice(0, 1))}</em></span>`; }).join("")}</span>`;
+function teamPage() {
+  const g = UI.pg || {}, t = g.data;
+  if (g.edit) return personPage(t, g.edit);
+  if (!t) return `<div class="pg">${pageHead({ eyebrow: esc(S.settings.practice), title: "Team &amp; hours" })}<p class="muted">Loading…</p></div>`;
+  const clin = t.clinicians.filter((c) => c.active), off = t.clinicians.filter((c) => !c.active);
+  const card = (c) => `<a class="pcard ${c.active ? "" : "off"}" href="#/team/clin/${esc(c.id)}">
+      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}</span></span>${c.active ? "" : `<span class="badge b-plain">Switched off</span>`}</span>
+      <span class="pc-area">${icon("pin")}${esc(c.areaName || "No area set")}</span>
+      <span class="chips-r">${c.patch.slice(0, 8).map((d) => `<span class="chip">${esc(d)}</span>`).join("")}${c.patch.length > 8 ? `<span class="chip">+${c.patch.length - 8}</span>` : ""}</span>
+      <span class="pc-hours">${weekBar(c.hours)}<span class="muted">${esc(hoursText(c.hours))}</span></span></a>`;
+  return `<div class="pg">${pageHead({ eyebrow: esc(S.settings.practice), title: "Team &amp; hours",
+      lead: "Who visits where, and when. Booking, refills and route planning only use these areas and hours, so keep them up to date.",
+      actions: `<button class="btn secondary" type="button" data-act="tm-edit" data-k="staff">${icon("plus")}Add office account</button><button class="btn" type="button" data-act="tm-edit" data-k="clin">${icon("plus")}Add a clinician</button>` })}
+    <section class="pg-sec"><div class="sec-h"><h2>Clinicians</h2><span class="muted">${clin.length} on the road</span></div><div class="pcards">${clin.map(card).join("")}</div>
+      ${off.length ? `<details class="off-list"><summary>${off.length} switched off</summary><div class="pcards">${off.map(card).join("")}</div></details>` : ""}</section>
+    <section class="pg-sec"><div class="sec-h"><h2>Office</h2><span class="muted">See every diary and patient</span></div>
+      <div class="card"><ul class="staff">${t.staff.map((u) => `<li class="${u.active ? "" : "off"}"><span class="avatar sm" style="background:${u.color || "#5B6770"}">${initials(u.name)}</span><span class="who"><b>${esc(u.name)}</b><span class="muted">${esc(u.title || "Office")} · ${esc(u.email)}</span></span>${u.active ? "" : `<span class="badge b-plain">Switched off</span>`}<a class="btn secondary sm" href="#/team/staff/${esc(u.id)}">Open</a></li>`).join("")}</ul></div></section>
+    <div class="callout plain">${icon("shield")}<div>Everyone signs in with a password and a code from an authenticator app. Switching someone off signs them out on every device at once; their history stays.</div></div>
+  </div>`;
+}
+function personPage(t, edit) {
+  const crumbs = crumbsOf([["#/team", "Team & hours"], ["", "…"]]);
+  if (!t) return `<div class="pg">${pageHead({ crumbs, eyebrow: "Team", title: "Loading…" })}</div>`;
+  const isClin = edit.kind === "clin";
+  if (!isClin) {
+    const u = t.staff.find((x) => x.id === edit.id) || { name: "", title: "", email: "", active: true };
+    return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/team", "Team & hours"], ["", u.name || "New office account"]]), eyebrow: edit.id ? "Office account" : "New office account", title: esc(u.name || "Add an office account"), lead: "Office accounts see every patient and every round, so give one only to people who run the diary." })}
+      <form id="tm-staff" data-id="${esc(edit.id || "")}" class="pg-form">
+        <section class="card"><div class="card-h"><h2>Details</h2></div>
+          <div class="row2"><div class="field"><label for="ts-name">Full name</label><input class="input" id="ts-name" value="${esc(u.name)}" maxlength="60" required></div><div class="field"><label for="ts-title">Job title</label><input class="input" id="ts-title" value="${esc(u.title || "")}" maxlength="60" placeholder="Receptionist"></div></div>
+          <div class="field"><label for="ts-email">Signs in with (email)</label><input class="input" id="ts-email" type="email" value="${esc(u.email)}" required></div></section>
+        ${accessCard(edit, u, "staff")}
+        <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
+      </form></div>`;
+  }
+  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: (META.days || []).map(() => [META.dayStart, META.dayEnd]) };
+  const opts = (sel) => QUARTERS.map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
+  const f = (k, label, v, extra = "", hint = "") => `<div class="field"><label for="tm-${k}">${label}</label>${hint ? `<span class="hint">${hint}</span>` : ""}<input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
+  return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/team", "Team & hours"], ["", c.name || "New clinician"]]), eyebrow: edit.id ? esc(c.role) : "New clinician", title: esc(c.name || "Add a clinician"),
+      lead: edit.id ? "Changes reach booking, refills and route planning straight away." : "They can sign in as soon as you save." })}
+    <form id="tm-clin" data-id="${esc(edit.id || "")}" class="pg-form">
+      <section class="card"><div class="card-h"><h2>Profile</h2><p>How they appear in the diary and on patients' texts.</p></div>
+        <div class="row2">${f("name", "Full name", c.name, 'maxlength="60" required')}<div class="field"><label for="tm-role">Role</label><span class="hint">Only optometrists are offered eye examinations.</span><select class="input" id="tm-role">${t.roles.map((r) => `<option ${r === c.role ? "selected" : ""}>${r}</option>`).join("")}</select></div></div>
+        <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:46px;padding:4px"></div></div></section>
+      <section class="card"><div class="card-h"><h2>Area</h2><p>Who they're offered: patients in these postcode areas first, then the ones they'll also go to.</p></div>
+        ${f("area", "Area name", c.areaName, 'maxlength="60" placeholder="e.g. Bolton & Bury"')}
+        <div class="row2">${f("patch", "Postcode areas they cover", c.patch.join(", "), 'placeholder="BL1, BL2, BL3"', "Separate with commas.")}${f("near", "Will also go to", c.near.join(", "), 'placeholder="BL4, M8"', "Used when nobody nearer fits.")}</div>
+        ${f("base", "Starts the day from (postcode)", c.base, 'placeholder="BL1 5DN"', "Route planning starts and ends here.")}</section>
+      <section class="card"><div class="card-h"><h2>Working hours</h2><p>Untick a day for a day off. If booked visits fall outside new hours, Domi names them so they can be moved first.</p></div>
+        <div class="hours lg">${(META.days || []).map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(DAY_LONG[i] || d.slice(0, 3))}</label>
+          <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : META.dayStart)}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : META.dayEnd)}</select></div>`; }).join("")}</div></section>
+      ${accessCard(edit, c, "clin")}
+      <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
+    </form></div>`;
+}
+const DAY_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const accessCard = (edit, x, kind) => edit.id ? `<section class="card"><div class="card-h"><h2>Access</h2><p>${x.active ? "Signed in with a password and an authenticator code." : "Switched off: they can't sign in. Their history is kept."}</p></div>
+  <button class="btn ${x.active ? "ghost danger-t" : "secondary"}" type="button" data-act="tm-active" data-k="${kind}" data-id="${esc(edit.id)}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off and sign out everywhere" : "Switch back on"}</button></section>` : "";
 
 /* ============ Drawers ============ */
 function openDrawer(d) { UI.drawer = d; renderDrawer(); }
@@ -1641,20 +1888,23 @@ document.addEventListener("click", async (e) => {
       case "mode": await api("PUT", "/api/settings", { mode: el.dataset.v }); await load(); break;
       case "open-appt": openDrawer({ kind: "appt", id: el.dataset.id }); break;
       /* The office runs everything: records, visits, gaps, the team */
-      case "patients": openDrawer({ kind: "patients", q: "" }); break;
-      case "open-rec": await openRecord(el.dataset.id); break;
-      case "rec-edit": UI.drawer.edit = true; renderDrawer(); break;
-      case "rec-edit-cancel": UI.drawer.edit = false; renderDrawer(); break;
+      case "patients": go("patients"); break;
+      case "open-rec": go("patients/" + el.dataset.id); break;
+      case "go": go(el.dataset.v); break;
+      case "pf": UI.pf = el.dataset.v; render(); break;
+      case "rec-edit": { const d = ctx("patient"); d.edit = true; rerender(d); break; }
+      case "rec-edit-cancel": { const d = ctx("patient"); d.edit = false; rerender(d); break; }
       case "rec-export": {
-        const d = UI.drawer, data = await api("GET", `/api/patients/${d.id}/export`);
+        const d = ctx("patient"), data = await api("GET", `/api/patients/${d.id}/export`);
         download(`${d.rec.name.replace(/[^A-Za-z]+/g, "-").toLowerCase()}-records.json`, JSON.stringify(data, null, 2), "application/json");
         toast("Downloaded. Send it securely, never by ordinary email."); break;
       }
       case "rec-erase": {
-        const d = UI.drawer, v = ($("#erase-name") || {}).value || "";
+        const d = ctx("patient"), v = ($("#erase-name") || {}).value || "";
         el.disabled = true;
         await api("POST", `/api/patients/${d.id}/erase`, { confirm: v });
-        closeDrawer(); await load(); toast("Their details have been erased"); break;
+        if (UI.drawer) closeDrawer(); else UI.pg = null;
+        await load(); toast("Their details have been erased"); break;
       }
       case "book-for": UI.book = { patientId: el.dataset.id }; openDrawer({ kind: "book" }); break;
       case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) renderDrawer(); break; }
@@ -1682,15 +1932,15 @@ document.addEventListener("click", async (e) => {
         const r = await api("POST", `/api/gaps/${el.dataset.slot}/book`, { waitlistId: el.dataset.w });
         closeDrawer(); await load(); toast(`${r.patient} booked for ${r.day ? dayName(r.day) + " " : ""}${hm(r.start)} with ${first(r.clinician)}`); break;
       }
-      case "team": { const d = { kind: "team", data: null }; openDrawer(d); d.data = await api("GET", "/api/team"); if (UI.drawer === d) renderDrawer(); break; }
-      case "tm-edit": UI.drawer.edit = { kind: el.dataset.k, id: el.dataset.id || null }; renderDrawer(); break;
-      case "tm-back": UI.drawer.edit = null; renderDrawer(); break;
+      case "team": go("team"); break;
+      case "tm-edit": go(`team/${el.dataset.k}/${el.dataset.id || "new"}`); break;
+      case "tm-back": go("team"); break;
       case "tm-active": {
         const on = el.dataset.v === "1", url = el.dataset.k === "clin" ? `/api/team/clinicians/${el.dataset.id}/active` : `/api/team/staff/${el.dataset.id}/active`;
         if (!on && !confirm("Switch this account off? They'll be signed out on every device.")) break;
         el.disabled = true;
         await api("POST", url, { active: on });
-        UI.drawer.data = await api("GET", "/api/team"); await load(); toast(on ? "Switched back on" : "Switched off and signed out everywhere"); break;
+        const d = ctx("team"); d.data = await api("GET", "/api/team"); await load(); rerender(d); toast(on ? "Switched back on" : "Switched off and signed out everywhere"); break;
       }
       case "do-cancel": {
         el.disabled = true;
@@ -1772,11 +2022,28 @@ document.addEventListener("submit", async (e) => {
       const best = document.querySelector("#book-form .offer"); if (best) best.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
+    if (e.target.id === "pg-note") {
+      const d = UI.pg, t = $("#pg-note-t"); if (!d || !t.value.trim()) return;
+      await api("POST", `/api/patients/${d.id}/notes`, { body: t.value }); t.value = "";
+      d.rec = await api("GET", `/api/patients/${d.id}?background=1`); await load(); toast("Note added"); return;
+    }
+    if (e.target.id === "np-form") {
+      const v = (id) => ($("#np-" + id) || {}).value || "", err = $("#np-err");
+      try {
+        const r = await api("POST", "/api/patients", { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
+        UI.pg = null; await load(); go("patients/" + r.patient.id); toast(`${r.patient.name} added. Book their first visit from here.`);
+      } catch (x) {
+        if (x.offline) throw x;
+        err.innerHTML = `<div class="callout danger-card" role="alert">${esc(x.message)}${x.data && x.data.patientId ? ` <a href="#/patients/${esc(x.data.patientId)}">Open their record</a>` : ""}</div>`;
+        err.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      return;
+    }
     if (e.target.id === "pe-form") {
       const v = (id) => ($("#pe-" + id) || {}).value || "";
-      const d = UI.drawer;
+      const d = ctx("patient");
       const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
-      d.edit = false; d.rec = await api("GET", "/api/patients/" + d.id + "?background=1"); await load();
+      d.edit = false; d.rec = await api("GET", "/api/patients/" + d.id + "?background=1"); await load(); rerender(d);
       toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
       return;
     }
@@ -1785,14 +2052,14 @@ document.addEventListener("submit", async (e) => {
       const hours = (META.days || []).map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
       const id = e.target.dataset.id || undefined;
       await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
-      UI.drawer.edit = null; UI.drawer.data = await api("GET", "/api/team"); await load();
+      await load(); go("team");
       toast(id ? "Saved" : "Clinician added. They can sign in now.");
       return;
     }
     if (e.target.id === "tm-staff") {
       const id = e.target.dataset.id || undefined;
       await api("POST", "/api/team/staff", { id, name: $("#ts-name").value, title: $("#ts-title").value, email: $("#ts-email").value });
-      UI.drawer.edit = null; UI.drawer.data = await api("GET", "/api/team"); await load();
+      await load(); go("team");
       toast(id ? "Saved" : "Office account added. They can sign in now.");
       return;
     }
@@ -1838,6 +2105,7 @@ document.addEventListener("change", async (e) => {
 document.addEventListener("input", (e) => {
   if (e.target.id === "psearch") { UI.q = e.target.value; render(); }
   if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; renderDrawer(); }
+  if (e.target.id === "pg-q") { UI.pq = e.target.value; render(); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.drawer) closeDrawer(); });
 // Keep the screen at a fixed size: Safari ignores user-scalable=no, so stop pinch here (double-tap zoom is off via CSS touch-action).
