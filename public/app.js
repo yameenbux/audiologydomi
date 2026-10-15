@@ -602,6 +602,7 @@ function board(nowM) {
   const team = onBoard(UI.day);
   let ticks = "";
   for (let m = DS; m <= DE; m += 60) ticks += `<div class="tick mono" style="top:${(m - DS) * PX}px">${hm(m)}</div>`;
+  if ((DE - DS) % 60) ticks += `<div class="tick mono" style="top:${H}px">${hm(DE)}</div>`; // the end of the day, e.g. 17:30
   const nowY = Math.max(0, Math.min(H, (nowM - DS) * PX));
   const lanes = team.map((c, ci) => {
     const list = dayAppts(c.id, UI.day);
@@ -1356,8 +1357,8 @@ function gapDrawer(d) {
 }
 
 /* ---------- The team: clinicians, office accounts, working hours ---------- */
-const QUARTERS = []; for (let m = 9 * 60; m <= 17 * 60; m += 15) QUARTERS.push(m);
-const hoursText = (h) => (META.days || []).map((d, i) => h[i] ? (h[i][0] === META.dayStart && h[i][1] === META.dayEnd ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || "Mon–Fri, 09:00–17:00";
+const QUARTERS = []; for (let m = 9 * 60; m <= 17 * 60 + 30; m += 15) QUARTERS.push(m); // 09:00 to the end of the day, 17:30
+const hoursText = (h) => (META.days || []).map((d, i) => h[i] ? (h[i][0] === META.dayStart && h[i][1] === META.dayEnd ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || `Mon–Fri, ${hm(META.dayStart)}–${hm(META.dayEnd)}`;
 function teamDrawer(d) {
   const t = d.data;
   if (!t) return `<div class="drawer-h"><div><div class="caps">The practice</div><h2 style="margin-top:6px">Team</h2></div>${closeX}</div><div class="drawer-b"><p class="muted">Loading…</p></div>`;

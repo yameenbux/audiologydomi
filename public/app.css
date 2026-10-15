@@ -155,7 +155,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .hr { height: 1px; background: var(--line) }
 
 .board-wrap { overflow-x: auto; border-top: 1px solid var(--line) }
-.board { display: grid; min-width: 720px }
+.board { display: grid; min-width: 720px; padding-bottom: 12px } /* room for the last time label */
 .col-h { padding: 12px 12px 10px; display: flex; gap: 10px; align-items: center; min-width: 0; border-bottom: 1px solid var(--line) }
 .col-h > div { min-width: 0 }
 .col-h .nm { font-weight: 600; font-size: 14px; line-height: 1.2 }

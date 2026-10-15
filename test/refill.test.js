@@ -30,7 +30,7 @@ const dayAppts = [slot, { id: "a2", start: 12 * 60, drive: 10 }];
 
 test("free window runs to the next visit minus its drive", () => {
   assert.strictEqual(freeWindow(slot, dayAppts), 50);
-  assert.strictEqual(freeWindow(slot, [slot]), 6 * 60);
+  assert.strictEqual(freeWindow(slot, [slot]), 6.5 * 60, "to the end of the working day, 17:30");
 });
 
 test("hard rules exclude unsuitable patients with a reason", () => {
