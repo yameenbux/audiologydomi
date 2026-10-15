@@ -845,14 +845,8 @@ function redrive(cid, day) {
 const PATIENT_LABELS = { name: "name", addr: "address", pc: "postcode", phone: "phone", contact: "how to contact", email: "email", dob: "date of birth",
   eligibility: "reason for a home visit", rep: "next of kin or carer", specs: "glasses", alerts: "visit notes" };
 
-/**
- * The office changes a patient's details. Only the fields sent are changed. The audit log records which fields
- * changed, never the old or new values; the clinician is told if the address of an upcoming visit changed.
- */
-async function updatePatient(id, input, user) {
-  const before = getPatient(String(id));
-  if (!before) throw new HttpError(404, "Patient not found.");
-  if (before.erased) throw new HttpError(409, "This patient's details were erased.");
+/** The checks on a patient's details, shared by adding and editing. Only the fields sent are checked and returned. */
+function patientFields(input, before) {
   const has = (k) => Object.prototype.hasOwnProperty.call(input, k);
   const next = {};
   if (has("name")) { const v = clean(input.name, 80); if (v.length < 2) throw new HttpError(400, "Enter the patient's full name."); next.name = v; }
@@ -884,6 +878,41 @@ async function updatePatient(id, input, user) {
     const list = (Array.isArray(input.alerts) ? input.alerts : String(input.alerts || "").split("\n")).map((a) => clean(a, 120)).filter(Boolean).slice(0, 8);
     next.alerts = list;
   }
+  return next;
+}
+
+/**
+ * The office adds a patient by hand: someone who phoned in, or a referral that came by post. Name, address,
+ * postcode and phone are needed to visit them; everything else can follow. Someone already on Domi with the
+ * same name and phone or date of birth is refused, with a pointer to their record, so nobody is entered twice.
+ */
+async function createPatient(input, user) {
+  for (const k of ["name", "addr", "pc", "phone"]) if (!String(input[k] || "").trim()) throw new HttpError(400, `Enter the patient's ${PATIENT_LABELS[k]}.`);
+  const p = { contact: "Text", ...patientFields({ contact: "Text", ...input }, { contact: "Text", phone: "" }) };
+  const twin = all("SELECT id, name, phone, dob FROM patients WHERE erased = 0").find((r) => r.name.toLowerCase() === p.name.toLowerCase() && ((p.dob && r.dob === p.dob) || sameDigits(r.phone, p.phone)));
+  if (twin) throw Object.assign(new HttpError(409, `${twin.name} is already on Domi with the same ${p.dob && twin.dob === p.dob ? "date of birth" : "phone number"}.`), { extra: { patientId: twin.id } });
+  await travel.prepare([p.pc]);
+  return tx(() => {
+    const id = newId("p");
+    const age = p.dob ? Math.floor((Date.UTC(2026, 9, 12) - Date.parse(p.dob)) / (365.25 * 864e5)) : null;
+    run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, p.name, age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts || []), p.specs || "None on record", p.dob || null, p.email || null, p.eligibility || null, p.rep || null);
+    addNote(id, "Added by the office.", user, { silent: true });
+    audit(user.name, "patient.create", id, "Added by hand"); // no personal details in the audit line
+    bus.emit({ type: "patient.updated", patientId: id });
+    return { patient: getPatient(id) };
+  });
+}
+
+/**
+ * The office changes a patient's details. Only the fields sent are changed. The audit log records which fields
+ * changed, never the old or new values; the clinician is told if the address of an upcoming visit changed.
+ */
+async function updatePatient(id, input, user) {
+  const before = getPatient(String(id));
+  if (!before) throw new HttpError(404, "Patient not found.");
+  if (before.erased) throw new HttpError(409, "This patient's details were erased.");
+  const next = patientFields(input, before);
   const changed = Object.keys(next).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(before[k]));
   if (!changed.length) return { patient: before, changed: [] };
   if (next.pc) await travel.prepare([next.pc, ...upcoming(before.id).map((a) => getClinician(a.clinicianId).base)]);
@@ -1252,4 +1281,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
