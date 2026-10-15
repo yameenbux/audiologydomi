@@ -671,3 +671,10 @@ button.rm-row:hover { background: var(--subtle) }
 .ferr { color: var(--danger, #B3261E); font-size: 15px; font-weight: 600; margin: 6px 0 0 }
 [aria-invalid="true"] { box-shadow: inset 0 0 0 2px var(--danger, #B3261E) !important }
 .trap { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden }
+
+/* Facebook leads: the thank-you email, shown as the person receives it */
+.mailcard { border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface); overflow: hidden }
+.mailcard .mail-h { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px }
+.mailcard .mail-h .muted { font-size: 12.5px }
+.mailcard .mail-b { padding: 14px; white-space: pre-wrap; font-size: 14px; line-height: 1.55 }
+.drawer-f [aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--forest) }

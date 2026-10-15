@@ -12,6 +12,7 @@ const regions = require("./regions");
 const D = require("./domain");
 const travel = require("./travel");
 const svc = require("./service");
+const leads = require("./leads");
 const auth = require("./auth");
 const bus = require("./bus");
 const { provider, verifyTwilio } = require("./notify");
@@ -262,11 +263,12 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
   const pcse = isAdmin ? svc.pcseList() : [];
   const referrals = isAdmin ? db.prepare("SELECT * FROM referrals ORDER BY status = 'new' DESC, id DESC").all().map(map.referral) : [];
+  const leadsState = isAdmin ? { leads: leads.leadList(), leadEmails: leads.leadEmails(), leadStatus: leads.STATUS, leadPreview: leads.preview() } : { leads: [] };
   // Everyone who signs in, for the office's clinician switcher and phone sign-in. No emails or secrets.
   const staff = req.auth.real.role === "admin" ? db.prepare("SELECT * FROM users WHERE active = 1 ORDER BY role DESC, name").all().map(map.user).map((u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId, title: u.title, color: u.color })) : [];
   const sb = sandbox.current();
   return {
-    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, staff,
+    user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
     metrics: isAdmin ? svc.metrics() : null, settings: sb.settings, brand: brands.pub(sb.brand), areas: regions.areasFor(sb.brand.region),
   };
 });
@@ -348,6 +350,10 @@ route("PUT", "/api/settings", {}, (req, body, user) => {
   if (body.prices && typeof body.prices === "object") {
     for (const [k, v] of Object.entries(body.prices)) if (k in st.prices && Number(v) >= 0 && Number(v) <= 5000) st.prices[k] = Math.round(Number(v));
   }
+  if (typeof body.officeHours === "string") {
+    const h = body.officeHours.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().replace(/\.$/, "").slice(0, 120);
+    if (h.length >= 3) st.officeHours = h;
+  }
   if (Number(body.reminderAt) >= 8 * 60 && Number(body.reminderAt) <= 21 * 60) st.reminderAt = Math.round(Number(body.reminderAt));
   svc.audit(user.name, "settings.update", "settings", JSON.stringify(st));
   bus.emit({ type: "settings.updated", settings: st });
@@ -380,6 +386,21 @@ route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user,
   if (looksLikeBot(body)) return { ok: true };
   return sandbox.run(practice(code), () => svc.submitReferral(body));
 });
+/**
+ * Leads from the practice's ad forms. A connector (Zapier, Make, or Meta's webhook) posts each one here. When
+ * LEADS_KEY is set, a connector must send it (?key=… or an X-Domi-Key header). The practice's test ad form in the
+ * demo posts here too, with the same spam checks as the other public forms.
+ */
+route("POST", "/api/public/:code/leads", { public: true }, (req, body, user, { code }) => {
+  limitPublic(req, "leads", 30);
+  if (body.test === true) { if (looksLikeBot(body)) return { ok: true }; }
+  else if (process.env.LEADS_KEY) {
+    const key = new URL(req.url, "http://x").searchParams.get("key") || req.headers["x-domi-key"] || "";
+    if (key !== process.env.LEADS_KEY) throw new svc.HttpError(403, "This connector isn't set up for this practice.");
+  }
+  return sandbox.run(practice(code), () => leads.receive(body));
+});
+route("POST", "/api/leads/:id/status", {}, (req, body, user, { id }) => { needAdmin(user); return leads.setLeadStatus(id, body, user); });
 route("POST", "/api/referrals/:id/accept", {}, (req, body, user, { id }) => { needAdmin(user); return svc.acceptReferral(id, body, user); });
 route("POST", "/api/referrals/:id/decline", {}, (req, body, user, { id }) => { needAdmin(user); return svc.declineReferral(id, body.reason, user); });
 // The cancellation link a patient's family can use instead of texting: /cancel/<practice code>/<token>.
@@ -511,7 +532,8 @@ function serveStatic(req, res) {
   if (p === "/") p = "/index.html";
   if (p === "/under-the-hood") p = "/under-the-hood.html";
   if (p === "/brand") p = "/brand.html";
-  if (p.startsWith("/refer/")) p = "/refer.html"; // the practice's referral form: /refer/<practice code>
+  if (p.startsWith("/refer/")) p = "/refer.html";
+  if (p.startsWith("/ad-form/")) p = "/ad-form.html"; // the practice's test ad form: /ad-form/<practice code> // the practice's referral form: /refer/<practice code>
   if (p.startsWith("/cancel/")) p = "/cancel.html"; // a visit's cancellation link: /cancel/<practice code>/<token>
   if (p === "/book" || p.startsWith("/book/")) p = "/book.html"; // a practice's patient booking page: /book/<practice code>
   const file = path.join(PUBLIC, path.normalize(p));

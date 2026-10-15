@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Test ad form</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<script src="/powered.js"></script>
+<style>
+  /* A stand-in for the form on the practice's Facebook ad, so the office can send itself a test lead. It is
+     deliberately plain and labelled as a test: it isn't Facebook and posts nothing there. */
+  body.af { background: var(--bg); font-size: 16px }
+  .af-note { max-width: 440px; margin: 16px auto 0; padding: 10px 14px; border-radius: 12px; background: var(--warn-soft); color: var(--ink); font-size: 14px; line-height: 1.45 }
+  .af-card { max-width: 440px; margin: 14px auto 40px; background: var(--surface); border-radius: 18px; box-shadow: inset 0 0 0 1px var(--line), var(--shadow); overflow: hidden }
+  .af-head { display: flex; gap: 10px; align-items: center; padding: 14px 16px }
+  .af-head img, .af-head .mono-mark { height: 40px; width: auto; max-width: 120px; object-fit: contain }
+  .af-head .who b { display: block; font-size: 15px } .af-head .who span { font-size: 12.5px; color: var(--muted) }
+  .af-text { padding: 0 16px 12px; margin: 0; line-height: 1.5 }
+  .af-art { aspect-ratio: 1.6; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px; color: #fff; background: linear-gradient(135deg, var(--forest), var(--ink)) }
+  .af-art b { font: 700 30px/1.05 var(--f-display) } .af-art span { opacity: .9; margin-top: 6px }
+  .af-cta { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; background: var(--subtle) }
+  .af-cta small { color: var(--muted); display: block } .af-cta b { font-size: 15px }
+  .af-form { padding: 18px 16px 20px }
+  .af-form h2 { font-size: 22px; margin: 0 0 4px } .af-form .lead { color: var(--muted); margin: 0 0 6px; font-size: 14.5px }
+  .af-form .q { display: grid; gap: 6px; margin-top: 14px; font-weight: 600; font-size: 14.5px }
+  .af-form .input { font-size: 16px; width: 100% }
+  .af-form .opts { display: grid; gap: 6px; margin-top: 4px }
+  .af-form .opt { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; box-shadow: inset 0 0 0 1.5px var(--line); font-weight: 500; cursor: pointer }
+  .af-form .opt:has(input:checked) { box-shadow: inset 0 0 0 2px var(--forest) }
+  .af-form .btn.lg { width: 100%; justify-content: center; margin-top: 18px; padding: 14px }
+  .af-form .small { font-size: 12.5px; color: var(--muted); margin: 12px 0 0 }
+  .af-done { padding: 22px 16px }
+  .af-done h2 { margin: 0 0 6px }
+</style>
+<!--ANALYTICS-->
+</head>
+<body class="af">
+<p class="af-note"><b>Test version of your Facebook ad form.</b> Fill it in as a patient would. The lead appears in Domi straight away and the thank-you email is sent. Nothing is posted to Facebook.</p>
+<main class="af-card" id="root" aria-live="polite"><p class="af-text" style="padding:16px">Loading…</p></main>
+<script>
+(function () {
+"use strict";
+const code = (location.pathname.split("/")[2] || "").toUpperCase();
+const root = document.getElementById("root");
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const AD = "Free NHS eye test at home";
+let INFO = null, open = false, done = null, STARTED = 0;
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({ error: "Something went wrong." }));
+  if (!r.ok) throw new Error(d.error || "Something went wrong.");
+  return d;
+}
+const mark = () => INFO.brand && INFO.brand.logo ? `<img src="${esc(INFO.brand.logo)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+const radios = (name, list) => `<div class="opts">${list.map((v, i) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}" ${i === 0 ? "checked" : ""}><span>${esc(v)}</span></label>`).join("")}</div>`;
+function render(err) {
+  const head = `<div class="af-head">${mark()}<div class="who"><b>${esc(INFO.practice)}</b><span>Sponsored · test ad</span></div></div>`;
+  if (done) {
+    root.innerHTML = `${head}<div class="af-done"><div class="caps">Sent</div><h2 tabindex="-1">Thanks, you're all set</h2>
+      <p class="muted" style="margin:0 0 16px">${esc(INFO.practice)} will call you soon. ${done.email ? "This email is on its way to you now:" : "You didn't give an email address, so no thank-you email was sent."}</p>
+      ${done.email ? `<div class="mailcard"><div class="mail-h"><b>${esc(done.email.subject)}</b><span class="muted">From ${esc(INFO.practice)}</span></div><div class="mail-b">${esc(done.email.body)}</div></div>` : ""}
+      <button class="btn secondary" type="button" data-act="again" style="margin-top:16px">Send another test lead</button></div>`;
+    root.querySelector("h2").focus({ preventScroll: true });
+    return;
+  }
+  const ad = `${head}<p class="af-text">Can't get to an optician's? We come to you. Eye tests and glasses at home, free on the NHS for most people over 60.</p>
+    <div class="af-art"><b>${AD}</b><span>${esc((INFO.areas || []).slice(0, 4).map((a) => a.town).join(", "))} and nearby</span></div>
+    <div class="af-cta"><div><small>${esc(INFO.practice)}</small><b>Book your home eye test</b></div>${open ? "" : `<button class="btn" type="button" data-act="open">Get a call back</button>`}</div>`;
+  root.innerHTML = ad + (open ? `<form class="af-form" id="af" novalidate>
+      <h2>Get a call back</h2><p class="lead">Leave your details and we'll call you to arrange a home visit.</p>
+      <label class="q">Full name<input class="input" id="name" autocomplete="name"></label>
+      <label class="q">Phone number<input class="input" id="phone" type="tel" inputmode="tel" autocomplete="tel"></label>
+      <label class="q">Email<input class="input" id="email" type="email" autocomplete="email"></label>
+      <label class="q">Postcode<input class="input" id="pc" autocomplete="postal-code" style="text-transform:uppercase"></label>
+      <div class="q">Who is the eye test for?${radios("who", ["Me", "My mum or dad", "Someone I care for"])}</div>
+      <div class="q">When did they last have an eye test?${radios("last", ["Within the last year", "1 to 2 years ago", "Over 2 years ago", "I don't know"])}</div>
+      <label class="trap" aria-hidden="true">Leave this empty<input id="website" tabindex="-1" autocomplete="off"></label>
+      ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
+      <button class="btn lg" type="submit">Submit</button>
+      <p class="small">By submitting, you agree to ${esc(INFO.practice)} contacting you about a home eye test, and to its <a href="${esc((INFO.brand && INFO.brand.site) || "/")}privacy/" target="_blank" rel="noopener">privacy policy</a>.</p>
+    </form>` : "");
+}
+root.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-act]"); if (!a) return;
+  if (a.dataset.act === "open") { open = true; STARTED = Date.now(); render(); root.querySelector("#name").focus(); }
+  if (a.dataset.act === "again") { done = null; open = true; STARTED = Date.now(); render(); }
+});
+root.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const v = (id) => (root.querySelector("#" + id) || {}).value || "";
+  const pick = (n) => (root.querySelector(`[name=${n}]:checked`) || {}).value;
+  const body = { test: true, ad_name: AD, full_name: v("name"), phone_number: v("phone"), email: v("email"), post_code: v("pc"),
+    who_is_the_eye_test_for: pick("who"), when_did_they_last_have_an_eye_test: pick("last"), website: v("website"), formMs: Date.now() - STARTED };
+  const btn = root.querySelector("[type=submit]"); btn.disabled = true;
+  try { done = await api("POST", `/api/public/${code}/leads`, body); render(); window.scrollTo(0, 0); }
+  catch (err) { render(err.message); }
+});
+api("GET", `/api/public/${code}`).then((info) => {
+  INFO = info;
+  if (info.brand && info.brand.theme) document.documentElement.dataset.brand = info.brand.id;
+  document.title = "Test ad form · " + info.practice;
+  window.DomiPowered(info.brand);
+  render();
+}).catch((e) => { root.innerHTML = `<p class="af-text" style="padding:16px">${esc(e.message)}</p>`; });
+})();
+</script>
+</body>
+</html>
