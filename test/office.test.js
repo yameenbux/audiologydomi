@@ -253,3 +253,32 @@ test("a clinician marks a visit they couldn't do: reason on the record, PCSE not
   // Another clinician can't mark it, and it can't be marked twice
   assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody" })).status, 409);
 });
+
+test("recalls text themselves at the practice's recall time; phone-only patients stay for the office; consent fields saved", async () => {
+  const o = await office();
+  const before = await state(o.token);
+  assert.strictEqual(before.settings.autoRecalls, true);
+  // The demo clock starts after the recall time, so the first sweep has sent them
+  const svc = require("../server/service"), sandbox = require("../server/sandbox");
+  const sb = sandbox.get(o.sandbox);
+  sandbox.run(sb, () => svc.sweepRecalls());
+  const st = await state(o.token);
+  const due = st.recalls.filter((r) => r.dueDay <= 14 && r.status !== "dismissed");
+  for (const r of due) {
+    const p = st.patients.find((x) => x.id === r.patientId);
+    assert.strictEqual(r.status, p.contact === "Text" ? "texted" : "due", `${p.name} (${p.contact})`);
+  }
+  const sent = st.messages.filter((m) => m.kind === "recall");
+  assert.ok(sent.length >= 1 && sent.every((m) => /\/book\//.test(m.body)), "with the booking link");
+  assert.ok(sent.every((m) => !/ nhs /.test(m.body)), "NHS keeps its capitals");
+  // Only once a day
+  sandbox.run(sb, () => svc.sweepRecalls());
+  assert.strictEqual((await state(o.token)).messages.filter((m) => m.kind === "recall").length, sent.length);
+  // Power of attorney and consent to talk to family
+  const r = await call("PUT", "/api/patients/p4", o.token, { poa: "Daughter Karen Hill, 07700 900777", share: "yes" });
+  assert.deepStrictEqual(r.data.changed, ["power of attorney", "consent to talk to family"]);
+  assert.strictEqual((await call("PUT", "/api/patients/p4", o.token, { share: "maybe" })).status, 400);
+  const p = (await call("GET", "/api/patients/p4", o.token)).data;
+  assert.strictEqual(p.poa, "Daughter Karen Hill, 07700 900777");
+  assert.strictEqual(p.share, "yes");
+});

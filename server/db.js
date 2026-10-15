@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS patients (
   dob TEXT, email TEXT,
   eligibility TEXT,                               -- the condition that stops them leaving home unaccompanied (needed on a GOS 6)
   rep TEXT,                                       -- next of kin or carer, and their number
+  poa TEXT,                                       -- who holds lasting power of attorney (health and welfare), and how to reach them
+  share TEXT CHECK (share IN ('yes','no')),       -- whether the practice may discuss visits with the next of kin or carer; NULL = not asked
   last_test TEXT,                                 -- date of the last sight test, ISO
   erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
 );
@@ -310,7 +312,7 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0 }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, lastTest: r.last_test, erased: !!r.erased }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, erased: !!r.erased }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),

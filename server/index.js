@@ -273,7 +273,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const sb = sandbox.current();
   return {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
-    metrics: isAdmin ? svc.metrics() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
+    metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
 
@@ -640,7 +640,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 const sweeper = setInterval(() => {
-  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); } catch (e) { console.error("sweep failed", sb.id, e); } });
+  for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); svc.sweepRecalls(); } catch (e) { console.error("sweep failed", sb.id, e); } });
 }, 5000);
 sweeper.unref();
 

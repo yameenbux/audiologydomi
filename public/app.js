@@ -417,6 +417,7 @@ function trayTabs() {
     { k: "leads", label: "Leads", ic: "send", count: n(leads), hot: oldest > 60, body: leadsPanel },
     { k: "refs", label: "Referrals", ic: "note", count: n((S.referrals || []).filter((r) => r.status === "new")), hot: (S.referrals || []).some((r) => r.status === "new" && r.urgent), body: referralsPanel },
     { k: "recalls", label: "Recalls", ic: "cal", count: n((S.recalls || []).filter((r) => r.status !== "dismissed" && r.status !== "booked")), body: recallsPanel },
+    { k: "notseen", label: "Not seen", ic: "x", count: n(notSeenToday().filter((x) => !x.back)), hot: notSeenToday().some((x) => !x.back), body: notSeenPanel },
     { k: "pcse", label: "PCSE", ic: "shield", count: n((S.pcse || []).filter((t) => t.status === "todo")), body: pcsePanel },
     { k: "texts", label: "Texts", ic: "msg", count: n(S.messages.filter((m) => m.dir === "in" && !m.read)), body: textsPanel },
   ];
@@ -430,6 +431,21 @@ function tray() {
   </aside>`;
 }
 /** What needs a person today, above the diary. Each card opens its tab in the tray. */
+/** Today's visits a clinician couldn't do, and whether each patient is back on the waiting list. */
+function notSeenToday() {
+  return S.appts.filter((a) => (a.day || 0) === 0 && a.status === "missed").map((a) => ({ a, p: pat(a.patientId), back: S.waitlist.some((w) => w.patientId === a.patientId && w.status !== "booked") })).filter((x) => x.p);
+}
+function notSeenPanel() {
+  const list = notSeenToday();
+  return `<section class="panel" aria-label="Not seen today">
+    <div class="panel-h"><h2>Not seen today</h2><span class="sub">${list.length ? `${list.filter((x) => !x.back).length} to rebook` : "None"}</span></div>
+    <p class="panel-note">Visits a clinician couldn't do, marked from their phone. Anyone not back on the waiting list needs a call to rebook.</p>
+    ${list.length ? `<ul class="recalls">${list.map(({ a, p, back }) => `<li>
+      <div style="min-width:0"><div class="nm">${esc(p.name)}</div><div class="meta"><span>${hm(a.start)} with ${esc((cln(a.clinicianId) || {}).first || "")}</span><span>${esc(a.reason || "Not seen")}</span><span>${p.contact === "Call" ? "Phone, don't text" : esc(p.phone)}</span></div></div>
+      <div class="ra">${back ? `<span class="badge b-ok">On the waiting list</span>` : `<button class="btn secondary sm" type="button" data-act="go" data-v="patients/${esc(p.id)}">${icon("phone")}Call to rebook</button>`}</div></li>`).join("")}</ul>`
+      : `<div class="empty"><b>Every visit went ahead</b>If a clinician can't do one, it appears here straight away.</div>`}
+  </section>`;
+}
 function needsYou() {
   const leads = (S.leads || []).filter((l) => l.status === "new");
   const oldest = leads.reduce((m, l) => Math.max(m, (S.now || 0) - l.atMin), 0);
@@ -444,6 +460,7 @@ function needsYou() {
     { k: "refs", none: "No new referrals", n: refs.length, what: refs.length === 1 ? "referral to look at" : "referrals to look at", note: refs.some((r) => r.urgent) ? "One says their sight has changed" : refs.length ? "From your website form" : "All dealt with", hot: refs.some((r) => r.urgent) },
     { k: "recalls", none: "No recalls due", n: recalls.length, what: recalls.length === 1 ? "recall due" : "recalls due", note: overdue ? `${overdue} overdue` : "Offered cancelled visits nearby", hot: false },
     { k: "pcse", none: "PCSE is up to date", n: pcse.length, what: pcse.length === 1 ? "PCSE notice to lodge" : "PCSE notices to lodge", note: pcse.length ? "48 hours before each NHS test" : "Nothing to lodge", hot: false },
+    (() => { const ns = notSeenToday(), todo = ns.filter((x) => !x.back).length; return { k: "notseen", none: ns.length ? `${ns.length} not seen, all rebooked` : "Every visit went ahead", n: todo, what: todo === 1 ? "visit not seen: rebook" : "visits not seen: rebook", note: todo ? "Marked from the clinician's phone" : ns.length ? "Back on the waiting list" : "Nothing missed today", hot: todo > 0 }; })(),
     { k: "texts", none: tomorrow.length ? "Tomorrow is reminded" : "No visits tomorrow", n: unreminded, what: unreminded === 1 ? "reminder for tomorrow" : "reminders for tomorrow", note: S.settings.reminders ? `Sent at ${hm(S.settings.reminderAt)}` : "Reminders are off", hot: false },
   ];
   return `<section class="needs" aria-label="Needs you today"><div class="needs-h caps">Needs you today</div>
@@ -558,7 +575,7 @@ function recallsPanel() {
   return `<section class="panel" aria-label="Recalls">
     <div class="panel-h"><h2>Recalls</h2><span class="sub">In the refill pool</span></div>
     <p class="panel-note">Patients due a sight test are offered cancelled visits near them, 48 hours or more ahead so PCSE can be told. You can also text them your booking page.</p>
-    <div class="soon-row" style="padding:0 18px 8px">${soon("recall-auto", "Send recall texts automatically", "send")}</div>
+    <p class="panel-note" style="padding-top:0">${S.settings.autoRecalls ? `${icon("check")} Recall texts go out automatically at ${hm(S.settings.recallAt)}. Patients who'd rather be phoned stay here for you to call.` : `Automatic recall texts are off.`} <a href="#/settings/refill">Change</a></p>
     <ul class="recalls">${due.map((r) => { const p = pat(r.patientId); return `<li>
       <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${district(p.pc)}</span>` : ""}</div></div>
       <div class="ra">${r.status === "booked" ? `<span class="badge b-ok">Booked</span>`
@@ -788,7 +805,7 @@ function record(p) {
     </div>
     <div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
 </div>
-    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
+    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.poa ? `<dt>Power of attorney</dt><dd>${esc(p.poa)}</dd>` : ""}<dt>Talk to family?</dt><dd>${p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet"}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a && UI.nd === a.id ? `<div class="sec">${notDoneForm(a)}</div>` : ""}
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${canNotDo(a) && UI.nd !== a.id ? `<button class="btn secondary" type="button" data-act="nd-open" data-id="${a.id}">Couldn't do it</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
@@ -940,7 +957,7 @@ function patientPage() {
   else if (tab === "overview") {
     const a = visits[0];
     body = `<div class="cards2">
-      <section class="card"><div class="card-h"><h2>Contact</h2></div><dl class="kv lg">${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${row("How to reach them", p.contact === "Call" ? "Phone, don't text" : "Text messages")}${p.email ? row("Email", esc(p.email)) : ""}${row("Next of kin or carer", esc(p.rep || "None recorded"))}</dl></section>
+      <section class="card"><div class="card-h"><h2>Contact</h2></div><dl class="kv lg">${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${row("How to reach them", p.contact === "Call" ? "Phone, don't text" : "Text messages")}${p.email ? row("Email", esc(p.email)) : ""}${row("Next of kin or carer", esc(p.rep || "None recorded"))}${row("Power of attorney", esc(p.poa || "None recorded"))}${row("May we talk to family?", p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet")}</dl></section>
       <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
       <section class="card"><div class="card-h"><h2>Next visit</h2></div>${a ? `<div class="nv"><b>${a.day ? esc(dayName(a.day)) : "Today"} at ${hm(a.start)}</b><span>${esc(T(a.type).name)} with ${esc((cln(a.clinicianId) || {}).name || "")}</span></div><a class="linkish" href="#/patients/${esc(p.id)}/visits">All visits and actions</a>` : `<p class="muted">Nothing booked.</p><button class="btn secondary sm" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button>`}</section>
       <section class="card"><div class="card-h"><h2>Waiting list${rec ? " and recall" : ""}</h2></div>${waits.length || rec ? `<ul class="mini">${waits.map((w) => `<li><b>${T(w.type).name}</b> · ${esc(META.prio[w.prio].label)} priority${w.note ? `<div>${esc(w.note)}</div>` : ""}</li>`).join("")}${rec ? `<li><b>Recall</b> · ${esc(rec.reason)}</li>` : ""}</ul><p class="muted" style="font-size:13px;margin:10px 0 0">Offered any cancelled visit nearby that fits.</p>` : `<p class="muted">Not waiting for anything.</p>`}</section>
@@ -1149,6 +1166,11 @@ function settingsPage() {
         <label class="chk big"><input type="checkbox" id="set-rem" ${st.reminders ? "checked" : ""}><span>Send reminders</span></label>
         <div class="field" style="max-width:320px;margin-top:12px"><label for="set-ra">Send them at</label><select class="input" id="set-ra">${quarters(8 * 60, 21 * 60).map((m) => `<option value="${m}" ${m === st.reminderAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
         ${uses(["Reminder texts", "Cancellation links"])}</section>
+      <section class="card"><div class="card-h"><h2>Recall texts</h2><p>Patients due a sight test within a fortnight, or overdue, are texted your booking page once. They also stay in the refill pool, so a cancelled visit near them is offered first.</p></div>
+        <label class="chk big"><input type="checkbox" id="set-arc" ${st.autoRecalls ? "checked" : ""}><span>Send recall texts automatically</span></label>
+        <div class="field" style="max-width:320px;margin-top:12px"><label for="set-rat">Send them at</label><select class="input" id="set-rat">${quarters(8 * 60, 18 * 60).map((m) => `<option value="${m}" ${m === st.recallAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
+        <p class="set-note">Patients who'd rather be phoned are never texted: they stay on the Recalls list for the office to call.</p>
+        ${uses(["Recalls", "Booking page", "Waiting list"])}</section>
       ${setFoot()}</form>`;
   } else if (sec === "booking") {
     const card = (refer) => { const url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`; let qr = ""; try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
@@ -1160,7 +1182,10 @@ function settingsPage() {
     body = facebookSection();
   } else {
     const m = UI.pg && UI.pg.msgs;
+    const u = S.textUsage || { texts: 0, parts: 0, pence: 0, pencePerPart: 5 };
     body = !m ? `<p class="muted">Loading…</p>` : `<div class="pg-form">
+      <section class="card usage"><div class="usage-n"><b>${u.texts}</b><span>texts sent to patients</span></div><div class="usage-n"><b>${u.parts}</b><span>billed text parts</span></div><div class="usage-n"><b>£${(u.pence / 100).toFixed(2)}</b><span>at ${u.pencePerPart}p a part</span></div>
+        <p class="set-note" style="grid-column:1 / -1">A text is billed in 160-character parts, so most reminders and offers count as 2 parts. Texts to the clinicians' phones are free. In this demo the count covers everything sent since it started.</p></section>
       <section class="card"><div class="card-h"><h2>Texts</h2><p>Worded from your settings, exactly as patients get them. Change the practice name, hours or reminder time and these change too.</p></div>
         <div class="msgs">${m.messages.map((x) => `<article class="msg-p"><header><b>${esc(x.title)}</b><span class="muted">${esc(x.when)}</span></header><div class="bubble">${esc(x.body)}</div></article>`).join("")}</div></section>
       <section class="card"><div class="card-h"><h2>Email to every ad lead</h2><p>Sent the moment someone fills in the form on your Facebook ad. Replies go to ${esc(st.email || "your practice email")}.</p></div>
@@ -1186,7 +1211,8 @@ function newPatientPage() {
       <section class="card"><div class="card-h"><h2>How to reach them</h2><p>Reminders and cancellation offers go by text unless they'd rather be phoned.</p></div>
         <div class="row2">${f("phone", "Phone", 'inputmode="tel" required placeholder="07700 900123"')}
           <div class="field"><label for="np-contact">How to reach them</label><select class="input" id="np-contact"><option value="Text">Text (needs a mobile)</option><option value="Call">Phone, don't text</option></select></div></div>
-        <div class="row2">${f("email", "Email", 'type="email" maxlength="120"', "Optional.")}${f("rep", "Next of kin or carer, and their number", 'maxlength="120"', "Optional.")}</div></section>
+        <div class="row2">${f("email", "Email", 'type="email" maxlength="120"', "Optional.")}${f("rep", "Next of kin or carer, and their number", 'maxlength="120"', "Optional.")}</div>
+        <div class="row2">${f("poa", "Power of attorney (health and welfare)", 'maxlength="120"', "Who holds it, and their number. Optional.")}<div class="field"><label for="np-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="np-share"><option value="" ${!pre.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${pre.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${pre.share === "no" ? "selected" : ""}>No: only the patient</option></select></div></div></section>
       <section class="card"><div class="card-h"><h2>Their visit</h2><p>What the clinician needs to know before they knock.</p></div>
         ${f("elig", "Why they need a home visit", 'maxlength="200" placeholder="e.g. Dementia, or Parkinson\'s"', "The condition itself. The NHS claim needs it, so “housebound” alone isn't enough.")}
         ${f("specs", "Glasses", 'maxlength="80" placeholder="e.g. Varifocals"')}
@@ -1206,6 +1232,7 @@ function patientFormFields(p) {
     ${f("email", "Email", p.email, 'type="email" maxlength="120"')}
     ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
     <div class="row2">${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}${f("specs", "Glasses", p.specs, 'maxlength="80"')}</div>
+    <div class="row2">${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120" placeholder="Leave empty if nobody holds one"')}<div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="form-f"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
   </form>`;
@@ -1518,7 +1545,6 @@ const ROADMAP = [
   { id: "glasses", when: "clinical", area: "Glasses", title: "Glasses from order to fitting", body: "Each pair followed through the lab and back, with the fitting visit offered and booked the day they arrive." },
   { id: "carevisit", when: "clinical", area: "Care homes", title: "Care-home visits", body: "Several residents seen on one visit, under one notification, with the three-week notice PCSE needs for three or more people at one address." },
   { id: "import", when: "later", area: "Getting started", title: "Bring visits and the waiting list across", body: "Patients can already be imported from a spreadsheet. Next: upcoming visits and the waiting list too, so nothing has to be typed in twice." },
-  { id: "recall-auto", when: "later", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a sight test falls due, with the booking link, instead of the office pressing Text link." },
   { id: "images", when: "later", area: "Records", title: "Fundus photos and scans", body: "Photos from a handheld fundus camera, and scan reports, saved into the patient's record from the clinician's phone." },
   { id: "letters", when: "later", area: "Records", title: "Letters and pre-visit forms", body: "GP and referrer letters from templates, and forms patients or carers fill in before the visit (consent, history), saved to the record." },
   { id: "ai-notes", when: "later", area: "Records", title: "Draft notes with AI", body: "Dictate or record the visit and get a draft note to check and save. Nothing is saved without the clinician approving it." },
@@ -1825,6 +1851,8 @@ function patientForm(p) {
     ${f("email", "Email", p.email, 'type="email" maxlength="120"')}
     ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
     ${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}
+    ${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120"')}
+    <div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div>
     ${f("specs", "Glasses", p.specs, 'maxlength="80"')}
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="drawer-f" style="margin:8px -22px -22px"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
@@ -2317,7 +2345,7 @@ document.addEventListener("submit", async (e) => {
         "set-practice": () => ({ practice: v("practice"), phone: v("phone"), email: v("email"), officeHours: v("hoursText"), logo: v("logo") }),
         "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")) }),
         "set-visits": () => ({ prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
-        "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")) }),
+        "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")), autoRecalls: $("#set-arc").checked, recallAt: Number(v("rat")) }),
       }[e.target.id];
       if (!body) return;
       const r = await api("PUT", "/api/settings", body());
@@ -2328,7 +2356,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "np-form") {
       const v = (id) => ($("#np-" + id) || {}).value || "", err = $("#np-err");
       try {
-        const r = await api("POST", "/api/patients", { leadId: ((UI.pg || {}).pre || {}).leadId, name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
+        const r = await api("POST", "/api/patients", { leadId: ((UI.pg || {}).pre || {}).leadId, name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts") });
         UI.pg = null; await load(); go("patients/" + r.patient.id); toast(`${r.patient.name} added. Book their first visit from here.`);
       } catch (x) {
         if (x.offline) throw x;
@@ -2340,7 +2368,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "pe-form") {
       const v = (id) => ($("#pe-" + id) || {}).value || "";
       const d = ctx("patient");
-      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
+      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts") });
       d.edit = false; d.rec = await api("GET", "/api/patients/" + d.id + "?background=1"); await load(); rerender(d);
       toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
       return;
