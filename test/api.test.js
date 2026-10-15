@@ -297,7 +297,8 @@ test("invoicing: completing a visit raises an invoice at the practice's price; p
   assert.strictEqual((await call("GET", "/api/invoices", office.token)).data.totals.count, 1);
   // Prices are the practice's own.
   const st = (await call("PUT", "/api/settings", office.token, { prices: { dispense: 120 } })).data;
-  assert.strictEqual(st.prices.dispense, 120);
+  assert.strictEqual(st.settings.prices.dispense, 120);
+  assert.deepStrictEqual(st.changed, ["prices"]);
 });
 
 test("texts are signed with the practice's name, which the office can change; the product stays Domi", async () => {
@@ -310,12 +311,46 @@ test("texts are signed with the practice's name, which the office can change; th
   // The office renames the practice: new texts and the booking page use the new name
   assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: "  Kirkby   Eyecare\u0007 " })).status, 200);
   assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Eyecare");
-  assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: " " })).status, 200);
-  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Eyecare", "a blank name is ignored");
+  assert.strictEqual((await call("PUT", "/api/settings", office.token, { practice: " " })).status, 400, "a blank name is refused, with a reason");
+  assert.strictEqual((await state(office.token)).settings.practice, "Kirkby Eyecare");
   const pub = (await call("GET", "/api/public/" + st.sandbox)).data;
   assert.strictEqual(pub.practice, "Kirkby Eyecare");
   const ken = (await call("POST", "/api/demo/sms", office.token, { patientId: "p4", body: "CANCEL" })).data;
   const texts = JSON.stringify((await state(office.token)).messages);
   assert.match(texts, /Kirkby Eyecare/);
   assert.ok(ken);
+});
+
+test("settings feed the rest of Domi: contact details, opening hours, online booking and message previews", async () => {
+  const office = await login("u-admin");
+  const put = (b) => call("PUT", "/api/settings", office.token, b);
+  // Contact details: checked, then used on public pages and in the top bar
+  assert.match((await put({ phone: "12345" })).data.error, /UK phone/);
+  assert.match((await put({ logo: "http://example.com/logo.png" })).data.error, /https/);
+  const r = await put({ phone: "0113 496 0000", email: "Hello@Kirkby.example", logo: "https://kirkby.example/logo.png" });
+  assert.deepStrictEqual(r.data.changed, ["phone number", "email", "logo"]);
+  const st = await state(office.token);
+  assert.strictEqual(st.brand.logo, "https://kirkby.example/logo.png");
+  const pub = (await call("GET", "/api/public/" + st.sandbox)).data;
+  assert.strictEqual(pub.brand.phone, "01134 960000");
+  assert.strictEqual(pub.brand.email, "hello@kirkby.example");
+  // Opening hours can't cut into a clinician's working hours
+  const clash = await put({ dayEnd: 17 * 60 });
+  assert.strictEqual(clash.status, 409);
+  assert.match(clash.data.error, /works 09:00–17:30 on Monday.*Team page/);
+  assert.strictEqual((await put({ dayStart: 8 * 60 })).status, 200, "opening earlier is fine");
+  assert.strictEqual((await state(office.token)).settings.dayStart, 480);
+  // Online booking offers only what the practice allows
+  assert.match((await put({ online: [] })).data.error, /at least one/);
+  await put({ online: ["sight"] });
+  assert.deepStrictEqual((await call("GET", "/api/public/" + st.sandbox)).data.types.map((t) => t.key), ["sight"]);
+  assert.strictEqual((await call("POST", `/api/public/${st.sandbox}/slots`, null, { type: "repair", pc: "LS6" })).status, 400);
+  // The office sees exactly what patients will get
+  await put({ practice: "Kirkby Eyecare", reminders: false });
+  const m = (await call("GET", "/api/settings/messages", office.token)).data;
+  assert.match(m.messages.find((x) => x.key === "reminder").body, /a reminder from Kirkby Eyecare/);
+  assert.match(m.messages.find((x) => x.key === "reminder").when, /Off/);
+  assert.match(m.lead.body, /0113|01134/);
+  const audit = JSON.stringify((await call("GET", "/api/debug/table/audit", office.token)).data);
+  assert.ok(audit.includes("Changed phone number, email, logo") && !audit.includes("kirkby.example/logo"), "the log names what changed, not the values");
 });

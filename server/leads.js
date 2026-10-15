@@ -8,7 +8,6 @@ const sandbox = require("./sandbox");
 const bus = require("./bus");
 const { sendEmail } = require("./notify");
 const { tx, audit, HttpError, settings } = require("./service");
-const brands = require("./brands");
 
 const STATUS = { new: "New", contacted: "Contacted", booked: "Visit booked", closed: "Not interested" };
 const clean = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
@@ -38,7 +37,7 @@ function normalise(input) {
 }
 
 const thanksSubject = () => `Thank you for getting in touch with ${settings().practice}`;
-const contact = () => brands.pub(sandbox.current().brand);
+const contact = () => sandbox.brandView();
 const thanksBody = (name) => leadEmail(name, settings().practice, contact().phone, settings().officeHours, contact().email);
 
 /** A new lead: saved, matched to an existing patient by phone or email, and thanked by email. */

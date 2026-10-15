@@ -888,3 +888,57 @@ button.rm-row:hover { background: var(--subtle) }
 @media (max-width: 560px) { .lockup .wm.keep { display: flex } .lockup .wm.keep b { font-size: 17px; white-space: nowrap } .lockup .wm.keep span { display: none } }
 .field .hint.after { margin: 6px 0 0 }
 .pg-form .row2:has(.hint.after) { align-items: start }
+
+/* ============ Settings ============ */
+.set-wrap { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 24px; align-items: start }
+.set-nav { position: sticky; top: 86px; display: flex; flex-direction: column; gap: 4px; background: var(--surface); border-radius: 18px; box-shadow: inset 0 0 0 1px var(--line); padding: 8px }
+.set-nav a { display: flex; gap: 12px; align-items: flex-start; padding: 11px 12px; border-radius: 12px; color: var(--ink); text-decoration: none }
+.set-nav a svg { margin-top: 2px; color: var(--muted) }
+.set-nav a > span { display: flex; flex-direction: column; gap: 2px; min-width: 0 }
+.set-nav a b { font-size: 14px } .set-nav a span span { font-size: 12.5px; color: var(--muted) }
+.set-nav a:hover { background: var(--subtle) }
+.set-nav a[aria-current="page"] { background: var(--forest-soft) } .set-nav a[aria-current="page"] b, .set-nav a[aria-current="page"] svg { color: var(--forest) }
+.set-nav a:focus-visible { outline: 2px solid var(--forest); outline-offset: 1px }
+.set-body { min-width: 0; max-width: 860px }
+.uses { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line) }
+.uses .caps { margin-right: 4px; font-size: 10.5px }
+.use { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; background: var(--forest-soft); color: var(--forest) }
+.logo-row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap }
+.logo-prev { width: 220px; height: 92px; flex: none; border-radius: 14px; background: var(--subtle); display: grid; place-items: center; padding: 12px; text-align: center; font-size: 12.5px; color: var(--muted) }
+.logo-prev img { max-width: 100%; max-height: 68px; object-fit: contain } .logo-prev img + span { display: none }
+.logo-prev.broken img { display: none } .logo-prev.broken span { display: block; color: var(--crit) }
+.hp { margin-top: 18px; display: grid; gap: 8px; padding: 16px; border-radius: 14px; background: var(--subtle) }
+.hp-r { display: grid; grid-template-columns: 76px minmax(0, 1fr) 128px; gap: 12px; align-items: center; font-size: 13px }
+.hp-track { position: relative; height: 14px; border-radius: 7px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line) }
+.hp-track i { position: absolute; top: 0; bottom: 0; border-radius: 7px; opacity: .85 }
+.hp-main .hp-track { height: 22px; margin-bottom: 16px } .hp-main .hp-track i { background: var(--forest); opacity: 1 }
+.hp-track i.bad { opacity: 1; background: repeating-linear-gradient(45deg, var(--crit), var(--crit) 4px, color-mix(in srgb, var(--crit) 60%, transparent) 4px, color-mix(in srgb, var(--crit) 60%, transparent) 8px) }
+.hp-t { position: absolute; top: 26px; transform: translateX(-50%); font: 600 10.5px var(--f-mono); color: var(--muted) }
+.hp-v { text-align: right; font-variant-numeric: tabular-nums }
+.vtable td { vertical-align: middle } .vtable tbody tr { cursor: default } .vtable tbody tr:hover { background: none }
+.money-in { display: inline-flex; align-items: center; gap: 6px } .money-in .input { width: 96px }
+.choice2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.choice { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px; box-shadow: inset 0 0 0 1.5px var(--line); cursor: pointer }
+.choice input { margin-top: 3px; accent-color: var(--forest); width: 18px; height: 18px; flex: none }
+.choice > span { display: flex; flex-direction: column; gap: 4px } .choice b { display: flex; gap: 8px; align-items: center; font-size: 15px } .choice b svg { color: var(--forest) }
+.choice > span > span { font-size: 13px; color: var(--muted); line-height: 1.45 }
+.choice:has(input:checked) { box-shadow: inset 0 0 0 2px var(--forest); background: var(--forest-soft) }
+.chk.big { font-size: 15px; font-weight: 600 }
+.msgs { display: grid; gap: 14px }
+.msg-p header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px } .msg-p header .muted { font-size: 12.5px }
+.bubble { max-width: 520px; background: var(--subtle); border-radius: 18px 18px 18px 6px; padding: 12px 14px; font-size: 14px; line-height: 1.5 }
+.tbl-more { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); font-size: 13.5px }
+@media (max-width: 1100px) {
+  .set-wrap { grid-template-columns: minmax(0, 1fr) }
+  .set-nav { position: static; flex-direction: row; overflow-x: auto; padding: 6px; scrollbar-width: none }
+  .set-nav a { flex: none } .set-nav a span span { display: none }
+}
+@media (max-width: 760px) {
+  .choice2 { grid-template-columns: 1fr }
+  .hp-r { grid-template-columns: 58px minmax(0, 1fr) 82px; gap: 8px; font-size: 12px }
+  .vtable thead { display: none } .vtable tr { grid-template-columns: 1fr 1fr } .vtable td:nth-child(2), .vtable td:nth-child(3) { display: block }
+  .vtable td:first-child { grid-column: 1 / -1 }
+}
+.pg-form .row2 > .field + .field { margin-top: 0 }
+.set-note { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted) } .set-note a { color: var(--forest); font-weight: 600 }
+.logo-f { flex: 1 1 300px; min-width: 0 }
