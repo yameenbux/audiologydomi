@@ -73,8 +73,9 @@ const route = (method, pattern, opts, handler) => {
 };
 
 const send = (res, status, data, cookies = []) => {
-  let body = Buffer.from(JSON.stringify(data));
-  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store", Vary: "Accept-Encoding", ...(cookies.length ? { "Set-Cookie": cookies } : {}) };
+  const text = data && typeof data.__text === "string"; // Meta's webhook check wants the challenge back as plain text
+  let body = Buffer.from(text ? data.__text : JSON.stringify(data));
+  const headers = { "Content-Type": text ? "text/plain; charset=utf-8" : "application/json", "Cache-Control": "no-store", Vary: "Accept-Encoding", ...(cookies.length ? { "Set-Cookie": cookies } : {}) };
   // The office's state is tens of kilobytes; gzip makes it a fraction of that on a phone connection.
   if (body.length > 2048 && /\bgzip\b/.test((res.req && res.req.headers["accept-encoding"]) || "")) { body = require("node:zlib").gzipSync(body); headers["Content-Encoding"] = "gzip"; }
   res.writeHead(status, headers);
@@ -85,6 +86,7 @@ async function readBody(req, max = 1e5) {
   const parts = []; let size = 0;
   for await (const chunk of req) { size += chunk.length; if (size > max) throw new svc.HttpError(413, "Request too large."); parts.push(chunk); }
   const raw = Buffer.concat(parts).toString("utf8");
+  req.rawBody = raw; // Meta signs the exact bytes it sent
   if (!raw) return {};
   if ((req.headers["content-type"] || "").includes("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(raw));
   try { return JSON.parse(raw); } catch { throw new svc.HttpError(400, "Body must be JSON."); }
@@ -269,7 +271,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const sb = sandbox.current();
   return {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
-    metrics: isAdmin ? svc.metrics() : null, settings: sb.settings, brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
+    metrics: isAdmin ? svc.metrics() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
 
@@ -366,20 +368,41 @@ route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user,
   if (looksLikeBot(body)) return { ok: true };
   return sandbox.run(practice(code), () => svc.submitReferral(body));
 });
-/**
- * Leads from the practice's ad forms. A connector (Zapier, Make, or Meta's webhook) posts each one here. When
- * LEADS_KEY is set, a connector must send it (?key=… or an X-Domi-Key header). The practice's test ad form in the
- * demo posts here too, with the same spam checks as the other public forms.
- */
+/** The practice's test ad form, with the same spam checks as the other public forms. Connectors use /api/hooks. */
 route("POST", "/api/public/:code/leads", { public: true }, (req, body, user, { code }) => {
   limitPublic(req, "leads", 30);
-  if (body.test === true) { if (looksLikeBot(body)) return { ok: true }; }
-  else if (process.env.LEADS_KEY) {
-    const key = new URL(req.url, "http://x").searchParams.get("key") || req.headers["x-domi-key"] || "";
-    if (key !== process.env.LEADS_KEY) throw new svc.HttpError(403, "This connector isn't set up for this practice.");
-  }
-  return sandbox.run(practice(code), () => leads.receive(body));
+  if (looksLikeBot(body)) return { ok: true };
+  return sandbox.run(practice(code), () => leads.receive({ ...body, test: undefined }, { via: "test form" }));
 });
+
+/* ---------- Facebook leads arriving from outside: no sign-in, so each is checked by its own secret ---------- */
+const hookPractice = (code) => { const sb = sandbox.get(String(code).toUpperCase()); if (!sb) throw new svc.HttpError(404, "No such practice."); return sb; };
+/**
+ * Zapier or Make, from the practice's Facebook Lead Ads: they post each lead to the practice's private link.
+ * The key in the link (or an X-Domi-Key header) is the practice's own, from Settings, and can be changed there.
+ */
+route("POST", "/api/hooks/:code/leads", { public: true, raw: true }, (req, body, user, { code }) => {
+  limitPublic(req, "hook", 120);
+  const sb = hookPractice(code);
+  const key = new URL(req.url, "http://x").searchParams.get("key") || req.headers["x-domi-key"] || "";
+  if (!leads.sameSecret(key, sb.settings.leadsKey)) throw new svc.HttpError(403, "This link's key doesn't match. Copy the link again from Settings, Facebook leads.");
+  return sandbox.run(sb, () => leads.receive(body, { via: "Zapier or Make" }));
+});
+/** Facebook's own webhook: first a one-off check that the link is ours, then a notice for each new lead. */
+route("GET", "/api/hooks/:code/meta", { public: true, raw: true }, (req, body, user, { code }) => {
+  const sb = hookPractice(code), q = new URL(req.url, "http://x").searchParams;
+  if (q.get("hub.mode") !== "subscribe" || !leads.sameSecret(q.get("hub.verify_token") || "", sb.settings.meta.verifyToken)) throw new svc.HttpError(403, "The verify token doesn't match the one in Settings.");
+  return { __text: String(q.get("hub.challenge") || "") };
+});
+route("POST", "/api/hooks/:code/meta", { public: true, raw: true }, (req, body, user, { code }) => {
+  limitPublic(req, "meta", 240);
+  const sb = hookPractice(code);
+  return sandbox.run(sb, () => leads.metaNotice(req.rawBody || "", req.headers["x-hub-signature-256"] || "", body));
+});
+/** The office's own view of the connection: their private link and key, and whether leads are arriving. */
+route("GET", "/api/leads/connection", {}, (req, body, user) => { needAdmin(user); return leads.connection(publicBase(req)); });
+route("POST", "/api/leads/connection/key", {}, (req, body, user) => { needAdmin(user); return leads.newKey(user, publicBase(req)); });
+route("PUT", "/api/leads/connection/meta", {}, (req, body, user) => { needAdmin(user); return leads.saveMeta(body, user, publicBase(req)); });
 route("POST", "/api/leads/:id/status", {}, (req, body, user, { id }) => { needAdmin(user); return leads.setLeadStatus(id, body, user); });
 route("POST", "/api/referrals/:id/accept", {}, (req, body, user, { id }) => { needAdmin(user); return svc.acceptReferral(id, body, user); });
 route("POST", "/api/referrals/:id/decline", {}, (req, body, user, { id }) => { needAdmin(user); return svc.declineReferral(id, body.reason, user); });
@@ -479,7 +502,7 @@ route("GET", "/api/debug/overview", {}, (req, body, user) => {
     events: bus.recentFor(sb.id).filter((e) => e.type !== "http").slice(0, 40),
     audit: db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT 60").all().map((r) => ({ ...r })),
     offers: db.prepare("SELECT o.*, p.name AS patient FROM offers o JOIN waitlist w ON w.id = o.waitlist_id JOIN patients p ON p.id = w.patient_id ORDER BY o.id DESC").all().map((r) => ({ ...r })),
-    settings: sb.settings, smsProvider: provider, activeDemos: sandbox.all().length, node: process.version,
+    settings: sandbox.publicSettings(sb.settings), smsProvider: provider, activeDemos: sandbox.all().length, node: process.version,
     routes: routes.map((r) => ({ method: r.method, path: r.pattern, auth: r.public ? "public" : "signed in" })),
   };
 });

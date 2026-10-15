@@ -175,7 +175,7 @@ async function load() {
   fetchedAt = Date.now(); UI.offline = false;
   saveOffline(); prefetchRecords();
   if (S.user.clinicianId) UI.lastClin = "u-" + S.user.clinicianId;
-  if (UI.drawer && UI.drawer.kind === "invoices") UI.drawer.data = await api("GET", "/api/invoices").catch(() => UI.drawer.data);
+  const inv = panel("invoices"); if (inv) inv.data = await api("GET", "/api/invoices").catch(() => inv.data);
   if (UI.myRoute && !isAdmin()) UI.myRoute = await api("GET", "/api/route?day=0").catch(() => null);
   if (UI.pid) { try { UI.rec = await api("GET", "/api/patients/" + UI.pid + "?background=1"); } catch (e) { UI.pid = null; UI.rec = null; } }
   const d = UI.drawer;
@@ -184,7 +184,7 @@ async function load() {
   UI.route = parseRoute(); await syncPage();
   if (!pageEditing()) render();
   // A form being filled in isn't redrawn by live updates, so nothing typed or picked is lost.
-  if (UI.drawer && !UI.drawer.edit) renderDrawer();
+  if (UI.drawer && !UI.drawer.edit) redraw();
 }
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
@@ -233,7 +233,7 @@ function onEvent(type, e) {
     toast(`${e.patient} moved forward to ${hm(e.start)}`);
   } else if (type === "slot.unfilled") { f.outcome = "unfilled"; f.why = e.why; }
   else return;
-  if (UI.drawer && UI.drawer.kind === "flow") renderDrawer();
+  if (UI.drawer && UI.drawer.kind === "flow") redraw();
 }
 
 /* ---------- Sign-in: password, then the code from an authenticator app ---------- */
@@ -784,6 +784,9 @@ function parseRoute() {
   if (page === "patients") return { page: "patients" };
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
+  if (page === "leads" && id) return { page: "lead", id };
+  if (["routes", "mileage", "invoices", "import"].includes(page)) return { page };
+  if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
 }
@@ -799,10 +802,22 @@ async function syncPage() {
     if (!UI.pg.edit) UI.pg.rec = await api("GET", `/api/patients/${encodeURIComponent(r.id)}${fresh ? "" : "?background=1"}`).catch(() => UI.pg.rec || { missing: true });
   } else if (r.page === "settings") {
     if (!UI.pg || UI.pg.kind !== "settings") UI.pg = { kind: "settings", edit: true, msgs: null };
+    if (r.sec === "facebook") UI.pg.conn = await api("GET", "/api/leads/connection").catch(() => UI.pg.conn);
     if (r.sec === "hours") UI.pg.team = await api("GET", "/api/team").catch(() => UI.pg.team);
     if (r.sec === "messages") UI.pg.msgs = await api("GET", "/api/settings/messages").catch(() => UI.pg.msgs);
   } else if (r.page === "newpatient") {
-    if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true };
+    if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true, pre: UI.npPre || {} };
+    UI.npPre = null;
+  } else if (r.page === "routes") {
+    if (!UI.pg || UI.pg.kind !== "plans") { UI.pg = { kind: "plans", day: UI.view === "week" ? 1 : UI.day, list: null }; setTimeout(() => loadPlans(UI.pg.day), 0); }
+  } else if (r.page === "mileage") {
+    UI.pg = { kind: "report", data: await api("GET", "/api/reports/week").catch(() => null) };
+  } else if (r.page === "invoices") {
+    UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
+  } else if (r.page === "import") {
+    if (!UI.pg || UI.pg.kind !== "import") { UI.pg = { kind: "import" }; UI.imp = {}; }
+  } else if (r.page === "lead") {
+    UI.pg = { kind: "lead", id: r.id };
   } else if (r.page === "team" || r.page === "person") {
     if (!UI.pg || UI.pg.kind !== "team") UI.pg = { kind: "team", data: null, edit: null };
     const edit = r.page === "person" ? { kind: r.k, id: r.id === "new" ? null : r.id } : null;
@@ -828,19 +843,19 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
   const p = UI.route.page;
-  const on = (k) => k === p || (k === "patients" && (p === "patient" || p === "newpatient")) || (k === "team" && p === "person");
+  const on = (k) => k === p || (k === "patients" && (p === "patient" || p === "newpatient")) || (k === "team" && p === "person") || (k === "leads" && p === "lead");
   const needs = (S.leads || []).filter((l) => l.status === "new").length + (S.referrals || []).filter((r) => r.status === "new").length + (S.pcse || []).filter((t) => t.status === "todo").length;
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("team", "shield", "Team &amp; hours")}</div>
-    <div class="side-sec"><div class="side-h">Planning</div>${act("plans", "pin", "Plan routes")}${act("report", "car", "Mileage")}${act("invoices", "note", "Invoices")}</div>
-    <div class="side-sec"><div class="side-h">Practice</div>${act("import", "copy", "Import patients")}${act("booklink", "qr", "Booking page")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
   </nav>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
@@ -931,6 +946,111 @@ function patientPage() {
 }
 /** The edit form's fields, shared by the record page and the side panel. */
 
+/* ---------- Planning and practice tools as pages: the same contents as their side panels, laid out full width ---------- */
+const TOOL_LEADS = {
+  plans: "Domi puts each clinician's visits in the order that drives least, from their home base and back. Nothing changes until you apply it, and patients whose time moves are told by text.",
+  report: "How far each clinician drove and how full their days were, from the diary. Download it for mileage claims.",
+  invoices: "Raised automatically when a visit is completed, at your prices in Settings. Mark them paid, void them, or print one.",
+  import: "Bring patients across from Opticabase or any spreadsheet. Every row is checked, duplicates are caught, and nothing is saved until you say so.",
+};
+function toolPage(kind) {
+  const P = UI.pg || {};
+  const html = kind === "plans" ? plansDrawer(P) : kind === "report" ? (P.data ? reportDrawer(P.data) : "") : kind === "invoices" ? (P.data ? invoicesDrawer(P.data) : "") : importDrawer();
+  if (!html) return `<div class="pg"><p class="muted">Loading…</p></div>`;
+  const box = document.createElement("div"); box.innerHTML = html;
+  const h = box.querySelector(".drawer-h"), b = box.querySelector(".drawer-b"), f = box.querySelector(".drawer-f");
+  const caps = h && h.querySelector(".caps") ? h.querySelector(".caps").innerHTML : "", title = h && h.querySelector("h2") ? h.querySelector("h2").innerHTML : "";
+  if (b) { const intro = b.firstElementChild; if (intro && intro.tagName === "P" && intro.classList.contains("muted")) intro.remove(); } // the page lead says it
+  return `<div class="pg tool-pg tool-${kind}">${pageHead({ eyebrow: caps, title, lead: TOOL_LEADS[kind] })}
+    <section class="card tool-card">${b ? b.innerHTML : ""}</section>${f && f.innerHTML.trim() ? `<div class="form-f sticky">${f.innerHTML}</div>` : ""}</div>`;
+}
+
+/* ---------- Facebook leads: the people who asked for a call from the practice's ads ---------- */
+const LEAD_TABS = [["new", "To call"], ["contacted", "Called"], ["booked", "Visit booked"], ["closed", "Not interested"], ["all", "All"]];
+function leadsPage() {
+  const all = S.leads || [], tab = LEAD_TABS.some(([k]) => k === UI.lt) ? UI.lt : "new";
+  const list = all.filter((l) => tab === "all" || l.status === tab);
+  const fresh = all.filter((l) => l.status === "new"), oldest = fresh.reduce((m, l) => Math.min(m, l.atMin), Infinity);
+  const link = { ...((S.settings || {}).leadLink || {}), on: !!(S.settings || {}).metaConnected };
+  const tile = (k, n, label) => `<button type="button" class="stat ${tab === k ? "on" : ""}" data-act="lt" data-v="${k}" aria-pressed="${tab === k}"><b>${n}</b><span>${label}</span></button>`;
+  return `<div class="pg">${pageHead({ eyebrow: "From your Facebook ads", title: "Facebook leads",
+      lead: "People who filled in the form on your ad and asked to be called. Each one has already been emailed a thank-you with your office hours.",
+      actions: `<button class="btn secondary" type="button" data-act="adform">${icon("send")}Send a test lead</button><a class="btn" href="#/settings/facebook">${icon("gear")}Connect Facebook</a>` })}
+    <div class="stats">${tile("new", fresh.length, fresh.length ? `to call · oldest ${leadWait({ atMin: oldest })}` : "to call")}${tile("contacted", all.filter((l) => l.status === "contacted").length, "called")}${tile("booked", all.filter((l) => l.status === "booked").length, "visit booked")}${tile("closed", all.filter((l) => l.status === "closed").length, "not interested")}${tile("all", all.length, "all leads")}</div>
+    <div class="conn-strip ${link.error ? "bad" : link.lastAt || link.on ? "ok" : ""}">${icon(link.error ? "x" : link.lastAt || link.on ? "check" : "bolt")}<span>${link.error ? `<b>Problem with the connection.</b> ${esc(link.error)}` : link.lastAt ? `<b>Connected.</b> Last lead at ${esc(link.lastAt)}, through ${esc(link.lastVia)}.` : link.on ? `<b>Connected to Facebook.</b> Waiting for the first lead from your ads.` : `<b>Not connected yet.</b> Leads from your ads will arrive here once your Facebook is connected.`}</span><a href="#/settings/facebook">${link.lastAt && !link.error ? "Connection settings" : "Connect"}</a></div>
+    <section class="card tbl-card" aria-label="Leads">
+      ${list.length ? `<div class="tbl-wrap"><table class="ptable"><thead><tr><th scope="col">Lead</th><th scope="col">Phone</th><th scope="col">From the ad</th><th scope="col">Arrived</th><th scope="col"><span class="sr">Status</span></th></tr></thead><tbody>
+        ${list.map((l) => `<tr data-act="go" data-v="leads/${esc(l.id)}">
+          <td><a class="pn" href="#/leads/${esc(l.id)}"><span class="avatar sm soft">${initials(l.name)}</span><span><b>${esc(l.name)}</b><span class="muted">${esc([l.pc, townOf(l.pc)].filter(Boolean).join(" · ") || l.email || "")}</span></span></a></td>
+          <td><span class="mono">${esc(l.phone || "–")}</span><span class="muted">${l.email ? "Has email" : "No email"}</span></td>
+          <td><b>${esc(l.campaign || "Ad form")}</b><span class="muted">${esc((l.answers[0] || [])[1] || "")}</span></td>
+          <td><b>${esc(l.at)}</b><span class="muted">${l.status === "new" ? `Waiting ${leadWait(l)}` : esc(l.handledBy ? `By ${l.handledBy}` : "")}</span></td>
+          <td class="st"><span class="badge ${l.status === "new" ? "b-apricot" : l.status === "booked" ? "b-forest" : "b-plain"}">${esc(S.leadStatus[l.status])}</span>${l.patientId ? `<span class="badge b-plain">Patient</span>` : ""}</td></tr>`).join("")}
+        </tbody></table></div>`
+      : `<div class="empty"><b>${tab === "new" ? "Nobody waiting for a call" : "None here"}</b>${tab === "new" ? "New leads from your ads appear here straight away." : "Leads move here as the office marks them."}</div>`}
+    </section></div>`;
+}
+function leadPage() {
+  const l = (S.leads || []).find((x) => x.id === UI.route.id);
+  const crumbs = crumbsOf([["#/leads", "Facebook leads"], ["", l ? l.name : "Lead"]]);
+  if (!l) return `<div class="pg">${pageHead({ crumbs, eyebrow: "Facebook lead", title: "Lead not found" })}<p class="muted">It may have been removed. <a href="#/leads">Back to leads</a></p></div>`;
+  const mail = (S.leadEmails || []).find((m) => m.leadId === l.id);
+  const p = l.patientId && S.patients.find((x) => x.id === l.patientId);
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  const tel = l.phone ? l.phone.replace(/\s/g, "") : "";
+  return `<div class="pg">${crumbs}
+    <section class="pt-hero"><span class="avatar xl">${initials(l.name)}</span>
+      <div class="pt-id"><div class="caps">Facebook lead · ${esc(l.at)}</div><h1 tabindex="-1">${esc(l.name)}</h1><p>${esc(l.campaign || "From an ad form")}${l.pc ? ` · ${esc(l.pc)}` : ""}</p>
+        <div class="tags"><span class="badge ${l.status === "new" ? "b-apricot" : l.status === "booked" ? "b-forest" : "b-plain"}">${esc(S.leadStatus[l.status])}</span>${l.status === "new" ? `<span class="badge b-plain">Waiting ${leadWait(l)}</span>` : ""}${p ? `<span class="badge b-plain">On Domi as a patient</span>` : ""}</div></div>
+      <div class="pg-acts">${tel ? `<a class="btn secondary" href="tel:${esc(tel)}">${icon("phone")}Call ${esc(l.phone)}</a>` : ""}${p ? `<a class="btn" href="#/patients/${esc(p.id)}">${icon("users")}Open their record</a>` : `<button class="btn" type="button" data-act="lead-patient" data-id="${esc(l.id)}">${icon("plus")}Add as a patient</button>`}</div></section>
+    ${l.status === "new" ? `<div class="callout apricot">${icon("clock")}<div><b>Call them soon</b><div style="margin-top:2px">People called within the hour are far more likely to book. Mark the lead below once you've spoken.</div></div></div>` : ""}
+    <div class="cards2">
+      <section class="card"><div class="card-h"><h2>What they told you</h2></div><dl class="kv lg">${row("Phone", l.phone ? `<span class="mono">${esc(l.phone)}</span>` : "None given")}${row("Email", esc(l.email || "None given"))}${row("Postcode", esc(l.pc || "Not given"))}${l.answers.map(([q, a]) => row(esc(q), esc(a))).join("")}</dl></section>
+      <section class="card"><div class="card-h"><h2>After the call</h2><p>What happened, so everyone in the office knows.</p></div>
+        <div class="field"><label for="ld-note">Note</label><textarea class="input" id="ld-note" data-keep rows="4" placeholder="e.g. Spoke to her daughter. Wants a morning visit next week.">${esc(l.note || "")}</textarea></div>
+        ${l.handledBy ? `<p class="set-note" style="margin-top:6px">Last updated by ${esc(l.handledBy)} at ${esc(l.handledAt)}.</p>` : ""}
+        <div class="lead-acts">${["contacted", "booked", "closed"].map((k) => `<button class="btn ${k === "booked" ? "" : k === "closed" ? "ghost" : "secondary"}" type="button" data-act="lead-status" data-id="${l.id}" data-v="${k}" aria-pressed="${l.status === k}">${k === "booked" ? icon("check") : k === "contacted" ? icon("phone") : ""}${k === "contacted" ? "Called" : esc(S.leadStatus[k])}</button>`).join("")}</div></section>
+    </div>
+    <section class="card"><div class="card-h"><h2>The thank-you email</h2><p>${mail ? `Sent automatically at ${esc(mail.at)} to ${esc(mail.to)}.` : "No email address was given, so no thank-you email went. Call them instead."}</p></div>
+      ${mail ? `<div class="mailcard"><div class="mail-h"><b>${esc(mail.subject)}</b><span class="muted">From ${esc(S.settings.practice)}</span></div><div class="mail-b">${esc(mail.body)}</div></div>` : ""}</section>
+  </div>`;
+}
+
+/** Settings → Facebook leads: the two ways to connect, and whether leads are arriving. */
+function facebookSection() {
+  const c = UI.pg && UI.pg.conn;
+  if (!c) return `<p class="muted">Loading…</p>`;
+  const st = c.status || {}, m = c.meta;
+  const copyRow = (label, v, id) => `<div class="field"><label for="${id}">${label}</label><div class="copy-row"><input class="input mono" id="${id}" value="${esc(v)}" readonly><button class="btn secondary" type="button" data-act="copy" data-v="${esc(v)}">${icon("copy")}Copy</button></div></div>`;
+  return `<div class="pg-form">
+    <section class="card conn-card ${st.error ? "bad" : st.lastAt || m.connected ? "ok" : ""}"><div class="conn-h">${icon(st.error ? "x" : st.lastAt || m.connected ? "check" : "bolt")}<div>
+      <h2>${st.error ? "There's a problem with the connection" : st.lastAt ? "Leads are arriving" : m.connected ? "Connected to Facebook" : "Not connected yet"}</h2>
+      <p>${st.error ? `${esc(st.error)} <span class="muted">(${esc(st.errorAt)})</span>` : st.lastAt ? `${st.count} lead${st.count === 1 ? "" : "s"} received in this demo. The last one came at ${esc(st.lastAt)}, through ${esc(st.lastVia)}.` : m.connected ? "Waiting for the first lead from your ads. Facebook's Lead Ads Testing Tool can send one now." : "Pick one of the two ways below. Until then you can try it with the test ad form."}</p></div>
+      <button class="btn secondary" type="button" data-act="adform">${icon("send")}Send a test lead</button></div></section>
+
+    <section class="card"><div class="card-h"><span class="badge b-forest">Quickest · works today</span><h2 style="margin-top:8px">Connect through Zapier or Make</h2><p>Zapier or Make picks up each lead from your Facebook Lead Ads and passes it to Domi. No approval from Meta is needed, and it takes about ten minutes.</p></div>
+      <ol class="steps">
+        <li>In Zapier, make a Zap: <b>Facebook Lead Ads → New Lead</b>. Sign in with the Facebook account that runs your ads and pick your Page and form.</li>
+        <li>Add the action <b>Webhooks by Zapier → POST</b>. Paste your private link below as the URL, choose <b>JSON</b>, and map the form's fields. Any field names work: full name, phone, email and postcode are picked up, and every other question is kept as asked.</li>
+        <li>Turn the Zap on and send a test lead from Facebook's Lead Ads Testing Tool. It appears in Facebook leads straight away, and the thank-you email goes out.</li>
+      </ol>
+      ${copyRow("Your private link", c.hookUrl, "fb-hook")}
+      <p class="set-note">This link includes your practice's secret key. Anyone with it can add leads, so keep it inside Zapier or Make. If it's ever shared by mistake, make a new one and the old link stops working at once.</p>
+      <div style="margin-top:12px"><button class="btn ghost" type="button" data-act="fb-key">${icon("reset")}Make a new link</button></div>
+      ${uses(["Facebook leads", "Thank-you emails", "Needs you today"])}</section>
+
+    <form id="fb-meta" class="card" novalidate><div class="card-h"><span class="badge b-plain">Direct · needs Meta's approval</span><h2 style="margin-top:8px">Connect straight to Facebook</h2><p>Facebook tells Domi the moment a lead arrives, with no Zapier in between. It needs a Meta app with permission to read leads (leads_retrieval), which Meta approves after a review. We set this up with you once.</p></div>
+      <div class="row2">${copyRow("Callback URL, for your Meta app's Webhooks", m.callbackUrl, "fb-cb")}${copyRow("Verify token", m.verifyToken, "fb-vt")}</div>
+      <p class="set-note">In your Meta app, add the Webhooks product, choose <b>Page</b>, paste these two in, and subscribe to the <b>leadgen</b> field.</p>
+      <div class="row2" style="margin-top:14px">${sf("pageId", "Facebook Page ID", m.pageId, 'inputmode="numeric" maxlength="30" placeholder="e.g. 104523987612345"', "From your Page's About section, under Page transparency.")}
+        ${sf("appSecret", "App secret", "", `type="password" autocomplete="off" maxlength="64" placeholder="${m.hasSecret ? "Saved · leave blank to keep it" : "32 letters and numbers"}"`, "From your Meta app's Basic settings. Used to check each notice really came from Facebook.")}</div>
+      ${sf("pageToken", "Page access token", "", `type="password" autocomplete="off" maxlength="600" placeholder="${m.hasToken ? `Saved, ending ${esc(m.tokenEnd)} · leave blank to keep it` : "A long-lived Page token"}"`, "Lets Domi fetch each lead's answers from Facebook. It's stored on the server and never shown again.")}
+      <div class="form-f" style="justify-content:space-between">${m.connected ? `<button class="btn ghost" type="button" data-act="fb-disconnect">Disconnect</button>` : "<span></span>"}<button class="btn" type="submit">${icon("check")}${m.connected ? "Save changes" : "Connect"}</button></div>
+      ${m.connected ? `<p class="set-note">Connected to Page ${esc(m.pageId)}. Facebook will send new leads here; any problem fetching one shows at the top of this page.</p>` : ""}
+    </form>
+  </div>`;
+}
+
 /* ---------- Settings: the practice's details and rules, which the rest of Domi reads ---------- */
 const SET_SECS = [
   { k: "practice", icon: "shield", label: "Practice details", sub: "Name, contact details, logo" },
@@ -938,6 +1058,8 @@ const SET_SECS = [
   { k: "visits", icon: "cal", label: "Visits & prices", sub: "Prices and online booking" },
   { k: "refill", icon: "bolt", label: "Cancellations & reminders", sub: "How gaps are filled" },
   { k: "messages", icon: "msg", label: "What patients receive", sub: "Texts and emails" },
+  { k: "booking", icon: "qr", label: "Booking & referral pages", sub: "Links for your website" },
+  { k: "facebook", icon: "send", label: "Facebook leads", sub: "Connect your ad forms" },
 ];
 const uses = (list) => `<div class="uses"><span class="caps">Used in</span>${list.map((x) => `<span class="use">${x}</span>`).join("")}</div>`;
 const setFoot = (label = "Save changes") => `<div class="form-f sticky"><button class="btn" type="submit">${icon("check")}${label}</button></div>`;
@@ -1008,6 +1130,14 @@ function settingsPage() {
         <div class="field" style="max-width:320px;margin-top:12px"><label for="set-ra">Send them at</label><select class="input" id="set-ra">${quarters(8 * 60, 21 * 60).map((m) => `<option value="${m}" ${m === st.reminderAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
         ${uses(["Reminder texts", "Cancellation links"])}</section>
       ${setFoot()}</form>`;
+  } else if (sec === "booking") {
+    const card = (refer) => { const url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`; let qr = ""; try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
+      return `<section class="card link-card"><div class="link-qr">${qr}</div><div class="link-b"><div class="card-h"><h2>${refer ? "Referral form" : "Patient booking page"}</h2><p>${refer ? "For patients, family, carers, care homes and GPs. Link it from your website's Contact page. Referrals arrive on Today, under Referrals, with no emails or documents." : `Patients pick a time themselves. It only offers times from tomorrow that add 20 minutes of driving or less, and never shows anyone else's details. What can be booked is set in <a href="#/settings/visits">Visits &amp; prices</a>.`}</p></div>
+        <div class="copy-row"><input class="input mono" value="${esc(url)}" readonly aria-label="${refer ? "Referral form" : "Booking page"} link"><button class="btn secondary" type="button" data-act="copy" data-v="${esc(url)}">${icon("copy")}Copy</button><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open</a></div>
+        ${uses(refer ? ["Your website", "Referrals on Today"] : ["Your website", "Recall texts", "Leaflets (QR code)"])}</div></section>`; };
+    body = `<div class="pg-form">${card(false)}${card(true)}</div>`;
+  } else if (sec === "facebook") {
+    body = facebookSection();
   } else {
     const m = UI.pg && UI.pg.msgs;
     body = !m ? `<p class="muted">Loading…</p>` : `<div class="pg-form">
@@ -1023,15 +1153,16 @@ function settingsPage() {
 
 /** Adding a patient by hand: someone who phoned, or a referral that came by post. Grouped as the office asks for it. */
 function newPatientPage() {
-  const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
+  const pre = (UI.pg && UI.pg.pre) || {};
+  const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" value="${esc(pre[id] || "")}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
   return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/patients", "Patients"], ["", "Add a patient"]]), eyebrow: "New patient", title: "Add a patient",
-      lead: "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
+      lead: pre.leadId ? "From their Facebook lead: what they gave is filled in. Add the address and anything else you learned on the call." : "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
     <form id="np-form" class="pg-form" novalidate>
       <section class="card"><div class="card-h"><h2>Who they are</h2></div>
         <div class="row2">${f("name", "Full name", 'maxlength="80" required autocomplete="off"')}${f("dob", "Date of birth", 'type="date" min="1900-01-01" max="2026-10-12"', "Checked against everyone already on Domi.")}</div></section>
       <section class="card"><div class="card-h"><h2>Where to visit</h2><p>Drive times, the clinician who covers the area and route planning all come from this.</p></div>
         ${f("addr", "First line of the address", 'maxlength="120" required placeholder="e.g. 14 Moor Lane, or Flat 2, Rose Court"')}
-        <div class="field">${DomiAreas.picker(S.areas || [], "np-pc", "")}</div></section>
+        <div class="field">${DomiAreas.picker(S.areas || [], "np-pc", pre.pc || "")}</div></section>
       <section class="card"><div class="card-h"><h2>How to reach them</h2><p>Reminders and cancellation offers go by text unless they'd rather be phoned.</p></div>
         <div class="row2">${f("phone", "Phone", 'inputmode="tel" required placeholder="07700 900123"')}
           <div class="field"><label for="np-contact">How to reach them</label><select class="input" id="np-contact"><option value="Text">Text (needs a mobile)</option><option value="Call">Phone, don't text</option></select></div></div>
@@ -1122,8 +1253,12 @@ const accessCard = (edit, x, kind) => edit.id ? `<section class="card"><div clas
   <button class="btn ${x.active ? "ghost danger-t" : "secondary"}" type="button" data-act="tm-active" data-k="${kind}" data-id="${esc(edit.id)}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off and sign out everywhere" : "Switch back on"}</button></section>` : "";
 
 /* ============ Drawers ============ */
-function openDrawer(d) { UI.drawer = d; renderDrawer(); }
+function openDrawer(d) { UI.drawer = d; redraw(); }
 function closeDrawer() { UI.drawer = null; UI.flow = null; UI.book = null; UI.imp = null; /* the file stays only as long as the drawer is open */ $("#drawer-root").innerHTML = ""; }
+/** Redraws the open side panel, or the page when the tool is open as a page. */
+const redraw = () => (UI.drawer ? renderDrawer() : render());
+/** A tool's state, whether it is open as a side panel or as its own page. */
+const panel = (k) => (UI.drawer && UI.drawer.kind === k ? UI.drawer : UI.pg && UI.pg.kind === k ? UI.pg : null);
 function renderDrawer() {
   const d = UI.drawer; if (!d || (!S && d.kind !== "soon")) return;
   let inner = "";
@@ -1347,10 +1482,11 @@ function plansDrawer(d) {
     ${list && list.some((p) => p.changed && !p.applied) ? `<div class="drawer-f"><button class="btn" type="button" data-act="plans-apply-all">${icon("check")}Apply all and text patients</button></div>` : ""}`;
 }
 async function loadPlans(day) {
-  UI.drawer.day = day; UI.drawer.list = null; renderDrawer();
+  const P = panel("plans"); if (!P) return;
+  P.day = day; P.list = null; redraw();
   const cs = S.clinicians;
-  UI.drawer.list = await Promise.all(cs.map((c) => api("GET", `/api/route/plan?clinician=${c.id}&day=${day}`)));
-  renderDrawer();
+  P.list = await Promise.all(cs.map((c) => api("GET", `/api/route/plan?clinician=${c.id}&day=${day}`)));
+  redraw();
 }
 /* ---------- What's coming: placeholders for features not built yet, clearly labelled ---------- */
 // Nothing here pretends to work: each button opens a short note on what's coming. No dates are promised.
@@ -1534,10 +1670,10 @@ function importDrawer() {
 }
 async function importPreview(mapping) {
   const I = UI.imp;
-  I.busy = true; I.err = null; renderDrawer();
+  I.busy = true; I.err = null; redraw();
   try { I.pv = await api("POST", "/api/import/preview", { csv: I.csv, mapping }); }
   catch (e) { I.err = e.message; if (!mapping) I.csv = null; }
-  I.busy = false; renderDrawer();
+  I.busy = false; redraw();
 }
 function bookDrawer() {
   const B = UI.book || (UI.book = {});
@@ -1617,7 +1753,7 @@ function patientsDrawer(d) {
     ${!list.length ? `<div class="empty"><b>Nobody matches</b>Try a surname, a postcode like BL1, or the last digits of a phone number.</div>` : ""}
   </div>`;
 }
-async function openRecord(id) { const d = { kind: "patient", id, rec: null }; openDrawer(d); d.rec = await api("GET", "/api/patients/" + id); if (UI.drawer === d) renderDrawer(); }
+async function openRecord(id) { const d = { kind: "patient", id, rec: null }; openDrawer(d); d.rec = await api("GET", "/api/patients/" + id); if (UI.drawer === d) redraw(); }
 const dobText = (p) => p.dob ? `${new Date(p.dob + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${p.age ? ` (${p.age})` : ""}` : p.age ? `Age ${p.age}` : "Not recorded";
 function patientDrawer(d) {
   const p = d.rec;
@@ -1803,7 +1939,7 @@ function reportDrawer(r) {
         ${c.days.map((d) => `<tr><td>${esc(d.day === 0 ? "Today" : d.dayLabel.slice(0, 3))}</td><td>${d.visits}</td><td><div class="rp-bar"><i style="width:${Math.min(100, d.utilisation)}%"></i></div><span class="mono">${d.utilisation}%</span></td><td class="mono">${d.driveMin ? mins(d.driveMin) : "–"}</td><td class="mono">${d.miles || "–"}</td></tr>`).join("")}
         </tbody></table></section>`).join("")}
       <button class="btn secondary block" type="button" data-act="report-csv">${icon("copy")}Download CSV for mileage claims</button>
-      <p class="muted" style="font-size:12.5px;margin-top:12px">Booked time is against a 9:00–17:00 day. Miles are estimated from distance between postcodes, including the drive from and back to each clinician's base. ${r.ratePence}p a mile is HMRC's approved rate for cars, for the first 10,000 business miles a year.</p>
+      <p class="muted" style="font-size:12.5px;margin-top:12px">Booked time is against each clinician's working hours. Miles are estimated from distance between postcodes, including the drive from and back to each clinician's base. ${r.ratePence}p a mile is HMRC's approved rate for cars, for the first 10,000 business miles a year.</p>
     </div>`;
 }
 function reportCsv(r) {
@@ -1816,7 +1952,7 @@ function reportCsv(r) {
 }
 /** The practice's own booking page, for its website, recall texts and leaflets. */
 function bookLinkModal() {
-  const refer = UI.drawer.refer, url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`;
+  const refer = !!(UI.drawer && UI.drawer.refer), url = `${location.origin}/${refer ? "refer" : "book"}/${S.sandbox}`;
   let qr = "";
   try { const q = qrcode(0, "M"); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { qr = ""; }
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">For patients${refer ? ", family and carers" : ""}</div><h2 style="margin-top:6px;font-size:30px">${refer ? "Referral form" : "Patient booking page"}</h2></div>${closeX}</div>
@@ -1849,7 +1985,7 @@ async function newPairLink(as) {
     UI.pair = { as, url: `${location.origin}/?pair=${encodeURIComponent(r.token)}`, until: Date.now() + (r.expiresIn - 30) * 1000 };
   } catch (e) { fail(e); UI.pair = null; }
   finally { pairing = false; }
-  if (UI.drawer && UI.drawer.kind === "qr") renderDrawer();
+  if (UI.drawer && UI.drawer.kind === "qr") redraw();
 }
 
 /* ============ Ticking clock ============ */
@@ -1860,7 +1996,7 @@ function tick() {
   const y = Math.max(0, Math.min((dayE() - dayS()) * 1.4, (n - dayS()) * 1.4));
   document.querySelectorAll("[data-now]").forEach((e) => { e.style.top = y + "px"; });
 }
-setInterval(() => { tick(); if (UI.drawer && UI.drawer.kind === "flow" && UI.flow && !UI.flow.outcome) renderDrawer(); }, 15000);
+setInterval(() => { tick(); if (UI.drawer && UI.drawer.kind === "flow" && UI.flow && !UI.flow.outcome) redraw(); }, 15000);
 
 /* ============ Actions ============ */
 async function openPatient(id, apptId) {
@@ -1904,7 +2040,7 @@ document.addEventListener("click", async (e) => {
         break;
       }
       case "auth-back": UI.auth = { step: "password" }; render(); break;
-      case "new-pair": UI.pair = null; renderDrawer(); break;
+      case "new-pair": UI.pair = null; redraw(); break;
       case "close": closeDrawer(); break;
       case "pcse-done": el.disabled = true; await api("POST", `/api/pcse/${el.dataset.id}/done`); await load(); toast("Ticked off"); break;
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
@@ -1912,15 +2048,15 @@ document.addEventListener("click", async (e) => {
       case "soon": openDrawer({ kind: "soon", id: el.dataset.id }); break;
       case "roadmap": openDrawer({ kind: "roadmap" }); break;
       case "invoices": openDrawer({ kind: "invoices", data: await api("GET", "/api/invoices") }); break;
-      case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Marked as paid"); break; }
-      case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); UI.drawer.data = await api("GET", "/api/invoices"); renderDrawer(); toast("Invoice voided"); break;
+      case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); panel("invoices").data = await api("GET", "/api/invoices"); redraw(); toast("Marked as paid"); break; }
+      case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); panel("invoices").data = await api("GET", "/api/invoices"); redraw(); toast("Invoice voided"); break;
       case "inv-print": await printInvoice(el.dataset.id); break;
       case "report": openDrawer({ kind: "report", data: await api("GET", "/api/reports/week") }); break;
-      case "report-csv": reportCsv(UI.drawer.data); toast("CSV downloaded"); break;
+      case "report-csv": reportCsv(panel("report").data); toast("CSV downloaded"); break;
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "referlink": openDrawer({ kind: "booklink", refer: true }); break;
       case "referral": openDrawer({ kind: "referral", id: el.dataset.id }); break;
-      case "lead": openDrawer({ kind: "lead", id: el.dataset.id }); break;
+      case "lead": go("leads/" + el.dataset.id); break;
       case "tray": {
         UI.tray = el.dataset.v; render();
         if (el.dataset.jump) { const t = $(".tray"); if (t && t.getBoundingClientRect().top < 0 || (t && t.getBoundingClientRect().top > innerHeight - 200)) t.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); }
@@ -1931,28 +2067,29 @@ document.addEventListener("click", async (e) => {
       case "lead-status": {
         el.disabled = true;
         await api("POST", `/api/leads/${el.dataset.id}/status`, { status: el.dataset.v, note: ($("#ld-note") || {}).value });
-        await load(); closeDrawer(); toast(el.dataset.v === "booked" ? "Marked as booked" : el.dataset.v === "closed" ? "Marked as not interested" : "Marked as called");
+        await load(); if (UI.drawer) closeDrawer(); else render();
+        toast(el.dataset.v === "booked" ? "Marked as booked" : el.dataset.v === "closed" ? "Marked as not interested" : "Marked as called");
         break;
       }
       case "lead-hours": {
         el.disabled = true;
         await api("PUT", "/api/settings", { officeHours: ($("#ld-hours") || {}).value });
-        await load(); renderDrawer(); toast("Office hours saved. New thank-you emails will use them.");
+        await load(); redraw(); toast("Office hours saved. New thank-you emails will use them.");
         break;
       }
       case "ref-accept": {
         el.disabled = true;
         const body = { type: ($("#rf-type") || {}).value, prio: ($("#rf-prio") || {}).value, anyway: el.dataset.anyway === "1" };
         try { const r = await api("POST", `/api/referrals/${el.dataset.id}/accept`, body); await load(); closeDrawer(); toast(`Added to the waiting list${r.texted ? " and texted" : ""}`); }
-        catch (e) { if (/already on Domi/.test(e.message)) { UI.drawer.dup = e.message; renderDrawer(); } else throw e; }
+        catch (e) { if (/already on Domi/.test(e.message)) { UI.drawer.dup = e.message; redraw(); } else throw e; }
         break;
       }
       case "ref-decline": el.disabled = true; await api("POST", `/api/referrals/${el.dataset.id}/decline`, { reason: ($("#rf-why") || {}).value }); await load(); closeDrawer(); toast("Referral declined"); break;
       case "copy": try { await navigator.clipboard.writeText(el.dataset.v); toast("Link copied"); } catch (e) { toast("Couldn't copy. Select the link instead.", true); } break;
       case "route": await openRoute(el.dataset.c, el.dataset.d != null ? Number(el.dataset.d) : UI.view === "week" ? 0 : UI.day); break;
       case "map-focus": focusStop(el.dataset.map, Number(el.dataset.i)); break;
-      case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); renderDrawer(); break;
-      case "plan-cancel": UI.drawer.plan = null; renderDrawer(); break;
+      case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); redraw(); break;
+      case "plan-cancel": UI.drawer.plan = null; redraw(); break;
       case "plan-apply": {
         el.disabled = true;
         const r = await api("POST", "/api/route/plan", { clinicianId: el.dataset.c, day: Number(el.dataset.d) });
@@ -1963,7 +2100,7 @@ document.addEventListener("click", async (e) => {
       case "plans-day": await loadPlans(Number(el.dataset.v)); break;
       case "plans-apply": case "plans-apply-all": {
         el.disabled = true;
-        const D = UI.drawer, ids = act === "plans-apply" ? [el.dataset.c] : D.list.filter((p) => p.changed && !p.applied).map((p) => p.clinicianId);
+        const D = panel("plans"), ids = act === "plans-apply" ? [el.dataset.c] : D.list.filter((p) => p.changed && !p.applied).map((p) => p.clinicianId);
         let saved = 0;
         for (const id of ids) { const r = await api("POST", "/api/route/plan", { clinicianId: id, day: D.day }); saved += r.savedMin; const i = D.list.findIndex((p) => p.clinicianId === id); D.list[i] = { ...r, applied: true, changed: 0 }; }
         await load(); toast(`Routes planned: ${mins(saved)} less driving`); break;
@@ -1976,10 +2113,10 @@ document.addEventListener("click", async (e) => {
       }
       case "slot-map": {
         const B = UI.book, i = Number(el.dataset.i);
-        if (B.map && B.map.i === i) { B.map = null; renderDrawer(); break; }
+        if (B.map && B.map.i === i) { B.map = null; redraw(); break; }
         const x = B.results.slots[i], p = B.results.patient;
         const q = new URLSearchParams({ clinician: x.clinicianId, day: x.day, pc: p.pc, start: x.start, type: B.results.type, name: p.name });
-        B.map = { i, data: await api("GET", "/api/route?" + q) }; renderDrawer(); break;
+        B.map = { i, data: await api("GET", "/api/route?" + q) }; redraw(); break;
       }
       case "send-reminders": {
         el.disabled = true;
@@ -1994,6 +2131,10 @@ document.addEventListener("click", async (e) => {
       case "open-rec": go("patients/" + el.dataset.id); break;
       case "go": go(el.dataset.v); break;
       case "pf": UI.pf = el.dataset.v; UI.plimit = PAGE; render(); break;
+      case "lt": UI.lt = el.dataset.v; render(); break;
+      case "lead-patient": { const l = (S.leads || []).find((x) => x.id === el.dataset.id); UI.npPre = l ? { name: l.name, phone: l.phone, email: l.email, pc: l.pc, leadId: l.id } : null; go("patients/new"); break; }
+      case "fb-key": { if (!confirm("Make a new private link? The old one stops working straight away, so update it in Zapier or Make.")) break; UI.pg.conn = await api("POST", "/api/leads/connection/key"); render(); toast("New link made. Paste it into Zapier or Make."); break; }
+      case "fb-disconnect": { if (!confirm("Disconnect Facebook? New leads will stop arriving directly until you connect again.")) break; UI.pg.conn = await api("PUT", "/api/leads/connection/meta", { disconnect: true }); render(); toast("Facebook disconnected"); break; }
       case "pmore": UI.plimit = (UI.plimit || PAGE) + PAGE; render(); break;
       case "rec-edit": { const d = ctx("patient"); d.edit = true; rerender(d); break; }
       case "rec-edit-cancel": { const d = ctx("patient"); d.edit = false; rerender(d); break; }
@@ -2010,7 +2151,7 @@ document.addEventListener("click", async (e) => {
         await load(); toast("Their details have been erased"); break;
       }
       case "book-for": UI.book = { patientId: el.dataset.id }; openDrawer({ kind: "book" }); break;
-      case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) renderDrawer(); break; }
+      case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) redraw(); break; }
       case "move-to": {
         el.disabled = true;
         const r = await api("POST", `/api/appointments/${UI.drawer.id}/move`, { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s) });
@@ -2029,7 +2170,7 @@ document.addEventListener("click", async (e) => {
         closeDrawer(); await load();
         toast(r.status === "done" ? (r.invoice ? `Recorded as completed. Invoice ${r.invoice.number} raised.` : "Recorded as completed") : r.rebooked ? "Recorded: nobody in. Back on the waiting list." : "Recorded: nobody in"); break;
       }
-      case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) renderDrawer(); break; }
+      case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) redraw(); break; }
       case "gap-book": {
         el.disabled = true;
         const r = await api("POST", `/api/gaps/${el.dataset.slot}/book`, { waitlistId: el.dataset.w });
@@ -2057,22 +2198,22 @@ document.addEventListener("click", async (e) => {
       case "add-wl": openDrawer({ kind: "wl" }); break;
       case "book": UI.book = {}; openDrawer({ kind: "book" }); break;
       case "import": UI.imp = {}; openDrawer({ kind: "import" }); break;
-      case "import-again": UI.imp = {}; renderDrawer(); break;
-      case "imp-filter": UI.imp.filter = el.dataset.v; renderDrawer(); break;
+      case "import-again": UI.imp = {}; redraw(); break;
+      case "imp-filter": UI.imp.filter = el.dataset.v; redraw(); break;
       case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
       case "import-commit": {
-        const I = UI.imp; I.busy = true; I.err = null; renderDrawer();
+        const I = UI.imp; I.busy = true; I.err = null; redraw();
         try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast(`${I.done.imported} patients imported`); }
         catch (e) { I.err = e.message; }
-        I.busy = false; renderDrawer(); break;
+        I.busy = false; redraw(); break;
       }
       case "day": UI.view = "day"; UI.day = Number(el.dataset.v); render(); break;
       case "week": UI.view = "week"; render(); break;
-      case "book-again": UI.book = {}; renderDrawer(); break;
+      case "book-again": UI.book = {}; redraw(); break;
       case "book-slot": {
         el.disabled = true;
         const r = await api("POST", "/api/bookings", Object.assign(bookInput(), { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s) }));
-        UI.book = { done: r }; UI.view = "day"; UI.day = r.day || 0; renderDrawer(); toast(`${r.patient} booked: ${r.day ? r.dayLabel + " " : ""}${r.label.slice(0, 5)} with ${first(r.clinician)}`); await load(); break;
+        UI.book = { done: r }; UI.view = "day"; UI.day = r.day || 0; redraw(); toast(`${r.patient} booked: ${r.day ? r.dayLabel + " " : ""}${r.label.slice(0, 5)} with ${first(r.clinician)}`); await load(); break;
       }
       case "book-waitlist": {
         const b = bookInput();
@@ -2121,7 +2262,7 @@ document.addEventListener("submit", async (e) => {
   try {
     if (e.target.id === "book-form") {
       const b = bookInput(); UI.book = Object.assign(UI.book || {}, { patientId: b.patientId });
-      UI.book.results = await api("POST", "/api/slots", b); UI.book.map = null; renderDrawer();
+      UI.book.results = await api("POST", "/api/slots", b); UI.book.map = null; redraw();
       const best = document.querySelector("#book-form .offer"); if (best) best.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
@@ -2129,6 +2270,12 @@ document.addEventListener("submit", async (e) => {
       const d = UI.pg, t = $("#pg-note-t"); if (!d || !t.value.trim()) return;
       await api("POST", `/api/patients/${d.id}/notes`, { body: t.value }); t.value = "";
       d.rec = await api("GET", `/api/patients/${d.id}?background=1`); await load(); toast("Note added"); return;
+    }
+    if (e.target.id === "fb-meta") {
+      const v = (id) => ($("#set-" + id) || {}).value || "";
+      const r = await api("PUT", "/api/leads/connection/meta", { pageId: v("pageId"), appSecret: v("appSecret") || undefined, pageToken: v("pageToken") || undefined });
+      UI.pg.conn = r; render(); toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
+      return;
     }
     if (e.target.id && e.target.id.startsWith("set-")) {
       const v = (id) => ($("#set-" + id) || {}).value;
@@ -2147,7 +2294,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "np-form") {
       const v = (id) => ($("#np-" + id) || {}).value || "", err = $("#np-err");
       try {
-        const r = await api("POST", "/api/patients", { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
+        const r = await api("POST", "/api/patients", { leadId: ((UI.pg || {}).pre || {}).leadId, name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
         UI.pg = null; await load(); go("patients/" + r.patient.id); toast(`${r.patient.name} added. Book their first visit from here.`);
       } catch (x) {
         if (x.offline) throw x;
@@ -2201,7 +2348,7 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
     if (e.target.id === "imp-file" && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 3e6) { UI.imp.err = "That file is over 3 MB. Split it into smaller files."; renderDrawer(); return; }
+      if (file.size > 3e6) { UI.imp.err = "That file is over 3 MB. Split it into smaller files."; redraw(); return; }
       UI.imp = { name: file.name, csv: await file.text() };
       await importPreview(null);
     }
@@ -2209,8 +2356,8 @@ document.addEventListener("change", async (e) => {
       const m = UI.imp.pv.mapping.slice(); m[Number(e.target.dataset.i)] = e.target.value || null;
       UI.imp.openMap = true; await importPreview(m);
     }
-    if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; renderDrawer(); }
-    if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; renderDrawer(); }
+    if (e.target.id === "bk-p") { UI.book = { patientId: e.target.value }; $("#bk-new").hidden = e.target.value !== "new"; redraw(); }
+    if (["bk-type", "bk-avail"].includes(e.target.id) && UI.book && UI.book.results) { UI.book.results = null; redraw(); }
     if (e.target.id === "set-ds" || e.target.id === "set-de") { $("#hp-wrap").innerHTML = hoursPreview(Number($("#set-ds").value), Number($("#set-de").value)); return; }
     if (e.target.dataset && e.target.dataset.online) { e.target.nextElementSibling.textContent = e.target.checked ? "Yes" : "No"; return; }
     if (e.target.id === "set-logo") { const u = e.target.value.trim(), box = $("#logo-prev"); box.classList.remove("broken"); box.innerHTML = /^https:\/\//.test(u) ? `<img src="${esc(u)}" alt="Logo preview" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken')"><span>This address doesn't load an image</span>` : `<span>${u ? "The address must start with https://" : "No logo: your name is shown instead"}</span>`; return; }
@@ -2219,12 +2366,12 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
     if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
     if (e.target.dataset && e.target.dataset.price) { await api("PUT", "/api/settings", { prices: { [e.target.dataset.price]: Number(e.target.value) } }); await load(); toast("Price saved"); }
-    if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; renderDrawer(); }
+    if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; redraw(); }
   } catch (err) { fail(err); }
 });
 document.addEventListener("input", (e) => {
   if (e.target.id === "psearch") { UI.q = e.target.value; render(); }
-  if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; renderDrawer(); }
+  if (e.target.id === "pt-q" && UI.drawer) { UI.drawer.q = e.target.value; redraw(); }
   if (e.target.id === "pg-q") { UI.pq = e.target.value; UI.plimit = PAGE; render(); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.drawer) closeDrawer(); });

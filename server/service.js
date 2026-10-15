@@ -905,8 +905,10 @@ async function createPatient(input, user) {
     const age = p.dob ? Math.floor((Date.UTC(2026, 9, 12) - Date.parse(p.dob)) / (365.25 * 864e5)) : null;
     run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       id, p.name, age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts || []), p.specs || "None on record", p.dob || null, p.email || null, p.eligibility || null, p.rep || null);
-    addNote(id, "Added by the office.", user, { silent: true });
-    audit(user.name, "patient.create", id, "Added by hand"); // no personal details in the audit line
+    const lead = input.leadId ? one("SELECT id FROM leads WHERE id = ? AND patient_id IS NULL", String(input.leadId)) : null;
+    if (lead) run("UPDATE leads SET patient_id = ? WHERE id = ?", id, lead.id); // the lead now points to their record
+    addNote(id, lead ? "Added by the office from a Facebook lead." : "Added by the office.", user, { silent: true });
+    audit(user.name, "patient.create", id, lead ? "Added from a lead" : "Added by hand"); // no personal details in the audit line
     bus.emit({ type: "patient.updated", patientId: id });
     return { patient: getPatient(id) };
   });

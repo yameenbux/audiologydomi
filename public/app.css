@@ -942,3 +942,33 @@ button.rm-row:hover { background: var(--subtle) }
 .pg-form .row2 > .field + .field { margin-top: 0 }
 .set-note { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted) } .set-note a { color: var(--forest); font-weight: 600 }
 .logo-f { flex: 1 1 300px; min-width: 0 }
+
+/* ============ Facebook leads ============ */
+.conn-strip { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 14px; background: var(--subtle); font-size: 14px }
+.conn-strip svg { flex: none; color: var(--muted) } .conn-strip span { flex: 1; min-width: 0 }
+.conn-strip a { color: var(--forest); font-weight: 700; text-decoration: none; white-space: nowrap } .conn-strip a:hover { text-decoration: underline }
+.conn-strip.ok { background: var(--ok-soft, var(--forest-soft)) } .conn-strip.ok svg { color: var(--ok, var(--forest)) }
+.conn-strip.bad { background: color-mix(in srgb, var(--crit) 10%, var(--surface)) } .conn-strip.bad svg { color: var(--crit) }
+.conn-card .conn-h { display: flex; gap: 16px; align-items: center }
+.conn-card .conn-h > svg { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--subtle); color: var(--muted); flex: none }
+.conn-card .conn-h > div { flex: 1; min-width: 0 } .conn-card h2 { margin: 0; font-size: 19px } .conn-card p { margin: 4px 0 0; color: var(--muted); font-size: 14px }
+.conn-card.ok .conn-h > svg { background: var(--forest-soft); color: var(--forest) }
+.conn-card.bad { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--crit) 45%, var(--line)) } .conn-card.bad .conn-h > svg { background: color-mix(in srgb, var(--crit) 12%, var(--surface)); color: var(--crit) }
+.steps { list-style: decimal; margin: 0 0 16px; padding-left: 22px; display: grid; gap: 10px; font-size: 14.5px; line-height: 1.5 } .steps li::marker { font-weight: 700; color: var(--forest) }
+.copy-row { display: flex; gap: 8px } .copy-row .input { flex: 1; min-width: 0; font-size: 13px; background: var(--subtle) }
+.lead-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px }
+.lead-acts .btn[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--forest) }
+@media (max-width: 760px) { .conn-card .conn-h { flex-wrap: wrap } .conn-card .conn-h > div { flex: 1 1 calc(100% - 60px) } .conn-card .conn-h > .btn { width: 100%; justify-content: center } .copy-row { flex-direction: column } }
+
+/* ============ Tool pages (routes, mileage, invoices, import) ============ */
+.tool-card { padding: 22px 24px }
+.tool-card > .seg { margin-bottom: 16px }
+.tool-plans .plan-row { padding: 14px 4px }
+.tool-report .rp-tiles, .tool-invoices .rp-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)) }
+.tool-invoices .rp-tiles { grid-template-columns: repeat(2, minmax(0, 220px)) }
+.tool-report .rp-c { margin-top: 18px }
+.tool-report .btn.block { max-width: 360px }
+.link-card { display: flex; gap: 24px; align-items: flex-start }
+.link-qr { width: 132px; flex: none; padding: 10px; border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px var(--line) } .link-qr svg { width: 100%; height: auto; display: block }
+.link-b { flex: 1; min-width: 0 } .link-b .card-h a { color: var(--forest); font-weight: 600 }
+@media (max-width: 760px) { .link-card { flex-direction: column } .tool-report .rp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)) } .tool-card { padding: 16px } }
