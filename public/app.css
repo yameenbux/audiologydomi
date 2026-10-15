@@ -311,7 +311,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   /* iOS zooms into any field with text under 16px when it is tapped */
   input, select, textarea, .input, textarea.note, .who-select { font-size: 16px !important }
 }
-.drawer-b, .feed, .board-wrap { overscroll-behavior: contain }
+.drawer-b, .feed { overscroll-behavior: contain } /* not the diary: it only scrolls sideways, and must pass up-and-down scrolling to the page */
 .ph-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px }
 .ph-head h2 { font-size: 34px; line-height: 1.02 }
 .who-select { border: 0; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface); border-radius: 99px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; max-width: 150px }
@@ -716,13 +716,15 @@ button.rm-row:hover { background: var(--subtle) }
 .tray-rail button:focus-visible { outline: 2px solid var(--forest); outline-offset: 1px }
 .tray-rail .tc { position: absolute; top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--forest); color: var(--on-forest); font: 700 10.5px/18px var(--f-ui); text-align: center; font-variant-numeric: tabular-nums }
 .tray-rail .tc.hot { background: var(--apricot); color: #fff }
-.tray-body { overflow-y: auto; overscroll-behavior: contain; min-width: 0 }
+.tray-body { overflow-y: auto; min-width: 0 } /* at the end of its list, scrolling carries on to the page */
 .tray-body > .panel { background: transparent; box-shadow: none; border-radius: 0 }
 .tray-body > .panel + .panel { border-top: 1px solid var(--line) }
 .tray-body > .panel > .panel-h:first-child { position: sticky; top: 0; z-index: 2; background: var(--surface); padding-top: 18px }
 .tray-body .feed { max-height: none }
 @media (max-width: 1100px) {
-  .tray { position: static; height: 680px; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) }
+  /* On tablets and phones the tray is as tall as its list, so a swipe anywhere scrolls the page */
+  .tray { position: static; height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto }
+  .tray-body { overflow: visible }
   .tray-rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 7px }
   .tray-rail button { flex: 1 0 74px }
 }
