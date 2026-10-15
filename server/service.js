@@ -93,7 +93,7 @@ function pcseTask(action, appt, patient) {
 
 /** The office's PCSE to-do list, oldest first, with the latest time each notification can be lodged. */
 function pcseList() {
-  return all("SELECT x.*, p.name FROM pcse x JOIN patients p ON p.id = x.patient_id ORDER BY x.status = 'done', x.id").map((r) => {
+  return all("SELECT x.*, p.name FROM pcse x JOIN patients p ON p.id = x.patient_id WHERE x.created_at != '' ORDER BY x.status = 'done', x.id").map((r) => { // '' = notified before Domi
     const t = { ...map.pcse(r), name: r.name };
     if (t.action === "lodge") {
       const by = t.day * 1440 + t.start - PVN_NOTICE_MIN; // demo-clock minutes since Monday 00:00
@@ -1173,6 +1173,48 @@ function recordOutcome(id, input, user) {
   });
 }
 
+/** Why a clinician couldn't do a visit, as it's written on the patient's record. */
+const NOT_DONE = { nobody: "Nobody in", unwell: "Patient unwell", declined: "Patient declined the visit", access: "Couldn't get access" };
+/**
+ * The clinician couldn't do the visit: nobody in, the patient was unwell, declined, or there was no way in.
+ * Recorded from the doorstep so the office doesn't have to be phoned. No sight test happened, so PCSE's
+ * notification is withdrawn; the patient goes back on the waiting list unless the clinician says not to.
+ */
+function notDone(id, input, user) {
+  return tx(() => {
+    const a = getAppt(String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    if (user.role === "clinician" && a.clinicianId !== user.clinicianId) throw new HttpError(403, "This visit is on another clinician's round.");
+    if (a.day !== 0) throw new HttpError(409, `That visit is on ${DAYS[a.day]}, not today.`);
+    if (!["booked", "enroute", "live"].includes(a.status)) throw new HttpError(409, `That visit is already ${a.status === "done" ? "complete" : a.status}.`);
+    if (a.status === "booked" && a.start > sandbox.nowMin()) throw new HttpError(409, "That visit hasn't started yet. Mark it once you're there.");
+    const reason = NOT_DONE[input.reason];
+    if (!reason) throw new HttpError(400, "Choose what happened.");
+    const p = getPatient(a.patientId), c = getClinician(a.clinicianId), note = clean(input.note, 1000);
+    run("UPDATE appointments SET status = 'missed', seen = 1 WHERE id = ?", a.id);
+    pcseTask("cancel", a, p);
+    addNote(p.id, `${reason} when ${c.first} called at ${hm(a.start)}.${note ? " " + note : ""}`, user, { silent: true });
+    let rebooked = null;
+    if (input.rebook !== false) {
+      const wid = newId("w"), seq = one("SELECT COALESCE(MAX(added_seq), 0) + 1 AS s FROM waitlist").s;
+      run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
+      run("INSERT INTO waitlist (id, patient_id, type, prio, days, avail, short_notice, added_seq, note) VALUES (?, ?, ?, 'soon', 0, 'any', 1, ?, ?)", wid, p.id, a.type, seq, `${reason} at their last visit`);
+      rebooked = wid;
+      bus.emit({ type: "waitlist.added", waitlistId: wid });
+    }
+    audit(user.name, "appointment.not-done", a.id, `${p.name} ${hm(a.start)} with ${c.name}: ${reason.toLowerCase()}${rebooked ? ", back on the waiting list" : ""}`);
+    bus.emit({ type: "appointment.updated", clinicianId: c.id, appointmentId: a.id, status: "missed" });
+    return { ...getAppt(a.id), reason, rebooked };
+  });
+}
+
+/** Whether PCSE has been told about each NHS home sight test, for the clinician to see before they test. */
+function pvnStatus() {
+  const out = {};
+  for (const r of all("SELECT appointment_id, action, status FROM pcse ORDER BY id")) out[r.appointment_id] = r.action === "lodge" ? (r.status === "done" ? "lodged" : "pending") : "cancelled";
+  return out;
+}
+
 /* Filling a gap by hand: everyone who'd fit, and the office books the one it rang. */
 const freedSlot = (id) => {
   const slot = getAppt(String(id));
@@ -1373,4 +1415,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

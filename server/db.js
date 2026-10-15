@@ -289,6 +289,10 @@ function seed(db, brand) {
     const subject = `Thank you for getting in touch with ${brand.practice}`;
     ins("emails", { to_addr: email, to_name: name, subject, body: leadEmail(name, brand.practice, brand.phone || null, brand.officeHours || "Monday to Friday, 9am to 5pm", brand.email || null), kind: "lead.thanks", lead_id: id, provider_id: "outbox-seed", created_at: created_at.replace(/^Yesterday /, "") });
   });
+  // NHS sight tests already in the diary were notified to PCSE before the demo starts (they're kept off the
+  // office's to-do list, which shows only what's left to do and what was done today).
+  for (const a of db.prepare("SELECT * FROM appointments WHERE type = 'sight' AND status IN ('booked','enroute','live','done')").all())
+    ins("pcse", { action: "lodge", patient_id: a.patient_id, appointment_id: a.id, day: a.day, start_min: a.start_min, status: "done", created_at: "", done_by: "Before the demo" });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }

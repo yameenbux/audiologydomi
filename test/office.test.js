@@ -225,3 +225,31 @@ test("the office adds a patient by hand; the essentials are required and nobody 
   const clin = await signIn("amira@airevalleyeyecare.example", o.sandbox);
   if (clin.token) assert.strictEqual((await call("POST", "/api/patients", clin.token, { name: "X Y", addr: "1 Road", pc: "LS16", phone: "07700 900111" })).status, 403);
 });
+
+test("a clinician marks a visit they couldn't do: reason on the record, PCSE notice withdrawn, back on the waiting list", async () => {
+  const o = await office();
+  const st = await state(o.token);
+  const visit = st.appts.find((a) => a.day === 0 && a.type === "sight" && a.status === "booked" && a.start > st.now);
+  assert.ok(visit, "an NHS sight test later today");
+  assert.strictEqual(visit.pvn, "lodged", "demo visits were notified to PCSE before the demo");
+  const clinId = visit.clinicianId, email = { c1: "amira", c2: "tom", c3: "priya" }[clinId] + "@airevalleyeyecare.example";
+  const clin = await signIn(email, o.sandbox);
+  const mine = (await state(clin.token)).appts.find((a) => a.id === visit.id);
+  assert.strictEqual(mine.pvn, "lodged", "the clinician can see it too");
+  // Not before the visit has started
+  assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody" })).status, 409);
+  await call("POST", `/api/appointments/${visit.id}/status`, clin.token, { status: "enroute" });
+  assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "lunch" })).status, 400);
+  const r = await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody", note: "Rang twice, no answer" });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+  assert.strictEqual(r.data.status, "missed");
+  assert.ok(r.data.rebooked);
+  const after = await state(o.token);
+  assert.ok(after.waitlist.some((w) => w.patientId === visit.patientId && w.status === "waiting"), "back on the waiting list");
+  assert.ok(after.pcse.some((t) => t.appointmentId === visit.id && t.action === "cancel" && t.status === "todo"), "the office is told to withdraw PCSE's notification");
+  assert.strictEqual(after.appts.find((a) => a.id === visit.id).pvn, "cancelled");
+  const rec = (await call("GET", `/api/patients/${visit.patientId}`, o.token)).data;
+  assert.ok(rec.history.some((h) => /Nobody in when .* called at .*Rang twice/.test(h.body)));
+  // Another clinician can't mark it, and it can't be marked twice
+  assert.strictEqual((await call("POST", `/api/appointments/${visit.id}/not-done`, clin.token, { reason: "nobody" })).status, 409);
+});

@@ -620,7 +620,7 @@ function board(nowM) {
         + (h > 84 && a.moved ? `<span class="badge b-apricot" style="margin-top:4px">${icon("bolt")}Moved forward</span>` : "")
         + (h > 60 && !a.moved && a.bookedMin != null ? `<span class="badge b-forest" style="margin-top:4px">${icon("plus")}New booking</span>` : "")
         + (h > 84 && a.status === "enroute" ? `<span class="badge b-warn" style="margin-top:4px">${icon("car")}On the way</span>` : "")
-        + (a.status === "missed" ? `<span class="badge b-plain" style="margin-top:4px">Nobody in</span>` : "");
+        + (a.status === "missed" ? `<span class="badge b-plain" style="margin-top:4px">Not seen</span>` : "");
       return `${drive}<button class="blk ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}">${head}${extra}</button>`;
     }).join("");
     const filled = new Set(list.map((a) => a.start));
@@ -671,7 +671,7 @@ function clinView() {
         <li>${icon("bolt")}<span>Diary changes from the office arrive live</span></li>
         <li>${icon("shield")}<span>Keeps working without signal</span></li>
       </ul>
-      <div class="soon-row" style="margin-top:14px">${soon("apps", "iPhone &amp; Android apps", "phone")}</div></div>
+</div>
     <div class="phone">
       <div class="ph-scroll" id="ph-scroll" data-scroll="phone">${UI.offline ? `<div class="offline-bar" role="status">${icon("bolt")}<span><b>No signal.</b> Your round and records are saved on this phone.${outbox.length ? ` ${outbox.length} change${outbox.length === 1 ? "" : "s"} waiting to sync.` : ""}</span></div>` : ""}${body}</div>
       <nav class="ph-tabs" aria-label="Clinician sections">
@@ -680,6 +680,23 @@ function clinView() {
         <button type="button" data-act="tab" data-v="msgs" aria-current="${!UI.pid && UI.tab === "msgs" ? "page" : "false"}">${icon("msg")}Messages${unread ? `<span class="dot">${unread}</span>` : ""}</button>
       </nav>
     </div><div></div></div></div>`;
+}
+/** The PCSE notification for an NHS sight test, as the clinician needs it before testing. */
+const pvnChip = (a) => !a || !T(a.type).pvn || a.status === "done" || a.status === "missed" ? ""
+  : a.pvn === "lodged" ? `<span class="pvn ok">${icon("check")}PCSE notified</span>`
+  : `<span class="pvn bad">${icon("x")}PCSE not notified yet: check with the office before testing</span>`;
+/** The clinician couldn't do the visit: why, and whether they go back on the waiting list. */
+const NOT_DONE_REASONS = [["nobody", "Nobody in"], ["unwell", "Patient unwell"], ["declined", "Patient declined"], ["access", "Couldn't get in"]];
+const canNotDo = (a) => a && (a.status === "enroute" || a.status === "live" || (a.status === "booked" && (a.day || 0) === 0 && a.start <= demoNow()));
+function notDoneForm(a) {
+  return `<form class="nd-form" id="nd-form" data-id="${a.id}" novalidate>
+    <div class="nd-h"><b>Couldn't do this visit?</b><button class="icon-btn" type="button" data-act="nd-close" aria-label="Close">${icon("x")}</button></div>
+    <div class="nd-opts" role="radiogroup" aria-label="What happened">${NOT_DONE_REASONS.map(([k, l], i) => `<label class="nd-opt"><input type="radio" name="nd-reason" value="${k}" ${i === 0 ? "checked" : ""}><span>${l}</span></label>`).join("")}</div>
+    <label class="chk" style="margin-top:10px"><input type="checkbox" id="nd-rebook" checked><span>Put them back on the waiting list</span></label>
+    <textarea class="note" id="nd-note" rows="2" placeholder="Anything the office should know (optional)"></textarea>
+    <button class="btn block" type="submit" style="margin-top:10px">${icon("check")}Tell the office</button>
+    ${T(a.type).pvn ? `<p class="nd-small">PCSE's notification is withdrawn, as no sight test happened.</p>` : ""}
+  </form>`;
 }
 function nextAction(a) {
   if (a.status === "booked") return { v: "enroute", label: "On my way", ic: "car" };
@@ -702,12 +719,14 @@ function todayTab(c) {
       <div class="nt" style="align-items:flex-end"><div><div class="time">${hm(nxt.start)}</div><div class="pn" style="margin-top:6px">${esc(p.name)}</div></div><span class="tag-chip">${t.name}</span></div>
       <div class="ad">${icon("pin")}${esc(p.addr)}, ${esc(p.pc)}</div>
       ${p.alerts.length ? `<div class="ad">${icon("users")}${esc(p.alerts[0])}</div>` : ""}
-      <div class="acts">${act ? `<button class="btn light" type="button" data-act="status" data-v="${act.v}" data-id="${nxt.id}">${icon(act.ic)}${act.label}</button>` : ""}<button class="btn outline" type="button" data-act="open-p" data-id="${p.id}" data-appt="${nxt.id}">Record</button></div>
+      ${pvnChip(nxt) ? `<div class="ad">${pvnChip(nxt)}</div>` : ""}
+      ${UI.nd === nxt.id ? notDoneForm(nxt) : `<div class="acts">${act ? `<button class="btn light" type="button" data-act="status" data-v="${act.v}" data-id="${nxt.id}">${icon(act.ic)}${act.label}</button>` : ""}<button class="btn outline" type="button" data-act="open-p" data-id="${p.id}" data-appt="${nxt.id}">Record</button></div>
+      ${canNotDo(nxt) ? `<button class="nd-link" type="button" data-act="nd-open" data-id="${nxt.id}">Couldn't do this visit?</button>` : ""}`}
     </div>`;
   }
   const cards = rest.map((a, i) => {
     const p = pat(a.patientId), t = T(a.type);
-    const st = a.status === "done" ? `<span class="badge b-plain">Done</span>` : a.status === "missed" ? `<span class="badge b-plain">Nobody in</span>` : a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved</span>` : a.bookedMin != null ? `<span class="badge b-forest">${icon("plus")}New</span>` : "";
+    const st = a.status === "done" ? `<span class="badge b-plain">Done</span>` : a.status === "missed" ? `<span class="badge b-plain">Not seen</span>` : a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved</span>` : a.bookedMin != null ? `<span class="badge b-forest">${icon("plus")}New</span>` : "";
     return `${a.drive && i > 0 && a.status !== "done" ? `<div class="drive-row">${icon("car")}${a.drive} min drive</div>` : ""}
       <button class="v ${a.moved ? "moved" : a.status === "done" ? "done" : ""}" type="button" data-act="open-p" data-id="${p.id}" data-appt="${a.id}">
         <div class="tl"><span class="t">${hm(a.start)}</span><span class="ln"></span></div>
@@ -715,6 +734,7 @@ function todayTab(c) {
           <div class="pn">${esc(p.name)}</div>
           <div class="ad">${icon("pin")}<span>${esc(p.addr)}, ${esc(p.pc)}</span></div>
           ${p.alerts.length && a.status !== "done" ? `<div class="ad" style="color:var(--warn)">${icon("users")}<span>${esc(p.alerts[0])}</span></div>` : ""}
+          ${pvnChip(a) ? `<div class="ad">${pvnChip(a)}</div>` : ""}
         </div></button>`;
   }).join("");
   return `<div class="ph-head"><div><div class="caps">Mon 12 Oct · <span data-clock>${hm(demoNow())}</span></div><h2 style="margin-top:6px">Morning, ${esc(c.first)}</h2></div>${switcher}</div>
@@ -749,14 +769,14 @@ function record(p) {
   const upcoming = S.appts.filter((x) => x.patientId === p.id && active(x) && x.status !== "done").sort((x, y) => (x.day || 0) - (y.day || 0) || x.start - y.start);
   const a = upcoming.find((x) => (x.day || 0) === 0) || null, later = upcoming.find((x) => (x.day || 0) > 0);
   const t = a ? T(a.type) : null, act = a && nextAction(a);
-  const maps = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(p.addr + ", Leeds " + p.pc);
+  const maps = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(p.addr + ", " + p.pc);
   return `<button class="back" type="button" data-act="back">${icon("back")}Back</button>
-    <div class="rec-h"><div class="caps">${a ? `${hm(a.start)} · ${t.name}` : "Patient record"}</div><h2 style="margin-top:6px">${esc(p.name)}</h2>
+    <div class="rec-h"><div class="caps">${a ? `${hm(a.start)} · ${t.name}` : "Patient record"}</div><h2 style="margin-top:6px">${esc(p.name)}</h2>${pvnChip(a) ? `<div style="margin-top:8px">${pvnChip(a)}</div>` : ""}
       <div class="sub">${p.age ? p.age + " years · " : ""}${esc(p.addr)}, ${esc(p.pc)}</div></div>
     <div class="tags"><span class="tag">${icon("msg")}Prefers: ${esc(p.contact)}</span>${p.alerts.map((x) => `<span class="tag alert">${esc(x)}</span>`).join("")}</div>
     <div class="quick">
       <a href="${maps}" target="_blank" rel="noopener">${icon("pin")}Directions</a>
-      <button type="button" data-act="copy" data-v="${esc(p.phone)}">${icon("copy")}<span class="mono">${esc(p.phone.slice(-6))}</span></button>
+      <a href="tel:${esc(String(p.phone || "").replace(/\s/g, ""))}">${icon("phone")}Call</a>
       <button type="button" data-act="focus-note">${icon("note")}Add note</button>
     </div>
     ${a && a.moved ? `<div class="banner">${icon("bolt")}<div><b>Moved forward today</b>${esc(a.note)}</div></div>` : ""}
@@ -764,14 +784,14 @@ function record(p) {
     <div class="sec"><h3>Visit notes ${a && a.status === "live" ? `<span class="badge b-ok">In progress</span>` : ""}</h3>
       <div class="chips">${["Vision recorded", "Pressures checked", "Fundus photos taken", "Frames chosen", "GOS 6 signed", "Glasses fitted & adjusted", "Referred to GP", "Recall in 12 months"].map((c) => `<button type="button" data-act="chip">${c}</button>`).join("")}</div>
       <textarea class="note" id="note-${p.id}" data-keep placeholder="What did you do on this visit?"></textarea>
-      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px">${soon("ai-notes", "Draft with AI", "bolt")}<button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
     </div>
     <div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
-      <div class="soon-row" style="margin-top:10px">${soon("pcse-online", "Claim GOS 6", "send")}${soon("images", "Add fundus photos", "copy")}</div></div>
-    <div class="sec"><h3>Letters &amp; forms</h3><div class="soon-row">${soon("letters", "GP letter", "note")}${soon("letters", "Pre-visit form", "msg")}</div></div>
+</div>
     <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
-    ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
+    ${a && UI.nd === a.id ? `<div class="sec">${notDoneForm(a)}</div>` : ""}
+    ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${canNotDo(a) && UI.nd !== a.id ? `<button class="btn secondary" type="button" data-act="nd-open" data-id="${a.id}">Couldn't do it</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
 }
 
 /* ============ Office pages: a menu down the left, and a page for each part of the practice ============ */
@@ -785,7 +805,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -843,7 +863,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -855,7 +875,7 @@ function sideNav() {
   return `<nav class="side" aria-label="Office">
     <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
-    <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
+    <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
@@ -1277,7 +1297,6 @@ function renderDrawer() {
   else if (d.kind === "report") inner = reportDrawer(d.data);
   else if (d.kind === "invoices") inner = invoicesDrawer(d.data);
   else if (d.kind === "soon") inner = soonModal(d.id);
-  else if (d.kind === "roadmap") inner = roadmapDrawer();
   else if (d.kind === "patients") inner = patientsDrawer(d);
   else if (d.kind === "patient") inner = patientDrawer(d);
   else if (d.kind === "move") inner = moveDrawer(d);
@@ -1492,38 +1511,44 @@ async function loadPlans(day) {
 // Nothing here pretends to work: each button opens a short note on what's coming. No dates are promised.
 // "next" = smaller pieces to come first; "later" = bigger pieces that depend on partners or more work.
 const ROADMAP = [
-  { id: "persist", when: "next", area: "Platform", title: "Your data kept for good, hosted in the UK", body: "A permanent database (PostgreSQL) in a London data centre, encrypted, with daily backups and tested restores. This demo resets on purpose." },
-  { id: "reset", when: "next", area: "Sign-in", title: "Password reset and your own authenticator", body: "Each person sets their own password and links their own authenticator app, with recovery codes and reset by email." },
-  { id: "import", when: "next", area: "Getting started", title: "Bring visits and the waiting list across", body: "Patients can already be imported from a spreadsheet. Next: upcoming visits and the waiting list too, so nothing has to be typed in twice." },
-  { id: "recall-auto", when: "next", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a sight test falls due, with the booking link, instead of the office pressing Text link." },
-  { id: "card", when: "next", area: "Payments", title: "Take card payments on the doorstep", body: "Take a card payment on the clinician's phone or a card reader at the end of the visit, marked paid on the invoice straight away." },
-  { id: "xero", when: "next", area: "Payments", title: "Sync invoices to Xero or QuickBooks", body: "Invoices and payments flow into your accounts package, so nothing is typed in twice." },
-  { id: "carehome", when: "next", area: "Payments", title: "Care-home billing", body: "Bill a care home for several residents seen on one visit, on one invoice." },
-  { id: "ai-notes", when: "next", area: "Records", title: "Draft notes with AI", body: "Dictate or record the visit and get a draft note to check and save. Nothing is saved without the clinician approving it." },
-  { id: "letters", when: "next", area: "Records", title: "Letters and pre-visit forms", body: "GP and referrer letters from templates, and forms patients or carers fill in before the visit (consent, history), saved to the record." },
-  { id: "images", when: "next", area: "Records", title: "Fundus photos and scans", body: "Photos from a handheld fundus camera, and scan reports, saved into the patient's record from the clinician's phone." },
-  { id: "pcse-online", when: "later", area: "NHS claims", title: "PCSE Online: notifications and GOS claims", body: "Lodge and cancel pre-visit notifications, and submit GOS 6 claims, straight from Domi instead of typing them into PCSE Online. Needs PCSE to accept Domi as a connected practice system." },
-  { id: "stock", when: "later", area: "Practice", title: "Lab orders and frames", body: "Follow each pair of glasses from order to the lab and back, and book the delivery visit the day they arrive. Frame stock carried in the car, too." },
-  { id: "apps", when: "later", area: "Clinicians", title: "iPhone and Android apps", body: "The clinician app in the App Store and Google Play. Today it runs in the phone's browser and works offline." },
+  { id: "persist", when: "golive", area: "Platform", title: "Your data kept for good, hosted in the UK", body: "A permanent database in a UK data centre, encrypted, with daily backups and tested restores. This demo resets on purpose." },
+  { id: "reset", when: "golive", area: "Sign-in", title: "Invitations, password reset and your own authenticator", body: "New staff are emailed an invitation to set their own password and link their own authenticator app, with recovery codes and reset by email." },
+  { id: "exam", when: "clinical", area: "Records", title: "The eye-exam record on the clinician's phone", body: "History and symptoms, vision, refraction, pressures, the eye health check and referrals, recorded during the visit. The new prescription and recall interval feed straight into recalls." },
+  { id: "pcse-online", when: "clinical", area: "NHS claims", title: "NHS claims and notifications sent to PCSE", body: "Lodge and cancel pre-visit notifications, and send GOS sight test claims and vouchers, straight from Domi, with a list of claims still to submit, oldest first. Needs PCSE to approve Domi as a connected system." },
+  { id: "glasses", when: "clinical", area: "Glasses", title: "Glasses from order to fitting", body: "Each pair followed through the lab and back, with the fitting visit offered and booked the day they arrive." },
+  { id: "carevisit", when: "clinical", area: "Care homes", title: "Care-home visits", body: "Several residents seen on one visit, under one notification, with the three-week notice PCSE needs for three or more people at one address." },
+  { id: "import", when: "later", area: "Getting started", title: "Bring visits and the waiting list across", body: "Patients can already be imported from a spreadsheet. Next: upcoming visits and the waiting list too, so nothing has to be typed in twice." },
+  { id: "recall-auto", when: "later", area: "Recalls", title: "Recall texts sent automatically", body: "Recall texts go out on their own when a sight test falls due, with the booking link, instead of the office pressing Text link." },
+  { id: "images", when: "later", area: "Records", title: "Fundus photos and scans", body: "Photos from a handheld fundus camera, and scan reports, saved into the patient's record from the clinician's phone." },
+  { id: "letters", when: "later", area: "Records", title: "Letters and pre-visit forms", body: "GP and referrer letters from templates, and forms patients or carers fill in before the visit (consent, history), saved to the record." },
+  { id: "ai-notes", when: "later", area: "Records", title: "Draft notes with AI", body: "Dictate or record the visit and get a draft note to check and save. Nothing is saved without the clinician approving it." },
+  { id: "card", when: "later", area: "Payments", title: "Take card payments on the doorstep", body: "Take a card payment on the clinician's phone or a card reader at the end of the visit, marked paid on the invoice straight away." },
+  { id: "xero", when: "later", area: "Payments", title: "Sync invoices to Xero or QuickBooks", body: "Invoices and payments flow into your accounts package, so nothing is typed in twice." },
+  { id: "carehome", when: "later", area: "Payments", title: "Care-home billing", body: "Bill a care home for several residents seen on one visit, on one invoice." },
+  { id: "stock", when: "later", area: "Practice", title: "Frame stock", body: "The frames each clinician carries in the car, with what's been sold and what to restock." },
+  { id: "apps", when: "later", area: "Clinicians", title: "iPhone and Android apps", body: "The clinician app in the App Store and Google Play. Today it runs in the phone's browser, installs to the home screen and works offline." },
 ];
 const RM = Object.fromEntries(ROADMAP.map((r) => [r.id, r]));
+const RM_GROUPS = {
+  golive: { short: "Comes with going live", title: "Comes with going live", lead: "Part of setting your practice up for real patients." },
+  clinical: { short: "Next", title: "Next: eye-exam records and NHS claims", lead: "Everything needed to run the clinical side in Domi too, so one system does it all." },
+  later: { short: "Later", title: "Later", lead: "Planned, in no fixed order. Tell us which matter most to you." },
+};
+/** Everything planned but not built, in one place on the office side. The clinicians' phones don't show any of it. */
+function comingSoonPage() {
+  const group = (k) => `<section class="pg-sec"><div class="sec-h"><h2>${RM_GROUPS[k].title}</h2><span class="muted">${ROADMAP.filter((r) => r.when === k).length} items</span></div><p class="muted" style="margin:0">${RM_GROUPS[k].lead}</p>
+    <div class="rm-cards">${ROADMAP.filter((r) => r.when === k).map((r) => `<article class="rm-card" id="rm-${r.id}"><span class="rm-area">${esc(r.area)}</span><h3>${esc(r.title)}</h3><p>${esc(r.body)}</p></article>`).join("")}</div></section>`;
+  return `<div class="pg">${pageHead({ eyebrow: "Roadmap", title: "Coming soon", lead: "What's planned but not in Domi yet. Nothing on this page works today. Buttons marked Soon around the office open these notes; the clinicians' phones don't show any of it." })}
+    ${group("golive")}${group("clinical")}${group("later")}</div>`;
+}
 /** A placeholder button for something not built yet: says so, and explains when clicked. */
 const soon = (id, label, ic = "bolt", cls = "btn secondary sm") => `<button class="${cls} soon" type="button" data-act="soon" data-id="${id}">${icon(ic)}${label}<span class="soon-pill">Soon</span></button>`;
 function soonModal(id) {
   const r = RM[id];
-  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">${esc(r.area)} · ${r.when === "next" ? "Coming next" : "Coming later"}</div><h2 style="margin-top:6px;font-size:28px">${esc(r.title)}</h2></div>${closeX}</div>
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="caps">${esc(r.area)} · ${RM_GROUPS[r.when].short}</div><h2 style="margin-top:6px;font-size:28px">${esc(r.title)}</h2></div>${closeX}</div>
     <p style="margin:10px 0 0">${esc(r.body)}</p>
     <p class="muted" style="font-size:13px;margin:14px 0 0">${icon("clock")} Not in this demo yet.</p>
-    <div style="display:flex;gap:8px;margin-top:16px">${S ? `<button class="btn secondary sm" type="button" data-act="roadmap">See everything that's coming</button>` : ""}</div>`;
-}
-function roadmapDrawer() {
-  const group = (w) => ROADMAP.filter((r) => r.when === w).map((r) => `<li><span class="rm-area">${esc(r.area)}</span><b>${esc(r.title)}</b><span class="muted">${esc(r.body)}</span></li>`).join("");
-  return `<div class="drawer-h"><div><div class="caps">Roadmap</div><h2 style="margin-top:6px">What's coming</h2></div>${closeX}</div>
-    <div class="drawer-b">
-      <p class="muted" style="margin:0 0 14px">Everything here is planned but not in the demo yet. Features marked <span class="soon-pill">Soon</span> around the app open these notes.</p>
-      <h3 class="road-h">Coming next</h3><ul class="road">${group("next")}</ul>
-      <h3 class="road-h">Coming later</h3><ul class="road">${group("later")}</ul>
-    </div>`;
+    <div style="display:flex;gap:8px;margin-top:16px">${S && isAdmin() ? `<button class="btn secondary sm" type="button" data-act="roadmap" data-v="${esc(id)}">See everything that's coming</button>` : ""}</div>`;
 }
 const closeX = `<button class="icon-btn" type="button" data-act="close" aria-label="Close">${icon("x")}</button>`;
 
@@ -2046,7 +2071,7 @@ document.addEventListener("click", async (e) => {
       case "recall-text": el.disabled = true; await api("POST", `/api/recalls/${el.dataset.id}/text`); await load(); toast("Booking link texted"); break;
       case "recall-dismiss": await api("POST", `/api/recalls/${el.dataset.id}/dismiss`); await load(); toast("Removed from recalls and the refill pool"); break;
       case "soon": openDrawer({ kind: "soon", id: el.dataset.id }); break;
-      case "roadmap": openDrawer({ kind: "roadmap" }); break;
+      case "roadmap": { const v = el.dataset.v; if (UI.drawer) closeDrawer(); go("coming-soon"); if (v) setTimeout(() => { const c = $("#rm-" + v); if (c) { c.scrollIntoView({ block: "center" }); c.classList.add("hl"); } }, 300); break; }
       case "invoices": openDrawer({ kind: "invoices", data: await api("GET", "/api/invoices") }); break;
       case "inv-pay": { const m = document.querySelector(`[data-paymethod="${el.dataset.id}"]`).value; await api("POST", `/api/invoices/${el.dataset.id}/pay`, { method: m }); panel("invoices").data = await api("GET", "/api/invoices"); redraw(); toast("Marked as paid"); break; }
       case "inv-void": await api("POST", `/api/invoices/${el.dataset.id}/void`); panel("invoices").data = await api("GET", "/api/invoices"); redraw(); toast("Invoice voided"); break;
@@ -2132,6 +2157,8 @@ document.addEventListener("click", async (e) => {
       case "go": go(el.dataset.v); break;
       case "pf": UI.pf = el.dataset.v; UI.plimit = PAGE; render(); break;
       case "lt": UI.lt = el.dataset.v; render(); break;
+      case "nd-open": UI.nd = el.dataset.id; render(); { const f = $("#nd-form"); if (f) f.scrollIntoView({ block: "center", behavior: "smooth" }); } break;
+      case "nd-close": UI.nd = null; render(); break;
       case "lead-patient": { const l = (S.leads || []).find((x) => x.id === el.dataset.id); UI.npPre = l ? { name: l.name, phone: l.phone, email: l.email, pc: l.pc, leadId: l.id } : null; go("patients/new"); break; }
       case "fb-key": { if (!confirm("Make a new private link? The old one stops working straight away, so update it in Zapier or Make.")) break; UI.pg.conn = await api("POST", "/api/leads/connection/key"); render(); toast("New link made. Paste it into Zapier or Make."); break; }
       case "fb-disconnect": { if (!confirm("Disconnect Facebook? New leads will stop arriving directly until you connect again.")) break; UI.pg.conn = await api("PUT", "/api/leads/connection/meta", { disconnect: true }); render(); toast("Facebook disconnected"); break; }
@@ -2270,6 +2297,13 @@ document.addEventListener("submit", async (e) => {
       const d = UI.pg, t = $("#pg-note-t"); if (!d || !t.value.trim()) return;
       await api("POST", `/api/patients/${d.id}/notes`, { body: t.value }); t.value = "";
       d.rec = await api("GET", `/api/patients/${d.id}?background=1`); await load(); toast("Note added"); return;
+    }
+    if (e.target.id === "nd-form") {
+      const id = e.target.dataset.id, reason = (e.target.querySelector("[name=nd-reason]:checked") || {}).value;
+      const r = await api("POST", `/api/appointments/${id}/not-done`, { reason, rebook: $("#nd-rebook").checked, note: $("#nd-note").value });
+      UI.nd = null; await load(); render();
+      toast(`${r.reason}: the office can see it${r.rebooked ? ", and they're back on the waiting list" : ""}`);
+      return;
     }
     if (e.target.id === "fb-meta") {
       const v = (id) => ($("#set-" + id) || {}).value || "";
