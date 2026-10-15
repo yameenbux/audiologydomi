@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS leads (
   id TEXT PRIMARY KEY, created_at TEXT NOT NULL, created_min INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','booked','closed')),
   source TEXT NOT NULL DEFAULT 'facebook', campaign TEXT, name TEXT NOT NULL, phone TEXT, email TEXT, pc TEXT,
-  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id)
+  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id), meta_id TEXT
 );
 CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY AUTOINCREMENT, to_addr TEXT NOT NULL, to_name TEXT, subject TEXT NOT NULL, body TEXT NOT NULL,

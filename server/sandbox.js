@@ -29,7 +29,15 @@ const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "o
   // When the practice's day runs. The diary shows these hours and clinicians' hours must fit inside them.
   dayStart: DAY_START, dayEnd: DAY_END,
   // Which kinds of visit patients can book for themselves on the booking page.
-  online: ["sight", "exam", "repair", "follow"] });
+  online: ["sight", "exam", "repair", "follow"],
+  // Facebook leads. The key goes in the practice's own connector link (Zapier, Make); the Meta details are
+  // for Facebook's own lead notifications. Secrets stay on the server: see publicSettings.
+  leadsKey: crypto.randomBytes(18).toString("base64url"),
+  meta: { pageId: "", appSecret: "", pageToken: "", verifyToken: crypto.randomBytes(12).toString("base64url") },
+  leadLink: { lastAt: null, lastVia: null, count: 0, error: null, errorAt: null } });
+
+/** Settings as the browser sees them: everything except the secrets. */
+const publicSettings = (st) => { const { leadsKey, meta, ...rest } = st; return { ...rest, metaConnected: !!(meta && meta.pageId && meta.appSecret && meta.pageToken) }; };
 
 function newCode() {
   let c;
@@ -87,4 +95,4 @@ function brandView(sb = current()) {
   return { ...brands.pub(sb.brand), practice: st.practice, phone: st.phone, email: st.email, logo: st.logo, logoAlt: st.practice };
 }
 
-module.exports = { brandView, create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };
+module.exports = { brandView, publicSettings, create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };

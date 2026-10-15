@@ -784,6 +784,8 @@ function parseRoute() {
   if (page === "patients") return { page: "patients" };
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
+  if (page === "leads" && id) return { page: "lead", id };
+  if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
 }
@@ -799,10 +801,14 @@ async function syncPage() {
     if (!UI.pg.edit) UI.pg.rec = await api("GET", `/api/patients/${encodeURIComponent(r.id)}${fresh ? "" : "?background=1"}`).catch(() => UI.pg.rec || { missing: true });
   } else if (r.page === "settings") {
     if (!UI.pg || UI.pg.kind !== "settings") UI.pg = { kind: "settings", edit: true, msgs: null };
+    if (r.sec === "facebook") UI.pg.conn = await api("GET", "/api/leads/connection").catch(() => UI.pg.conn);
     if (r.sec === "hours") UI.pg.team = await api("GET", "/api/team").catch(() => UI.pg.team);
     if (r.sec === "messages") UI.pg.msgs = await api("GET", "/api/settings/messages").catch(() => UI.pg.msgs);
   } else if (r.page === "newpatient") {
-    if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true };
+    if (!UI.pg || UI.pg.kind !== "new") UI.pg = { kind: "new", edit: true, pre: UI.npPre || {} };
+    UI.npPre = null;
+  } else if (r.page === "lead") {
+    UI.pg = { kind: "lead", id: r.id };
   } else if (r.page === "team" || r.page === "person") {
     if (!UI.pg || UI.pg.kind !== "team") UI.pg = { kind: "team", data: null, edit: null };
     const edit = r.page === "person" ? { kind: r.k, id: r.id === "new" ? null : r.id } : null;
@@ -828,17 +834,17 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
   const p = UI.route.page;
-  const on = (k) => k === p || (k === "patients" && (p === "patient" || p === "newpatient")) || (k === "team" && p === "person");
+  const on = (k) => k === p || (k === "patients" && (p === "patient" || p === "newpatient")) || (k === "team" && p === "person") || (k === "leads" && p === "lead");
   const needs = (S.leads || []).filter((l) => l.status === "new").length + (S.referrals || []).filter((r) => r.status === "new").length + (S.pcse || []).filter((t) => t.status === "todo").length;
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${act("plans", "pin", "Plan routes")}${act("report", "car", "Mileage")}${act("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${act("import", "copy", "Import patients")}${act("booklink", "qr", "Booking page")}${soon("stock", "Stock", "db", "nav-i")}${link("settings", "gear", "Settings")}${act("roadmap", "next", "What's coming")}</div>
   </nav>`;
@@ -931,6 +937,92 @@ function patientPage() {
 }
 /** The edit form's fields, shared by the record page and the side panel. */
 
+/* ---------- Facebook leads: the people who asked for a call from the practice's ads ---------- */
+const LEAD_TABS = [["new", "To call"], ["contacted", "Called"], ["booked", "Visit booked"], ["closed", "Not interested"], ["all", "All"]];
+function leadsPage() {
+  const all = S.leads || [], tab = LEAD_TABS.some(([k]) => k === UI.lt) ? UI.lt : "new";
+  const list = all.filter((l) => tab === "all" || l.status === tab);
+  const fresh = all.filter((l) => l.status === "new"), oldest = fresh.reduce((m, l) => Math.min(m, l.atMin), Infinity);
+  const link = { ...((S.settings || {}).leadLink || {}), on: !!(S.settings || {}).metaConnected };
+  const tile = (k, n, label) => `<button type="button" class="stat ${tab === k ? "on" : ""}" data-act="lt" data-v="${k}" aria-pressed="${tab === k}"><b>${n}</b><span>${label}</span></button>`;
+  return `<div class="pg">${pageHead({ eyebrow: "From your Facebook ads", title: "Facebook leads",
+      lead: "People who filled in the form on your ad and asked to be called. Each one has already been emailed a thank-you with your office hours.",
+      actions: `<button class="btn secondary" type="button" data-act="adform">${icon("send")}Send a test lead</button><a class="btn" href="#/settings/facebook">${icon("gear")}Connect Facebook</a>` })}
+    <div class="stats">${tile("new", fresh.length, fresh.length ? `to call · oldest ${leadWait({ atMin: oldest })}` : "to call")}${tile("contacted", all.filter((l) => l.status === "contacted").length, "called")}${tile("booked", all.filter((l) => l.status === "booked").length, "visit booked")}${tile("closed", all.filter((l) => l.status === "closed").length, "not interested")}${tile("all", all.length, "all leads")}</div>
+    <div class="conn-strip ${link.error ? "bad" : link.lastAt || link.on ? "ok" : ""}">${icon(link.error ? "x" : link.lastAt || link.on ? "check" : "bolt")}<span>${link.error ? `<b>Problem with the connection.</b> ${esc(link.error)}` : link.lastAt ? `<b>Connected.</b> Last lead at ${esc(link.lastAt)}, through ${esc(link.lastVia)}.` : link.on ? `<b>Connected to Facebook.</b> Waiting for the first lead from your ads.` : `<b>Not connected yet.</b> Leads from your ads will arrive here once your Facebook is connected.`}</span><a href="#/settings/facebook">${link.lastAt && !link.error ? "Connection settings" : "Connect"}</a></div>
+    <section class="card tbl-card" aria-label="Leads">
+      ${list.length ? `<div class="tbl-wrap"><table class="ptable"><thead><tr><th scope="col">Lead</th><th scope="col">Phone</th><th scope="col">From the ad</th><th scope="col">Arrived</th><th scope="col"><span class="sr">Status</span></th></tr></thead><tbody>
+        ${list.map((l) => `<tr data-act="go" data-v="leads/${esc(l.id)}">
+          <td><a class="pn" href="#/leads/${esc(l.id)}"><span class="avatar sm soft">${initials(l.name)}</span><span><b>${esc(l.name)}</b><span class="muted">${esc([l.pc, townOf(l.pc)].filter(Boolean).join(" · ") || l.email || "")}</span></span></a></td>
+          <td><span class="mono">${esc(l.phone || "–")}</span><span class="muted">${l.email ? "Has email" : "No email"}</span></td>
+          <td><b>${esc(l.campaign || "Ad form")}</b><span class="muted">${esc((l.answers[0] || [])[1] || "")}</span></td>
+          <td><b>${esc(l.at)}</b><span class="muted">${l.status === "new" ? `Waiting ${leadWait(l)}` : esc(l.handledBy ? `By ${l.handledBy}` : "")}</span></td>
+          <td class="st"><span class="badge ${l.status === "new" ? "b-apricot" : l.status === "booked" ? "b-forest" : "b-plain"}">${esc(S.leadStatus[l.status])}</span>${l.patientId ? `<span class="badge b-plain">Patient</span>` : ""}</td></tr>`).join("")}
+        </tbody></table></div>`
+      : `<div class="empty"><b>${tab === "new" ? "Nobody waiting for a call" : "None here"}</b>${tab === "new" ? "New leads from your ads appear here straight away." : "Leads move here as the office marks them."}</div>`}
+    </section></div>`;
+}
+function leadPage() {
+  const l = (S.leads || []).find((x) => x.id === UI.route.id);
+  const crumbs = crumbsOf([["#/leads", "Facebook leads"], ["", l ? l.name : "Lead"]]);
+  if (!l) return `<div class="pg">${pageHead({ crumbs, eyebrow: "Facebook lead", title: "Lead not found" })}<p class="muted">It may have been removed. <a href="#/leads">Back to leads</a></p></div>`;
+  const mail = (S.leadEmails || []).find((m) => m.leadId === l.id);
+  const p = l.patientId && S.patients.find((x) => x.id === l.patientId);
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  const tel = l.phone ? l.phone.replace(/\s/g, "") : "";
+  return `<div class="pg">${crumbs}
+    <section class="pt-hero"><span class="avatar xl">${initials(l.name)}</span>
+      <div class="pt-id"><div class="caps">Facebook lead · ${esc(l.at)}</div><h1 tabindex="-1">${esc(l.name)}</h1><p>${esc(l.campaign || "From an ad form")}${l.pc ? ` · ${esc(l.pc)}` : ""}</p>
+        <div class="tags"><span class="badge ${l.status === "new" ? "b-apricot" : l.status === "booked" ? "b-forest" : "b-plain"}">${esc(S.leadStatus[l.status])}</span>${l.status === "new" ? `<span class="badge b-plain">Waiting ${leadWait(l)}</span>` : ""}${p ? `<span class="badge b-plain">On Domi as a patient</span>` : ""}</div></div>
+      <div class="pg-acts">${tel ? `<a class="btn secondary" href="tel:${esc(tel)}">${icon("phone")}Call ${esc(l.phone)}</a>` : ""}${p ? `<a class="btn" href="#/patients/${esc(p.id)}">${icon("users")}Open their record</a>` : `<button class="btn" type="button" data-act="lead-patient" data-id="${esc(l.id)}">${icon("plus")}Add as a patient</button>`}</div></section>
+    ${l.status === "new" ? `<div class="callout apricot">${icon("clock")}<div><b>Call them soon</b><div style="margin-top:2px">People called within the hour are far more likely to book. Mark the lead below once you've spoken.</div></div></div>` : ""}
+    <div class="cards2">
+      <section class="card"><div class="card-h"><h2>What they told you</h2></div><dl class="kv lg">${row("Phone", l.phone ? `<span class="mono">${esc(l.phone)}</span>` : "None given")}${row("Email", esc(l.email || "None given"))}${row("Postcode", esc(l.pc || "Not given"))}${l.answers.map(([q, a]) => row(esc(q), esc(a))).join("")}</dl></section>
+      <section class="card"><div class="card-h"><h2>After the call</h2><p>What happened, so everyone in the office knows.</p></div>
+        <div class="field"><label for="ld-note">Note</label><textarea class="input" id="ld-note" data-keep rows="4" placeholder="e.g. Spoke to her daughter. Wants a morning visit next week.">${esc(l.note || "")}</textarea></div>
+        ${l.handledBy ? `<p class="set-note" style="margin-top:6px">Last updated by ${esc(l.handledBy)} at ${esc(l.handledAt)}.</p>` : ""}
+        <div class="lead-acts">${["contacted", "booked", "closed"].map((k) => `<button class="btn ${k === "booked" ? "" : k === "closed" ? "ghost" : "secondary"}" type="button" data-act="lead-status" data-id="${l.id}" data-v="${k}" aria-pressed="${l.status === k}">${k === "booked" ? icon("check") : k === "contacted" ? icon("phone") : ""}${k === "contacted" ? "Called" : esc(S.leadStatus[k])}</button>`).join("")}</div></section>
+    </div>
+    <section class="card"><div class="card-h"><h2>The thank-you email</h2><p>${mail ? `Sent automatically at ${esc(mail.at)} to ${esc(mail.to)}.` : "No email address was given, so no thank-you email went. Call them instead."}</p></div>
+      ${mail ? `<div class="mailcard"><div class="mail-h"><b>${esc(mail.subject)}</b><span class="muted">From ${esc(S.settings.practice)}</span></div><div class="mail-b">${esc(mail.body)}</div></div>` : ""}</section>
+  </div>`;
+}
+
+/** Settings → Facebook leads: the two ways to connect, and whether leads are arriving. */
+function facebookSection() {
+  const c = UI.pg && UI.pg.conn;
+  if (!c) return `<p class="muted">Loading…</p>`;
+  const st = c.status || {}, m = c.meta;
+  const copyRow = (label, v, id) => `<div class="field"><label for="${id}">${label}</label><div class="copy-row"><input class="input mono" id="${id}" value="${esc(v)}" readonly><button class="btn secondary" type="button" data-act="copy" data-v="${esc(v)}">${icon("copy")}Copy</button></div></div>`;
+  return `<div class="pg-form">
+    <section class="card conn-card ${st.error ? "bad" : st.lastAt || m.connected ? "ok" : ""}"><div class="conn-h">${icon(st.error ? "x" : st.lastAt || m.connected ? "check" : "bolt")}<div>
+      <h2>${st.error ? "There's a problem with the connection" : st.lastAt ? "Leads are arriving" : m.connected ? "Connected to Facebook" : "Not connected yet"}</h2>
+      <p>${st.error ? `${esc(st.error)} <span class="muted">(${esc(st.errorAt)})</span>` : st.lastAt ? `${st.count} lead${st.count === 1 ? "" : "s"} received in this demo. The last one came at ${esc(st.lastAt)}, through ${esc(st.lastVia)}.` : m.connected ? "Waiting for the first lead from your ads. Facebook's Lead Ads Testing Tool can send one now." : "Pick one of the two ways below. Until then you can try it with the test ad form."}</p></div>
+      <button class="btn secondary" type="button" data-act="adform">${icon("send")}Send a test lead</button></div></section>
+
+    <section class="card"><div class="card-h"><span class="badge b-forest">Quickest · works today</span><h2 style="margin-top:8px">Connect through Zapier or Make</h2><p>Zapier or Make picks up each lead from your Facebook Lead Ads and passes it to Domi. No approval from Meta is needed, and it takes about ten minutes.</p></div>
+      <ol class="steps">
+        <li>In Zapier, make a Zap: <b>Facebook Lead Ads → New Lead</b>. Sign in with the Facebook account that runs your ads and pick your Page and form.</li>
+        <li>Add the action <b>Webhooks by Zapier → POST</b>. Paste your private link below as the URL, choose <b>JSON</b>, and map the form's fields. Any field names work: full name, phone, email and postcode are picked up, and every other question is kept as asked.</li>
+        <li>Turn the Zap on and send a test lead from Facebook's Lead Ads Testing Tool. It appears in Facebook leads straight away, and the thank-you email goes out.</li>
+      </ol>
+      ${copyRow("Your private link", c.hookUrl, "fb-hook")}
+      <p class="set-note">This link includes your practice's secret key. Anyone with it can add leads, so keep it inside Zapier or Make. If it's ever shared by mistake, make a new one and the old link stops working at once.</p>
+      <div style="margin-top:12px"><button class="btn ghost" type="button" data-act="fb-key">${icon("reset")}Make a new link</button></div>
+      ${uses(["Facebook leads", "Thank-you emails", "Needs you today"])}</section>
+
+    <form id="fb-meta" class="card" novalidate><div class="card-h"><span class="badge b-plain">Direct · needs Meta's approval</span><h2 style="margin-top:8px">Connect straight to Facebook</h2><p>Facebook tells Domi the moment a lead arrives, with no Zapier in between. It needs a Meta app with permission to read leads (leads_retrieval), which Meta approves after a review. We set this up with you once.</p></div>
+      <div class="row2">${copyRow("Callback URL, for your Meta app's Webhooks", m.callbackUrl, "fb-cb")}${copyRow("Verify token", m.verifyToken, "fb-vt")}</div>
+      <p class="set-note">In your Meta app, add the Webhooks product, choose <b>Page</b>, paste these two in, and subscribe to the <b>leadgen</b> field.</p>
+      <div class="row2" style="margin-top:14px">${sf("pageId", "Facebook Page ID", m.pageId, 'inputmode="numeric" maxlength="30" placeholder="e.g. 104523987612345"', "From your Page's About section, under Page transparency.")}
+        ${sf("appSecret", "App secret", "", `type="password" autocomplete="off" maxlength="64" placeholder="${m.hasSecret ? "Saved · leave blank to keep it" : "32 letters and numbers"}"`, "From your Meta app's Basic settings. Used to check each notice really came from Facebook.")}</div>
+      ${sf("pageToken", "Page access token", "", `type="password" autocomplete="off" maxlength="600" placeholder="${m.hasToken ? `Saved, ending ${esc(m.tokenEnd)} · leave blank to keep it` : "A long-lived Page token"}"`, "Lets Domi fetch each lead's answers from Facebook. It's stored on the server and never shown again.")}
+      <div class="form-f" style="justify-content:space-between">${m.connected ? `<button class="btn ghost" type="button" data-act="fb-disconnect">Disconnect</button>` : "<span></span>"}<button class="btn" type="submit">${icon("check")}${m.connected ? "Save changes" : "Connect"}</button></div>
+      ${m.connected ? `<p class="set-note">Connected to Page ${esc(m.pageId)}. Facebook will send new leads here; any problem fetching one shows at the top of this page.</p>` : ""}
+    </form>
+  </div>`;
+}
+
 /* ---------- Settings: the practice's details and rules, which the rest of Domi reads ---------- */
 const SET_SECS = [
   { k: "practice", icon: "shield", label: "Practice details", sub: "Name, contact details, logo" },
@@ -938,6 +1030,7 @@ const SET_SECS = [
   { k: "visits", icon: "cal", label: "Visits & prices", sub: "Prices and online booking" },
   { k: "refill", icon: "bolt", label: "Cancellations & reminders", sub: "How gaps are filled" },
   { k: "messages", icon: "msg", label: "What patients receive", sub: "Texts and emails" },
+  { k: "facebook", icon: "send", label: "Facebook leads", sub: "Connect your ad forms" },
 ];
 const uses = (list) => `<div class="uses"><span class="caps">Used in</span>${list.map((x) => `<span class="use">${x}</span>`).join("")}</div>`;
 const setFoot = (label = "Save changes") => `<div class="form-f sticky"><button class="btn" type="submit">${icon("check")}${label}</button></div>`;
@@ -1008,6 +1101,8 @@ function settingsPage() {
         <div class="field" style="max-width:320px;margin-top:12px"><label for="set-ra">Send them at</label><select class="input" id="set-ra">${quarters(8 * 60, 21 * 60).map((m) => `<option value="${m}" ${m === st.reminderAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
         ${uses(["Reminder texts", "Cancellation links"])}</section>
       ${setFoot()}</form>`;
+  } else if (sec === "facebook") {
+    body = facebookSection();
   } else {
     const m = UI.pg && UI.pg.msgs;
     body = !m ? `<p class="muted">Loading…</p>` : `<div class="pg-form">
@@ -1023,15 +1118,16 @@ function settingsPage() {
 
 /** Adding a patient by hand: someone who phoned, or a referral that came by post. Grouped as the office asks for it. */
 function newPatientPage() {
-  const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
+  const pre = (UI.pg && UI.pg.pre) || {};
+  const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" value="${esc(pre[id] || "")}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
   return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/patients", "Patients"], ["", "Add a patient"]]), eyebrow: "New patient", title: "Add a patient",
-      lead: "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
+      lead: pre.leadId ? "From their Facebook lead: what they gave is filled in. Add the address and anything else you learned on the call." : "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
     <form id="np-form" class="pg-form" novalidate>
       <section class="card"><div class="card-h"><h2>Who they are</h2></div>
         <div class="row2">${f("name", "Full name", 'maxlength="80" required autocomplete="off"')}${f("dob", "Date of birth", 'type="date" min="1900-01-01" max="2026-10-12"', "Checked against everyone already on Domi.")}</div></section>
       <section class="card"><div class="card-h"><h2>Where to visit</h2><p>Drive times, the clinician who covers the area and route planning all come from this.</p></div>
         ${f("addr", "First line of the address", 'maxlength="120" required placeholder="e.g. 14 Moor Lane, or Flat 2, Rose Court"')}
-        <div class="field">${DomiAreas.picker(S.areas || [], "np-pc", "")}</div></section>
+        <div class="field">${DomiAreas.picker(S.areas || [], "np-pc", pre.pc || "")}</div></section>
       <section class="card"><div class="card-h"><h2>How to reach them</h2><p>Reminders and cancellation offers go by text unless they'd rather be phoned.</p></div>
         <div class="row2">${f("phone", "Phone", 'inputmode="tel" required placeholder="07700 900123"')}
           <div class="field"><label for="np-contact">How to reach them</label><select class="input" id="np-contact"><option value="Text">Text (needs a mobile)</option><option value="Call">Phone, don't text</option></select></div></div>
@@ -1920,7 +2016,7 @@ document.addEventListener("click", async (e) => {
       case "booklink": openDrawer({ kind: "booklink" }); break;
       case "referlink": openDrawer({ kind: "booklink", refer: true }); break;
       case "referral": openDrawer({ kind: "referral", id: el.dataset.id }); break;
-      case "lead": openDrawer({ kind: "lead", id: el.dataset.id }); break;
+      case "lead": go("leads/" + el.dataset.id); break;
       case "tray": {
         UI.tray = el.dataset.v; render();
         if (el.dataset.jump) { const t = $(".tray"); if (t && t.getBoundingClientRect().top < 0 || (t && t.getBoundingClientRect().top > innerHeight - 200)) t.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); }
@@ -1931,7 +2027,8 @@ document.addEventListener("click", async (e) => {
       case "lead-status": {
         el.disabled = true;
         await api("POST", `/api/leads/${el.dataset.id}/status`, { status: el.dataset.v, note: ($("#ld-note") || {}).value });
-        await load(); closeDrawer(); toast(el.dataset.v === "booked" ? "Marked as booked" : el.dataset.v === "closed" ? "Marked as not interested" : "Marked as called");
+        await load(); if (UI.drawer) closeDrawer(); else render();
+        toast(el.dataset.v === "booked" ? "Marked as booked" : el.dataset.v === "closed" ? "Marked as not interested" : "Marked as called");
         break;
       }
       case "lead-hours": {
@@ -1994,6 +2091,10 @@ document.addEventListener("click", async (e) => {
       case "open-rec": go("patients/" + el.dataset.id); break;
       case "go": go(el.dataset.v); break;
       case "pf": UI.pf = el.dataset.v; UI.plimit = PAGE; render(); break;
+      case "lt": UI.lt = el.dataset.v; render(); break;
+      case "lead-patient": { const l = (S.leads || []).find((x) => x.id === el.dataset.id); UI.npPre = l ? { name: l.name, phone: l.phone, email: l.email, pc: l.pc, leadId: l.id } : null; go("patients/new"); break; }
+      case "fb-key": { if (!confirm("Make a new private link? The old one stops working straight away, so update it in Zapier or Make.")) break; UI.pg.conn = await api("POST", "/api/leads/connection/key"); render(); toast("New link made. Paste it into Zapier or Make."); break; }
+      case "fb-disconnect": { if (!confirm("Disconnect Facebook? New leads will stop arriving directly until you connect again.")) break; UI.pg.conn = await api("PUT", "/api/leads/connection/meta", { disconnect: true }); render(); toast("Facebook disconnected"); break; }
       case "pmore": UI.plimit = (UI.plimit || PAGE) + PAGE; render(); break;
       case "rec-edit": { const d = ctx("patient"); d.edit = true; rerender(d); break; }
       case "rec-edit-cancel": { const d = ctx("patient"); d.edit = false; rerender(d); break; }
@@ -2130,6 +2231,12 @@ document.addEventListener("submit", async (e) => {
       await api("POST", `/api/patients/${d.id}/notes`, { body: t.value }); t.value = "";
       d.rec = await api("GET", `/api/patients/${d.id}?background=1`); await load(); toast("Note added"); return;
     }
+    if (e.target.id === "fb-meta") {
+      const v = (id) => ($("#set-" + id) || {}).value || "";
+      const r = await api("PUT", "/api/leads/connection/meta", { pageId: v("pageId"), appSecret: v("appSecret") || undefined, pageToken: v("pageToken") || undefined });
+      UI.pg.conn = r; render(); toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
+      return;
+    }
     if (e.target.id && e.target.id.startsWith("set-")) {
       const v = (id) => ($("#set-" + id) || {}).value;
       const body = {
@@ -2147,7 +2254,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "np-form") {
       const v = (id) => ($("#np-" + id) || {}).value || "", err = $("#np-err");
       try {
-        const r = await api("POST", "/api/patients", { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
+        const r = await api("POST", "/api/patients", { leadId: ((UI.pg || {}).pre || {}).leadId, name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), specs: v("specs"), alerts: v("alerts") });
         UI.pg = null; await load(); go("patients/" + r.patient.id); toast(`${r.patient.name} added. Book their first visit from here.`);
       } catch (x) {
         if (x.offline) throw x;
