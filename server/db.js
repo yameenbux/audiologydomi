@@ -131,7 +131,9 @@ CREATE TABLE IF NOT EXISTS leads (
   id TEXT PRIMARY KEY, created_at TEXT NOT NULL, created_min INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','booked','closed')),
   source TEXT NOT NULL DEFAULT 'facebook', campaign TEXT, name TEXT NOT NULL, phone TEXT, email TEXT, pc TEXT,
-  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id), meta_id TEXT
+  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id), meta_id TEXT,
+  addr TEXT, dob TEXT,                             -- street address and date of birth, when the ad form asks for them
+  pc_from TEXT                                     -- where the postcode came from: 'form', 'address' (found in it), or NULL (none yet)
 );
 CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY AUTOINCREMENT, to_addr TEXT NOT NULL, to_name TEXT, subject TEXT NOT NULL, body TEXT NOT NULL,
@@ -165,6 +167,9 @@ const ADDED_COLUMNS = [
   ["appointments", "source", "TEXT"],
   ["appointments", "reliability", "REAL"],
   ["users", "office", "BIGINT NOT NULL DEFAULT 0"],
+  ["leads", "addr", "TEXT"],
+  ["leads", "dob", "TEXT"],
+  ["leads", "pc_from", "TEXT"],
 ];
 const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
@@ -360,7 +365,7 @@ const map = {
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   pcse: (r) => ({ id: r.id, action: r.action, patientId: r.patient_id, appointmentId: r.appointment_id, day: r.day, start: r.start_min, status: r.status, at: r.created_at, by: r.done_by }),
   referral: (r) => ({ id: r.id, at: r.created_at, status: r.status, fromKind: r.from_kind, fromName: r.from_name, fromPhone: r.from_phone, name: r.name, dob: r.dob, addr: r.addr, pc: r.pc, phone: r.phone, eligibility: r.eligibility, entitlement: J(r.entitlement, []), need: r.need, avail: r.avail, urgent: !!r.urgent, notes: r.notes, patientId: r.patient_id, decidedBy: r.decided_by, declineReason: r.decline_reason }),
-  lead: (r) => ({ id: r.id, at: r.created_at, atMin: r.created_min, status: r.status, source: r.source, campaign: r.campaign, name: r.name, phone: r.phone, email: r.email, pc: r.pc, answers: J(r.answers, []), note: r.note, handledBy: r.handled_by, handledAt: r.handled_at, patientId: r.patient_id }),
+  lead: (r) => ({ id: r.id, at: r.created_at, atMin: r.created_min, status: r.status, source: r.source, campaign: r.campaign, name: r.name, phone: r.phone, email: r.email, pc: r.pc, addr: r.addr || null, dob: r.dob || null, pcFrom: r.pc_from || (r.pc ? "form" : null), answers: J(r.answers, []), note: r.note, handledBy: r.handled_by, handledAt: r.handled_at, patientId: r.patient_id }),
   email: (r) => ({ id: r.id, to: r.to_addr, name: r.to_name, subject: r.subject, body: r.body, kind: r.kind, leadId: r.lead_id, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };

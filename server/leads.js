@@ -16,8 +16,24 @@ const digits = (v) => String(v || "").replace(/\D/g, "").replace(/^44/, "0");
 const phoneOf = (v) => { const d = digits(v); return /^0\d{9,10}$/.test(d) ? d.replace(/^(\d{5})(\d+)$/, "$1 $2") : null; };
 const emailOf = (v) => { const e = clean(v, 120).toLowerCase(); return /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e) ? e : null; };
 
+/**
+ * A date of birth as an ad form sends it: 1942-04-03, or 03/04/1942. Meta's forms can send US order (month first),
+ * so a date that only makes sense one way is read that way; one that fits both is read the UK way. ISO, or null.
+ */
+function dobOf(v) {
+  const t = String(v || "").trim();
+  let y, m, d, x;
+  if ((x = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) [y, m, d] = [+x[1], +x[2], +x[3]];
+  else if ((x = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/))) { const a = +x[1], b = +x[2]; y = +x[3]; [d, m] = b > 12 && a <= 12 ? [b, a] : [a, b]; }
+  else return null;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCMonth() !== m - 1 || y < 1900 || dt.getTime() > Date.now()) return null;
+  return dt.toISOString().slice(0, 10);
+}
+
 // The field names a form may use for the details we file separately. Everything else is kept as a question and answer.
-const KEYS = { name: ["full_name", "name", "fullname"], first: ["first_name"], last: ["last_name"], phone: ["phone_number", "phone", "mobile"], email: ["email", "email_address"], pc: ["post_code", "postcode", "zip_code", "zip", "pc"] };
+const KEYS = { name: ["full_name", "name", "fullname"], first: ["first_name"], last: ["last_name"], phone: ["phone_number", "phone", "mobile"], email: ["email", "email_address"], pc: ["post_code", "postcode", "zip_code", "zip", "pc"],
+  addr: ["street_address", "address", "street", "address_line_1", "full_address"], city: ["city", "town"], dob: ["date_of_birth", "dob", "birthday", "birth_date"] };
 const META_KEYS = ["campaign_name", "campaign", "ad_name", "adset_name", "form_name", "form_id", "ad_id", "leadgen_id", "page_id", "created_time", "platform", "is_organic", "formMs", "website", "test"];
 const label = (k) => { const s = String(k).replace(/[_?]+/g, " ").trim(); return s.charAt(0).toUpperCase() + s.slice(1) + (/^(who|when|what|how|which|why|do|does|is|are|can)\b/i.test(s) ? "?" : ""); };
 
@@ -33,7 +49,11 @@ function normalise(input) {
   const used = new Set([...Object.values(KEYS).flat(), ...META_KEYS.map((k) => k.toLowerCase())]);
   const answers = Object.entries(fields).filter(([k]) => !used.has(k)).slice(0, 12).map(([k, v]) => [clean(label(k), 80), clean(v, 300)]).filter(([, v]) => v);
   const name = clean(pick(KEYS.name) || [pick(KEYS.first), pick(KEYS.last)].filter(Boolean).join(" "), 80);
-  return { name, phone: phoneOf(pick(KEYS.phone)), email: emailOf(pick(KEYS.email)), pc: clean(pick(KEYS.pc), 10).toUpperCase() || null,
+  const addr = clean([pick(KEYS.addr), pick(KEYS.city)].filter(Boolean).join(", "), 160) || null;
+  // No postcode question on the form (Home Visiting Optics' asks for a street address): find one in the address.
+  let pc = clean(pick(KEYS.pc), 10).toUpperCase() || null, pcFrom = pc ? "form" : null;
+  if (!pc && addr) { const m = addr.toUpperCase().match(/\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b/); if (m) { pc = `${m[1]} ${m[2]}`; pcFrom = "address"; } }
+  return { name, phone: phoneOf(pick(KEYS.phone)), email: emailOf(pick(KEYS.email)), pc, pcFrom, addr, dob: dobOf(pick(KEYS.dob)),
     campaign: clean(pick(["ad_name", "campaign_name", "campaign", "form_name"]), 80) || null, answers };
 }
 
@@ -50,8 +70,8 @@ function receive(input, { via = "test form" } = {}) {
     const id = "ld" + Math.random().toString(36).slice(2, 10);
     const match = db.prepare("SELECT id, phone, email FROM patients WHERE erased = 0").all()
       .find((p) => (l.phone && digits(p.phone) === digits(l.phone)) || (l.email && p.email && p.email.toLowerCase() === l.email));
-    db.prepare("INSERT INTO leads (id, created_at, created_min, source, campaign, name, phone, email, pc, answers, patient_id) VALUES (?, ?, ?, 'facebook', ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, sandbox.stamp().slice(0, 5), sandbox.nowMin(), l.campaign, l.name, l.phone, l.email, l.pc, JSON.stringify(l.answers), match ? match.id : null);
+    db.prepare("INSERT INTO leads (id, created_at, created_min, source, campaign, name, phone, email, pc, answers, patient_id, addr, dob, pc_from) VALUES (?, ?, ?, 'facebook', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, sandbox.stamp().slice(0, 5), sandbox.nowMin(), l.campaign, l.name, l.phone, l.email, l.pc, JSON.stringify(l.answers), match ? match.id : null, l.addr, l.dob, l.pcFrom);
     const mail = l.email ? { subject: thanksSubject(), body: thanksBody(l.name) } : null;
     if (mail) sendEmail({ to: l.email, name: l.name, ...mail, kind: "lead.thanks", leadId: id, replyTo: contact().email }); // replies go to the practice
     audit("Ad form", "lead.received", id, l.campaign ? `From the ad "${l.campaign}"` : "From an ad form"); // no personal details in the audit line
@@ -146,4 +166,4 @@ function saveMeta(input, user, base) {
   return { ...connection(base), changed };
 }
 
-module.exports = { sameSecret, metaNotice, connection, newKey, saveMeta, receive, setLeadStatus, leadList, leadEmails, preview, normalise, STATUS };
+module.exports = { dobOf, sameSecret, metaNotice, connection, newKey, saveMeta, receive, setLeadStatus, leadList, leadEmails, preview, normalise, STATUS };

@@ -239,3 +239,29 @@ test("Opticabase: its export imports with the ID, the home-visit reason and the 
   // The ID is unique within the practice.
   assert.strictEqual((await call("PUT", "/api/patients/p5", o.token, { obId: "30111" })).status, 409);
 });
+
+test("Facebook leads: their form's street address and date of birth are kept, and a postcode is found in the address", async () => {
+  const leads = require("../server/leads");
+  assert.strictEqual(leads.dobOf("1942-04-03"), "1942-04-03");
+  assert.strictEqual(leads.dobOf("03/04/1942"), "1942-04-03", "UK order when it fits both");
+  assert.strictEqual(leads.dobOf("12/31/1950"), "1950-12-31", "US order when only that makes sense");
+  assert.strictEqual(leads.dobOf("31/02/1950"), null);
+  // HVO's form: full name, email, phone, street address, date of birth. No postcode question.
+  const a = leads.normalise({ field_data: [
+    { name: "full_name", values: ["Joan Whittle"] }, { name: "email", values: ["joan@example.com"] }, { name: "phone_number", values: ["+447700900401"] },
+    { name: "street_address", values: ["12 Oak Road, Bolton BL1 4AB"] }, { name: "date_of_birth", values: ["1938-03-14"] }] });
+  assert.strictEqual(a.addr, "12 Oak Road, Bolton BL1 4AB");
+  assert.strictEqual(a.pc, "BL1 4AB"); assert.strictEqual(a.pcFrom, "address");
+  assert.strictEqual(a.dob, "1938-03-14");
+  assert.deepStrictEqual(a.answers, [], "nothing left over as a stray question");
+  const b = leads.normalise({ full_name: "Frank Ashworth", phone_number: "07700 900402", street_address: "3 Mill Lane" });
+  assert.strictEqual(b.pc, null); assert.strictEqual(b.pcFrom, null);
+
+  const o = await office();
+  // Through the practice's test ad form (no key needed in the demo).
+  const r = await call("POST", `/api/public/${o.sandbox}/leads`, null, { full_name: "Joan Whittle", phone_number: "07700 900401", email: "joan@example.com", street_address: "12 Weetwood Lane, Leeds LS16 5NX", date_of_birth: "14/03/1938", website: "", formMs: 9000 });
+  assert.ok([200, 201].includes(r.status), JSON.stringify(r.data));
+  const lead = (await call("GET", "/api/state", o.token)).data.leads.find((l) => l.name === "Joan Whittle");
+  assert.strictEqual(lead.addr, "12 Weetwood Lane, Leeds LS16 5NX");
+  assert.strictEqual(lead.pc, "LS16 5NX"); assert.strictEqual(lead.pcFrom, "address"); assert.strictEqual(lead.dob, "1938-03-14");
+});
