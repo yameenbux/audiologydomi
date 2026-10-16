@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS users (
   title TEXT, color TEXT,
   active INTEGER NOT NULL DEFAULT 1                -- 0 = can't sign in (left the practice); kept for the audit trail
 );
+CREATE TABLE IF NOT EXISTS confirmations (       -- confirmation calls (CC1-CC3), one row per call made
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id TEXT NOT NULL REFERENCES appointments(id),
+  stage INTEGER NOT NULL CHECK (stage IN (1,2,3)),
+  outcome TEXT NOT NULL CHECK (outcome IN ('done','no-answer','texted')),
+  by_name TEXT NOT NULL, at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS invites (
   id TEXT PRIMARY KEY,                             -- a hash of the token in the link: the link itself is never stored
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -140,7 +147,7 @@ const USERS = [
   { id: "u-c3", email: "priya@airevalleyeyecare.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Optometrist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
+const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
 function openDb(brand = brands.get(), { empty = false } = {}) {

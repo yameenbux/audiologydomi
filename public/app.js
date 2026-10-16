@@ -500,10 +500,11 @@ function needsYou() {
     { k: "recalls", none: "No recalls due", n: recalls.length, what: recalls.length === 1 ? "recall due" : "recalls due", note: overdue ? `${overdue} overdue` : "Offered cancelled visits nearby", hot: false },
     { k: "pcse", none: "PCSE is up to date", n: pcse.length, what: pcse.length === 1 ? "PCSE notice to lodge" : "PCSE notices to lodge", note: pcse.length ? "48 hours before each NHS test" : "Nothing to lodge", hot: false },
     (() => { const ns = notSeenToday(), todo = ns.filter((x) => !x.back).length; return { k: "notseen", none: ns.length ? `${ns.length} not seen, all rebooked` : "Every visit went ahead", n: todo, what: todo === 1 ? "visit not seen: rebook" : "visits not seen: rebook", note: todo ? "Marked from the clinician's phone" : ns.length ? "Back on the waiting list" : "Nothing missed today", hot: todo > 0 }; })(),
-    { k: "texts", none: tomorrow.length ? "Tomorrow is reminded" : "No visits tomorrow", n: unreminded, what: unreminded === 1 ? "reminder for tomorrow" : "reminders for tomorrow", note: S.settings.reminders ? `Sent at ${hm(S.settings.reminderAt)}` : "Reminders are off", hot: false },
+    (() => { const c = S.calls || { 1: 0, 2: 0, 3: 0 }, n = c[1] + c[2] + c[3]; return { k: "calls", go: "calls", none: "Every call is made", n, what: n === 1 ? "confirmation call" : "confirmation calls", note: n ? [c[3] && `${c[3]} for tomorrow`, c[2] && `${c[2]} this week`, c[1] && `${c[1]} new`].filter(Boolean).join(" · ") : S.settings.reminders ? `${unreminded} reminder text${unreminded === 1 ? "" : "s"} at ${hm(S.settings.reminderAt)}` : "Reminder texts are off", hot: c[3] > 0 }; })(),
   ];
+  void tomorrow;
   return `<section class="needs" aria-label="Needs you today"><div class="needs-h caps">Needs you today</div>
-    <div class="needs-row">${cards.map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}">
+    <div class="needs-row">${cards.map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" ${c.go ? `data-act="go" data-v="${c.go}"` : `data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}"`}>
       <span class="nn">${c.n ? c.n : icon("check")}</span><span class="nw"><b>${c.n ? c.what : c.none}</b><span>${esc(c.note)}</span></span></button>`).join("")}</div></section>`;
 }
 /** How long a new lead has been waiting for a call, on the demo clock. */
@@ -883,7 +884,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -910,6 +911,9 @@ async function syncPage() {
     if (!UI.pg || UI.pg.kind !== "plans") { UI.pg = { kind: "plans", day: UI.view === "week" ? 1 : UI.day, list: null }; setTimeout(() => loadPlans(UI.pg.day), 0); }
   } else if (r.page === "mileage") {
     UI.pg = { kind: "report", data: await api("GET", "/api/reports/week").catch(() => null) };
+  } else if (r.page === "calls") {
+    const keep = UI.pg && UI.pg.kind === "calls" ? UI.pg.stage : null;
+    UI.pg = { kind: "calls", stage: keep, data: await api("GET", "/api/calls").catch(() => null) };
   } else if (r.page === "invoices") {
     UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
   } else if (r.page === "import") {
@@ -942,7 +946,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -952,10 +956,43 @@ function sideNav() {
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
+}
+/* ---------- Confirmation calls (CC1-CC3) ---------- */
+function callsPage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Confirmation calls",
+    lead: "Every visit gets three calls, so the patient is in when the clinician knocks. Ring, then tick it off. No answer keeps it on the list for later. Text instead sends the same words as a text, for patients who'd rather have it in writing." });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const order = [3, 2, 1], stage = g.stage || order.find((k) => d.calls[k].length) || 3;
+  const tabs = `<div class="seg calls-tabs" role="tablist" aria-label="Which calls">${order.map((k) => `<button type="button" role="tab" data-act="calls-stage" data-v="${k}" aria-pressed="${k === stage}"><b>${d.stages[k].code}</b>&nbsp;${esc(d.stages[k].title)}<span class="mono">${d.calls[k].length}</span></button>`).join("")}</div>`;
+  const row = (x) => {
+    const tel = String(x.patient.phone || "").replace(/[^\d+]/g, "");
+    return `<li class="call-row">
+      <div class="cr-who"><a class="nm" href="#/patients/${esc(x.patient.id)}">${esc(x.patient.name)}</a>
+        ${x.patient.phone ? `<a class="mono cr-tel" href="tel:${esc(tel)}">${icon("phone")}${esc(x.patient.phone)}</a>` : `<span class="muted">No phone number</span>`}
+        ${x.patient.rep ? `<span class="muted cr-rep">Family: ${esc(x.patient.rep)}</span>` : ""}
+        ${x.patient.contact === "Call" ? `<span class="badge b-plain">Phone only</span>` : ""}</div>
+      <div class="cr-visit"><span><span class="dot" style="background:${x.clinician.color}"></span>${esc(x.dayLabel)} · ${hm(x.start)} · ${esc(x.clinician.first)}</span>
+        <span class="muted">${esc(T(x.type).name)}</span>
+        ${x.window ? `<span class="badge b-forest">Window ${hm(x.window[0])}–${hm(x.window[1])}</span>` : ""}</div>
+      <div class="cr-say"><span class="caps">Tell them</span><q>${esc(x.say)}</q>
+        ${x.tries ? `<span class="late">No answer ×${x.tries}${x.last ? ` · ${esc(x.last.by)}, ${esc(x.last.at)}` : ""}</span>` : ""}</div>
+      <div class="cr-acts">
+        <button class="btn sm" type="button" data-act="call-rec" data-id="${esc(x.apptId)}" data-s="${x.stage}" data-v="done">${icon("check")}Spoken to</button>
+        <button class="btn secondary sm" type="button" data-act="call-rec" data-id="${esc(x.apptId)}" data-s="${x.stage}" data-v="no-answer">No answer</button>
+        <button class="btn ghost sm" type="button" data-act="call-rec" data-id="${esc(x.apptId)}" data-s="${x.stage}" data-v="texted" ${x.canText ? `title="${esc(x.text)}"` : `disabled title="Asked to be phoned, not texted"`}>${icon("msg")}Text instead</button></div>
+    </li>`;
+  };
+  const list = d.calls[stage];
+  return `<div class="pg">${head}
+    ${tabs}
+    <p class="muted calls-what">${esc(d.stages[stage].code)}: ${esc(d.stages[stage].what)}.${stage === 2 ? " The window comes from the clinician's planned route, so plan routes first for the best times." : stage === 3 ? " A visit called here doesn't also get the automatic reminder text." : ""}</p>
+    ${list.length ? `<ul class="calls">${list.map(row).join("")}</ul>` : `<div class="empty"><b>No ${esc(d.stages[stage].code)} calls to make</b>${stage === 3 ? "Everyone visited on the next working day has been called." : stage === 2 ? "Everyone visited in the next week has their window." : "Every new booking has been told its date."}</div>`}
+  </div>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
 const pageHead = ({ eyebrow, title, lead, actions = "", crumbs = "" }) => `<header class="pg-h">${crumbs}
@@ -2363,6 +2400,14 @@ document.addEventListener("click", async (e) => {
       case "team": go("team"); break;
       case "tm-edit": go(`team/${el.dataset.k}/${el.dataset.id || "new"}`); break;
       case "tm-back": go("team"); break;
+      case "calls-stage": UI.pg.stage = Number(el.dataset.v); render(); break;
+      case "call-rec": {
+        el.disabled = true;
+        await api("POST", `/api/calls/${el.dataset.id}`, { stage: Number(el.dataset.s), outcome: el.dataset.v });
+        UI.pg.data = await api("GET", "/api/calls"); await load(); render();
+        toast(el.dataset.v === "done" ? "Ticked off" : el.dataset.v === "texted" ? "Sent as a text" : "No answer: it stays on the list");
+        break;
+      }
       case "tm-invite": {
         if (el.dataset.reset && !confirm("Reset their sign-in? Their password and authenticator codes stop working now, they're signed out everywhere, and they get a link to set up new ones.")) break;
         el.disabled = true;

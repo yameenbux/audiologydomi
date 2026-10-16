@@ -309,12 +309,13 @@ function sendReminders(day, actor = "system") {
   });
 }
 
-/** Sends tomorrow's reminders once the demo clock passes the practice's reminder time. */
+/** Sends reminders for the next working day (Monday's on a Friday) once the clock passes the reminder time. */
 function sweepReminders() {
   const st = settings(), sb = sandbox.current();
   if (!st.reminders || sandbox.nowMin() < st.reminderAt || sb.remindedDay === 1) return;
   sb.remindedDay = 1;
-  sendReminders(1);
+  const next = cal.openDays(1, 1)[0];
+  if (next != null) sendReminders(next);
 }
 
 /** Offers nobody answered in time pass to the next people. Runs on a timer in every sandbox. */
@@ -1219,6 +1220,7 @@ async function moveAppointment(id, input, user) {
     if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
     const old = getClinician(a.clinicianId);
     run("UPDATE appointments SET clinician_id = ?, day = ?, start_min = ?, drive = ?, reminded = 0, seen = 0 WHERE id = ?", c.id, day, start, slot.driveIn, a.id);
+    if (a.day !== day || a.start_min !== start) run("DELETE FROM confirmations WHERE appointment_id = ?", a.id); // a new time means calling again
     redrive(old.id, a.day); redrive(c.id, day);
     // PCSE's notification is for a date and time: cancel the old one and lodge the new.
     pcseTask("cancel", a, p); pcseTask("lodge", getAppt(a.id), p);

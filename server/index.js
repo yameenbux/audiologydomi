@@ -8,6 +8,7 @@ const crypto = require("node:crypto");
 const sandbox = require("./sandbox");
 const { db, map, TABLES, USERS, emailFor } = require("./db");
 const invites = require("./invites");
+const calls = require("./calls");
 const brands = require("./brands");
 const regions = require("./regions");
 const D = require("./domain");
@@ -288,6 +289,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
     cal: require("./calendar").view(sb), // dates, weekends, bank holidays and booking limits for the diary
     types: Object.fromEntries(Object.entries(D.TYPES).map(([k, t]) => [k, { ...t }])), // this practice's own visit lengths, read now
+    calls: isAdmin ? (({ calls: c }) => ({ 1: c[1].length, 2: c[2].length, 3: c[3].length }))(calls.list()) : null, // confirmation calls due today, by stage
     metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
@@ -516,7 +518,10 @@ route("GET", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); cons
 route("POST", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); return svc.applyRoute(body.clinicianId, Number(body.day || 0), user); });
 
 // Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
-route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(1, user.name); });
+route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(require("./calendar").openDays(1, 1)[0], user.name); });
+// Confirmation calls (CC1-CC3): today's list, and recording each one.
+route("GET", "/api/calls", {}, (req, body, user) => { needAdmin(user); return calls.list(); });
+route("POST", "/api/calls/:id", {}, (req, body, user, { id }) => { needAdmin(user); return calls.record(id, body.stage, body.outcome, user); });
 
 route("POST", "/api/messages/read", {}, (req, body, user) => {
   if (user.clinicianId) db.prepare("UPDATE messages SET read = 1 WHERE to_clinician_id = ?").run(user.clinicianId);
