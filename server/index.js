@@ -105,7 +105,7 @@ function clinicianCanSee(user, patientId) {
 
 // `?brand=` styles the sign-in screen before a demo exists; afterwards the demo's own brand comes with /api/state.
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
-  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, days: D.DAYS, smsProvider: provider, routing: travel.routingStatus().provider,
+  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
@@ -285,6 +285,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const sb = sandbox.current();
   return {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
+    cal: require("./calendar").view(sb), // dates, weekends, bank holidays and booking limits for the diary
     metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
@@ -654,6 +655,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 const sweeper = setInterval(() => {
+  for (const sb of sandbox.all()) if (sb.live) { try { require("./live").roll(sb); } catch (e) { console.error("calendar roll failed", sb.id, e); } }
   for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); svc.sweepRecalls(); } catch (e) { console.error("sweep failed", sb.id, e); } });
   sandbox.settle().catch(() => {}); // live practices: save anything the sweeps or late text receipts changed
 }, 5000);

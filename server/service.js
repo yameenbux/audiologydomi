@@ -3,7 +3,8 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, PVN_NOTICE_MIN, REASONS, hm, first, dayPhrase, district, DAYS, DAY_NAMES } = require("./domain");
+const { TYPES, PVN_NOTICE_MIN, REASONS, hm, first, district } = require("./domain");
+const cal = require("./calendar");
 const { rankCandidates, parseReply, planOffer, suggestSlots, hoursOn } = require("./refill");
 const travel = require("./travel");
 const { sendSms, recordInbound } = require("./notify");
@@ -31,7 +32,15 @@ const dayAppts = (cid, day = 0) => all("SELECT * FROM appointments WHERE clinici
 /** "today at 11:00", "tomorrow at 11:00", "on Wednesday 14 Oct at 11:00" */
 /** A visit type inside a sentence: "your private eye examination", but "your NHS sight test". */
 const lowerName = (n) => (/^[A-Z]{2}/.test(n) ? n : n.charAt(0).toLowerCase() + n.slice(1));
-const when = (day, start) => `${dayPhrase(day)} at ${hm(start)}`;
+const when = (day, start) => `${cal.phrase(day)} at ${hm(start)}`;
+/** A day the office may book into: open, from today up to the booking limit (Settings, default 12 months). */
+function bookableDay(day) {
+  const max = cal.ahead("bookAheadDays");
+  if (!(Number.isInteger(day) && day >= 0 && day <= max)) throw new HttpError(400, `Choose a day from today up to ${Math.round(max / 30.4)} months ahead.`);
+  const why = cal.closedWhy(day);
+  if (why) throw new HttpError(400, `The practice is closed on ${cal.label(day)} (${why}).`);
+  return day;
+}
 /** The day-before reminder. Also shown on the Settings page, so the office sees exactly what patients get. */
 const reminderText = (name, clinFirst, day, start, type, link) =>
   `Hi ${first(name)}, a reminder from ${practice()}: ${clinFirst} visits you ${when(day, start)} for your ${lowerName(TYPES[type].name)}. Can't make it? Reply CANCEL${link ? ` or cancel online at ${link}` : ""} and we'll offer the time to someone waiting.`;
@@ -78,7 +87,7 @@ function rank(slot, declined) {
   const clinician = getClinician(slot.clinicianId);
   const waitlist = all("SELECT * FROM waitlist WHERE status = 'waiting'").map(map.wait);
   const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => [r.id, map.patient(r)]));
-  const leadMin = slot.day * 1440 + slot.start - sandbox.nowMin();
+  const leadMin = cal.workMinutesUntil(slot.day, slot.start, sandbox.nowMin()); // PCSE's 48 hours are working hours
   return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0, leadMin }) };
 }
 
@@ -91,7 +100,7 @@ function rank(slot, declined) {
 function pcseTask(action, appt, patient) {
   if (!TYPES[appt.type].pvn) return;
   run("INSERT INTO pcse (action, patient_id, appointment_id, day, start_min, created_at) VALUES (?, ?, ?, ?, ?, ?)", action, patient.id, appt.id, appt.day, appt.start, sandbox.stamp());
-  audit("system", "pcse." + action, appt.id, `${patient.name}, ${DAYS[appt.day]} ${hm(appt.start)}`);
+  audit("system", "pcse." + action, appt.id, `${patient.name}, ${cal.label(appt.day)} ${hm(appt.start)}`);
 }
 
 /** The office's PCSE to-do list, oldest first, with the latest time each notification can be lodged. */
@@ -99,8 +108,8 @@ function pcseList() {
   return all("SELECT x.*, p.name FROM pcse x JOIN patients p ON p.id = x.patient_id WHERE x.created_at != '' ORDER BY x.status = 'done', x.id").map((r) => { // '' = notified before Domi
     const t = { ...map.pcse(r), name: r.name };
     if (t.action === "lodge") {
-      const by = t.day * 1440 + t.start - PVN_NOTICE_MIN; // demo-clock minutes since Monday 00:00
-      t.lodgeBy = `${DAYS[Math.floor(by / 1440)] || "Before today"} ${hm(((by % 1440) + 1440) % 1440)}`;
+      const by = cal.lodgeBy(t.day, t.start, PVN_NOTICE_MIN); // 48 working hours before the visit
+      t.lodgeBy = `${by.day < 0 ? "Before today" : cal.label(by.day)} ${hm(Math.min(by.min, 1439))}`;
     }
     return t;
   });
@@ -138,7 +147,7 @@ function cancelAppointment(id, reason, actor, { byText = false, byLink = false }
     textPatient(p, { kind: "cancellation", body: byText || byLink
       ? `Thanks ${first(p.name)}, we've cancelled your visit ${when(a.day, a.start)}. We'll be in touch to rebook. ${practice()}`
       : `Hi ${first(p.name)}, your visit ${when(a.day, a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${practice()}` });
-    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `${p.name} (${a.day === 0 ? "" : DAYS[a.day] + " "}${hm(a.start)}) has cancelled${byText ? " by text" : byLink ? " online" : ""}. We're refilling the slot and will update you.` });
+    sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `${p.name} (${a.day === 0 ? "" : cal.label(a.day) + " "}${hm(a.start)}) has cancelled${byText ? " by text" : byLink ? " online" : ""}. ${a.day > cal.ahead("offerAheadDays") ? "The time is open for booking again." : "We're refilling the slot and will update you."}` });
     const result = offerNext(id, actor, { first: true });
     const evt = { ...result, cancelled: { patient: p.name, reason, byText, byLink } };
     bus.emit({ type: "refill.started", ...evt });
@@ -152,6 +161,13 @@ function cancelAppointment(id, reason, actor, { byText = false, byLink = false }
  */
 function offerNext(slotId, actor, { first: isFirst = false } = {}) {
   const slot = getAppt(slotId);
+  // Far-off gaps aren't texted round: they stay open for normal booking (Settings, default 14 days).
+  if (slot.day > cal.ahead("offerAheadDays")) {
+    const why = `More than ${cal.ahead("offerAheadDays")} days away, so it's left open for normal booking`;
+    run("UPDATE appointments SET gap = 1 WHERE id = ?", slotId);
+    audit(actor, "slot.unfilled", slotId, `${cal.label(slot.day)} ${hm(slot.start)}: ${why}`);
+    return { outcome: "unfilled", why, slotId, clinicianId: slot.clinicianId, day: slot.day, start: slot.start, candidates: [], plan: { mode: "none" } };
+  }
   const { clinician, window, candidates } = rank(slot, declinedFor(slotId));
   const eligible = candidates.filter((c) => c.ok && !c.byPhone); // phone-only patients are rung by the office, never texted
   const ringable = candidates.filter((c) => c.ok && c.byPhone);
@@ -221,12 +237,12 @@ function book(slot, waitlistId, offerId, actor, how = offerId ? "offer" : "insta
     const other = getPatient(map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
     sendSms({ to: other.phone, name: other.name, kind: "offer-taken", body: `Sorry ${first(other.name)}, the visit ${when(slot.day, slot.start)} has just been taken. You keep your place on our list. ${practice()}` });
   }
-  addNote(p.id, `Moved forward from waiting list to ${DAYS[slot.day]} ${hm(slot.start)} with ${c.name}.`, { name: "Office" }, { silent: true });
+  addNote(p.id, `Moved forward from waiting list to ${cal.label(slot.day)} ${hm(slot.start)} with ${c.name}.`, { name: "Office" }, { silent: true });
   const patientBody = how === "instant"
     ? `Good news ${first(p.name)}: thanks to a cancellation, your home visit has moved forward to ${when(slot.day, slot.start).replace(/^today/, "TODAY")} with ${c.first}. Reply NO if you can't make it and we'll keep your place. ${practice()}`
     : `Thank you ${first(p.name)}, you're booked ${when(slot.day, slot.start)} with ${c.first}. We'll text when ${c.first} is on the way. ${practice()}`;
   textPatient(p, { kind: "confirmation", body: patientBody });
-  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Diary update: your ${slot.day === 0 ? "" : DAYS[slot.day] + " "}${hm(slot.start)} (${old.name}) cancelled. Now seeing ${p.name}, ${lowerName(t.name)}, ${p.addr} ${p.pc}. Record is in the app.` });
+  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Diary update: your ${slot.day === 0 ? "" : cal.label(slot.day) + " "}${hm(slot.start)} (${old.name}) cancelled. Now seeing ${p.name}, ${lowerName(t.name)}, ${p.addr} ${p.pc}. Record is in the app.` });
   audit(actor, "slot.filled", id, `${p.name} moved forward to ${hm(slot.start)} with ${c.name}${how === "office" ? " (booked by phone)" : ""}`);
   const booking = { appointmentId: id, patient: p.name, clinician: c.name, day: slot.day, start: slot.start, instant: how === "instant", byOffice: how === "office" };
   bus.emit({ type: "slot.filled", clinicianId: c.id, slotId: slot.id, ...booking });
@@ -286,7 +302,7 @@ function sendReminders(day, actor = "system") {
       run("UPDATE appointments SET reminded = 1 WHERE id = ?", a.id);
     }
     if (due.length) {
-      audit(actor, "reminders.sent", `day:${day}`, `${due.length} reminder${due.length === 1 ? "" : "s"} for ${DAYS[day]}`);
+      audit(actor, "reminders.sent", `day:${day}`, `${due.length} reminder${due.length === 1 ? "" : "s"} for ${cal.label(day)}`);
       bus.emit({ type: "reminders.sent", day, count: due.length });
     }
     return { day, sent: due.length };
@@ -326,7 +342,7 @@ function setStatus(id, status, user) {
     const a = getAppt(id);
     if (!a) throw new HttpError(404, "That visit no longer exists.");
     if (user.role === "clinician" && a.clinicianId !== user.clinicianId) throw new HttpError(403, "This visit is on another clinician's round.");
-    if (a.day !== 0) throw new HttpError(409, `That visit is on ${DAYS[a.day]}, not today.`);
+    if (a.day !== 0) throw new HttpError(409, `That visit is on ${cal.label(a.day)}, not today.`);
     const flow = { booked: ["enroute"], enroute: ["live"], live: ["done"] };
     if (!(flow[a.status] || []).includes(status)) throw new HttpError(409, `A visit that is ${a.status} can't move to ${status}.`);
     run("UPDATE appointments SET status = ?, seen = 1 WHERE id = ?", status, id);
@@ -381,7 +397,7 @@ function addToWaitlist(input, user) {
 async function routeFor(cid, day, insert, { withPath = true } = {}) {
   const c = getClinician(String(cid || ""));
   if (!c) throw new HttpError(404, "No such clinician.");
-  if (!(day >= 0 && day < DAYS.length)) throw new HttpError(400, "Choose a day this week.");
+  if (!(Number.isInteger(day) && day >= -14 && day <= cal.ahead("bookAheadDays"))) throw new HttpError(400, "Choose a day in the diary.");
   let stops = all("SELECT a.*, p.name, p.pc, p.addr FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", c.id, day)
     .map((r) => ({ id: r.id, name: r.name, pc: r.pc, addr: r.addr, type: r.type, start: r.start_min, end: r.start_min + TYPES[r.type].dur, status: r.status, moved: !!r.moved }));
   if (insert) {
@@ -414,14 +430,14 @@ async function routeFor(cid, day, insert, { withPath = true } = {}) {
 async function planRoute(cid, day) {
   const c = getClinician(String(cid || ""));
   if (!c) throw new HttpError(404, "No such clinician.");
-  if (!(day >= 0 && day < DAYS.length)) throw new HttpError(400, "Choose a day this week.");
+  bookableDay(day);
   const visits = all("SELECT a.*, p.name, p.pc FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", c.id, day)
     .map((r) => ({ id: r.id, name: r.name, pc: r.pc, dur: TYPES[r.type].dur, start: r.start_min, status: r.status, type: r.type }));
   await travel.prepare([c.base, ...visits.map((v) => v.pc)]);
   const drive = (a, b) => (a === b ? 0 : travel.driveMinutes(a, b) || 15);
   const [dayStart, dayEnd] = hoursOn(c, day) || [settings().dayStart, settings().dayEnd];
   const plan = planner.planDay({ base: c.base, visits, drive, miles: travel.miles, now: day === 0 ? sandbox.nowMin() : null, dayStart, dayEnd });
-  return { clinicianId: c.id, clinician: c.name, first: c.first, day, dayLabel: DAYS[day], ...plan };
+  return { clinicianId: c.id, clinician: c.name, first: c.first, day, dayLabel: cal.label(day), ...plan };
 }
 
 /** Put a planned route into the diary, and text each patient whose time has changed. */
@@ -438,10 +454,10 @@ async function applyRoute(cid, day, user) {
       run("UPDATE appointments SET start_min = ?, drive = ? WHERE id = ?", p.start, p.drive || 0, p.id);
       if (!p.moved) continue;
       const a = getAppt(p.id), pt = getPatient(a.patientId);
-      sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. To fit our round, your home visit ${dayPhrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit and we'll rearrange.` });
+      sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. To fit our round, your home visit ${cal.phrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit and we'll rearrange.` });
     }
-    sendSms({ to: "clinician", name: plan.clinician, kind: "diary-change", toClinicianId: plan.clinicianId, body: `Your route ${dayPhrase(day)} has been re-planned: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved, about ${plan.savedMin} min less driving. The new order is in the app.` });
-    audit(user.name, "route.planned", `${plan.clinicianId}:${day}`, `${plan.clinician} ${DAYS[day]}: ${plan.changed} moved, ${plan.savedMin} min and ${plan.savedMiles} miles saved`);
+    sendSms({ to: "clinician", name: plan.clinician, kind: "diary-change", toClinicianId: plan.clinicianId, body: `Your route ${cal.phrase(day)} has been re-planned: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved, about ${plan.savedMin} min less driving. The new order is in the app.` });
+    audit(user.name, "route.planned", `${plan.clinicianId}:${day}`, `${plan.clinician} ${cal.label(day)}: ${plan.changed} moved, ${plan.savedMin} min and ${plan.savedMiles} miles saved`);
     bus.emit({ type: "route.planned", clinicianId: plan.clinicianId, day, savedMin: plan.savedMin });
     return { ...plan, applied: true };
   });
@@ -456,7 +472,7 @@ function raiseInvoice(a, user) {
   if (price <= 0 || one("SELECT 1 FROM invoices WHERE appointment_id = ?", a.id)) return null;
   const n = one("SELECT COUNT(*) AS n FROM invoices").n + 1;
   const id = newId("i"), number = "INV-" + String(n).padStart(4, "0");
-  const items = [{ desc: `${TYPES[a.type].name}, home visit ${DAYS[a.day]} ${hm(a.start)}`, pence: price * 100 }];
+  const items = [{ desc: `${TYPES[a.type].name}, home visit ${cal.label(a.day)} ${hm(a.start)}`, pence: price * 100 }];
   run("INSERT INTO invoices (id, number, appointment_id, patient_id, items, total_pence, issued_at, issued_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     id, number, a.id, a.patientId, JSON.stringify(items), price * 100, sandbox.stamp(), a.day);
   audit(user.name, "invoice.raise", id, `${number} ${getPatient(a.patientId).name} £${price}`);
@@ -503,11 +519,11 @@ async function weekReport() {
   const rows = [];
   for (const c of clinicians) {
     const days = [];
-    for (let d = 0; d < DAYS.length; d++) {
+    for (const d of cal.thisWeek()) {
       const r = await routeFor(c.id, d, null, { withPath: false });
       const booked = r.stops.reduce((t, s) => t + (s.end - s.start), 0);
       const h = hoursOn(c, d), working = h ? h[1] - h[0] : 0;
-      days.push({ day: d, dayLabel: DAYS[d], visits: r.totals.visits, bookedMin: booked, workingMin: working, utilisation: working ? Math.round((booked / working) * 100) : 0,
+      days.push({ day: d, dayLabel: cal.label(d), visits: r.totals.visits, bookedMin: booked, workingMin: working, utilisation: working ? Math.round((booked / working) * 100) : 0,
         driveMin: r.totals.driveMin, miles: r.totals.miles, mileagePence: Math.round(r.totals.miles * HMRC_PENCE_PER_MILE) });
     }
     const sum = (k) => days.reduce((t, x) => t + x[k], 0);
@@ -605,13 +621,15 @@ function bookingPatient(input) {
 }
 
 /** Where a visit could go this week. `exclude`: a visit being moved, so its current time counts as free. */
-function slotsFor(patient, type, avail, { exclude = null } = {}) {
+function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, max = cal.ahead("bookAheadDays") } = {}) {
   if (!TYPES[type]) throw new HttpError(400, "Choose a visit type.");
   const clinicians = all("SELECT * FROM clinicians WHERE active = 1 ORDER BY id").map(map.clinician);
   const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.id IS NOT ?`, exclude)
     .map((r) => ({ ...map.appt(r), pc: r.pc, name: r.name }));
   const wait = patient.id && one("SELECT prio FROM waitlist WHERE patient_id = ? AND status = 'waiting'", patient.id);
-  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
+  // `count` open days from `from`: today onwards by default, or the week the office picked.
+  const days = cal.openDays(from, count, max);
+  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
 }
 
 /**
@@ -625,12 +643,21 @@ async function warmRoutes(input) {
   await travel.prepare([p ? p.pc : travel.normalise(input.pc), ...stops, ...bases]);
 }
 
+/** Where a search starts: `date` (YYYY-MM-DD) or `from` (a day number), never before today or past the limit. */
+function searchFrom(input, max = cal.ahead("bookAheadDays"), min = 0) {
+  const d = input.date ? cal.dayOf(input.date) : Number(input.from || 0);
+  if (!Number.isFinite(d)) return min;
+  if (d > max) throw new HttpError(400, `Bookings can be made up to ${Math.round(max / 30.4) >= 2 ? Math.round(max / 30.4) + " months" : max + " days"} ahead.`);
+  return Math.max(min, Math.round(d));
+}
+
 /** Ranked options for the booking screen. */
 async function findSlots(input) {
   await warmRoutes(input);
   const patient = bookingPatient(input);
-  const slots = slotsFor(patient, input.type, input.avail).slice(0, 6);
-  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, slots };
+  const from = searchFrom(input);
+  const slots = slotsFor(patient, input.type, input.avail, { from }).slice(0, 6);
+  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, from, fromLabel: cal.label(from), slots };
 }
 
 /** Book a visit into a slot. The slot is re-checked here, so two people can't book the same gap. */
@@ -640,8 +667,8 @@ async function bookVisit(input, user) {
     const draft = bookingPatient(input);
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
-    const start = Number(input.start), day = Number(input.day || 0);
-    const slot = slotsFor(draft, input.type, input.avail).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
+    const start = Number(input.start), day = bookableDay(Number(input.day || 0));
+    const slot = slotsFor(draft, input.type, input.avail, { from: day, count: 1 }).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
     if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
     return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office" });
   });
@@ -666,12 +693,12 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
   pcseTask("lodge", getAppt(id), p);
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
   run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
-  addNote(p.id, `Booked by ${by} for ${DAYS[day]} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
+  addNote(p.id, `Booked by ${by} for ${cal.label(day)} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
   sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${practice()} is booked ${when(day, start)} (${lowerName(t.name)}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
-  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit${by === "the office" ? "" : " (booked online)"}: ${p.name}, ${lowerName(t.name)}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
-  audit(actor, "appointment.book", id, `${p.name} ${DAYS[day]} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
+  sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit${by === "the office" ? "" : " (booked online)"}: ${p.name}, ${lowerName(t.name)}, ${cal.label(day)} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
+  audit(actor, "appointment.book", id, `${p.name} ${cal.label(day)} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
   bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, day, start, extraDrive: slot.extraDrive, online: by !== "the office" });
-  return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, label: slot.label, dayLabel: DAYS[day], extraDrive: slot.extraDrive };
+  return { appointmentId: id, patientId: p.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, label: slot.label, dayLabel: cal.label(day), extraDrive: slot.extraDrive };
 }
 
 /* ---------- Importing patients from a spreadsheet ---------- */
@@ -772,7 +799,7 @@ function acceptReferral(id, input, user) {
     const dup = all("SELECT id, name FROM patients").find((p) => p.name.toLowerCase() === r.name.toLowerCase() && one("SELECT 1 FROM patients WHERE id = ? AND replace(pc, ' ', '') = ?", p.id, r.pc.replace(/\s/g, "")));
     if (dup && !input.anyway) throw new HttpError(409, `${dup.name} at ${r.pc} is already on Domi. Open their record instead, or accept anyway.`);
     const pid = newId("p");
-    const age = r.dob ? Math.floor((Date.UTC(2026, 9, 12) - Date.parse(r.dob)) / (365.25 * 864e5)) : null;
+    const age = r.dob ? Math.floor((cal.todayMs() - Date.parse(r.dob)) / (365.25 * 864e5)) : null;
     const mobile = r.phone && /^07/.test(r.phone);
     const rep = r.fromKind === "self" ? null : [r.fromName, r.fromPhone].filter(Boolean).join(", ");
     run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, dob, eligibility, rep) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -820,13 +847,19 @@ function publicSlotList(input) {
   if (!travel.known(pc)) throw new HttpError(400, "We couldn't find that postcode. Please check it, or call us and we'll book for you.");
   const avail = ["am", "pm"].includes(input.avail) ? input.avail : "any";
   const clinicians = Object.fromEntries(all("SELECT id, first FROM clinicians").map((r) => [r.id, r.first]));
-  return slotsFor({ id: null, pc }, type, avail).filter((s) => s.day >= 1 && s.extraDrive <= ONLINE_MAX_EXTRA).slice(0, 4)
-    .map((s) => ({ ref: `${s.clinicianId}.${s.day}.${s.start}`, clinicianId: s.clinicianId, day: s.day, start: s.start, dayLabel: DAYS[s.day], time: s.label, clinician: clinicians[s.clinicianId], slot: s }));
+  // From tomorrow, up to the online limit (Settings, default 6 weeks). `from` pages on to later dates.
+  const max = cal.ahead("onlineAheadDays"), from = searchFrom(input, max, 1);
+  return slotsFor({ id: null, pc }, type, avail, { from, count: 10, max }).filter((s) => s.day >= 1 && s.extraDrive <= ONLINE_MAX_EXTRA).slice(0, 4)
+    .map((s) => ({ ref: `${s.clinicianId}.${s.day}.${s.start}`, clinicianId: s.clinicianId, day: s.day, start: s.start, dayLabel: cal.label(s.day), time: s.label, clinician: clinicians[s.clinicianId], slot: s }));
 }
 
 async function publicFindSlots(input) {
   await warmRoutes({ pc: input.pc });
-  return { slots: publicSlotList(input).map(({ slot, ...rest }) => rest) };
+  const slots = publicSlotList(input).map(({ slot, ...rest }) => rest);
+  // The days searched, so the page can offer "later dates": the next window starts the day after.
+  const max = cal.ahead("onlineAheadDays"), days = cal.openDays(searchFrom(input, max, 1), 10, max);
+  const last = days.length ? days[days.length - 1] : max, next = cal.openDays(last + 1, 1, max)[0];
+  return { slots, from: days[0] || null, fromLabel: days.length ? cal.longLabel(days[0]) : null, untilLabel: days.length ? cal.longLabel(last) : null, next: next == null ? null : next };
 }
 
 async function publicBook(input) {
@@ -921,7 +954,7 @@ async function createPatient(input, user) {
   await travel.prepare([p.pc]);
   return tx(() => {
     const id = newId("p");
-    const age = p.dob ? Math.floor((Date.UTC(2026, 9, 12) - Date.parse(p.dob)) / (365.25 * 864e5)) : null;
+    const age = p.dob ? Math.floor((cal.todayMs() - Date.parse(p.dob)) / (365.25 * 864e5)) : null;
     run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, poa, share) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       id, p.name, age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts || []), p.specs || "None on record", p.dob || null, p.email || null, p.eligibility || null, p.rep || null, p.poa || null, p.share || null);
     const lead = input.leadId ? one("SELECT id FROM leads WHERE id = ? AND patient_id IS NULL", String(input.leadId)) : null;
@@ -948,7 +981,7 @@ async function updatePatient(id, input, user) {
   return tx(() => {
     const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts" };
     for (const k of changed) run(`UPDATE patients SET ${cols[k]} = ? WHERE id = ?`, k === "alerts" ? JSON.stringify(next[k]) : next[k], before.id);
-    if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((Date.UTC(2026, 9, 12) - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
+    if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((cal.todayMs() - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
     const labels = changed.map((k) => PATIENT_LABELS[k]);
     const moved = changed.includes("addr") || changed.includes("pc");
     if (moved) {
@@ -957,7 +990,7 @@ async function updatePatient(id, input, user) {
       for (const a of upcoming(before.id)) {
         rounds.add(a.clinicianId + ":" + a.day);
         const c = getClinician(a.clinicianId), p = getPatient(before.id);
-        sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Address change for ${p.name} (${DAYS[a.day]} ${hm(a.start)}): now ${p.addr}, ${p.pc}.` });
+        sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `Address change for ${p.name} (${cal.label(a.day)} ${hm(a.start)}): now ${p.addr}, ${p.pc}.` });
       }
       for (const r of rounds) { const [cid, day] = r.split(":"); redrive(cid, Number(day)); }
     }
@@ -970,7 +1003,8 @@ async function updatePatient(id, input, user) {
 
 /* ---------- Settings: the practice's own details and rules, which the rest of Domi reads ---------- */
 const SETTING_LABELS = { practice: "practice name", phone: "phone number", email: "email", logo: "logo", officeHours: "office hours", dayStart: "opening time", dayEnd: "closing time",
-  prices: "prices", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit" };
+  prices: "prices", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
+  bookAheadDays: "how far ahead the office can book", onlineAheadDays: "how far ahead patients can book online", offerAheadDays: "how far ahead gaps are offered", closures: "closure days" };
 const plain = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 
 /**
@@ -1002,7 +1036,7 @@ function saveSettings(input, user) {
     if (outside.length) {
       const { c, d } = outside[0], h = c.hours[d];
       const others = outside.length - 1;
-      throw new HttpError(409, `${c.name} works ${hm(h[0])}–${hm(h[1])} on ${DAY_NAMES[d]}s, outside ${hm(s)}–${hm(e)}${others ? ` (as ${others === 1 ? "does 1 other clinician" : `do ${others} other clinicians`})` : ""}. Change their hours on the Team page first.`);
+      throw new HttpError(409, `${c.name} works ${hm(h[0])}–${hm(h[1])} on ${cal.WEEKDAYS[d]}s, outside ${hm(s)}–${hm(e)}${others ? ` (as ${others === 1 ? "does 1 other clinician" : `do ${others} other clinicians`})` : ""}. Change their hours on the Team page first.`);
     }
     next.dayStart = s; next.dayEnd = e;
   }
@@ -1026,6 +1060,26 @@ function saveSettings(input, user) {
   if (has("mode")) { if (!["offer", "instant"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
   if (has("offerMinutes")) { const n = Number(input.offerMinutes); if (!(Number.isInteger(n) && n >= 1 && n <= 240)) throw new HttpError(400, "The reply window must be between 1 and 240 minutes."); next.offerMinutes = n; }
   if (has("autoRecalls")) { if (typeof input.autoRecalls !== "boolean") throw new HttpError(400, "Turn automatic recall texts on or off."); next.autoRecalls = input.autoRecalls; }
+  // How far ahead bookings can go, in days: the office (up to 2 years), patients online, and gaps offered by text.
+  const span = (k, min, maxd, what) => { if (!has(k)) return; const n = Number(input[k]); if (!(Number.isInteger(n) && n >= min && n <= maxd)) throw new HttpError(400, `${what} must be between ${min} and ${maxd} days.`); next[k] = n; };
+  span("bookAheadDays", 28, 730, "How far ahead the office can book");
+  span("onlineAheadDays", 7, 180, "How far ahead patients can book online");
+  span("offerAheadDays", 1, 60, "How far ahead cancelled visits are offered");
+  if ((next.onlineAheadDays || st.onlineAheadDays) > (next.bookAheadDays || st.bookAheadDays)) throw new HttpError(400, "Patients can't book further ahead than the office.");
+  if (has("closures")) {
+    // Days the practice is shut besides weekends and bank holidays: training, the Christmas week. [{date, reason}]
+    if (!Array.isArray(input.closures) || input.closures.length > 60) throw new HttpError(400, "Closure days must be a list of up to 60 dates.");
+    const seen = new Set();
+    next.closures = input.closures.map((c) => {
+      const date = String((c && c.date) || c || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new HttpError(400, "Enter closure dates like 2026-12-24.");
+      if (seen.has(date)) throw new HttpError(400, `${date} is in the list twice.`);
+      seen.add(date);
+      return { date, reason: plain((c && c.reason) || "Practice closed", 60) || "Practice closed" };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+    const hit = next.closures.map((c) => ({ c, d: cal.dayOf(c.date) })).filter((x) => x.d >= 0).map((x) => ({ ...x, n: one("SELECT COUNT(*) AS n FROM appointments WHERE day = ? AND status IN ('booked','enroute')", x.d).n })).find((x) => x.n);
+    if (hit) throw new HttpError(409, `${hit.n} visit${hit.n === 1 ? " is" : "s are"} booked on ${cal.label(hit.d)}. Move ${hit.n === 1 ? "it" : "them"} before closing that day.`);
+  }
   if (has("recallAt")) { const n = Number(input.recallAt); if (!(n % 15 === 0 && n >= 8 * 60 && n <= 18 * 60)) throw new HttpError(400, "Recall texts go out between 08:00 and 18:00, on the quarter hour."); next.recallAt = n; }
   if (has("reminders")) { if (typeof input.reminders !== "boolean") throw new HttpError(400, "Turn reminders on or off."); next.reminders = input.reminders; }
   if (has("reminderAt")) { const n = Number(input.reminderAt); if (!(n % 15 === 0 && n >= 8 * 60 && n <= 21 * 60)) throw new HttpError(400, "Reminders go out between 08:00 and 21:00, on the quarter hour."); next.reminderAt = n; }
@@ -1061,11 +1115,11 @@ function exportPatient(id, user) {
   if (!p) throw new HttpError(404, "Patient not found.");
   return tx(() => {
     const visits = all("SELECT a.*, c.name AS clinician FROM appointments a JOIN clinicians c ON c.id = a.clinician_id WHERE a.patient_id = ? ORDER BY a.day, a.start_min", p.id)
-      .map((r) => ({ day: DAYS[r.day], time: hm(r.start_min), type: TYPES[r.type].name, clinician: r.clinician, status: r.status, reason: r.reason || undefined }));
+      .map((r) => ({ day: cal.label(r.day), time: hm(r.start_min), type: TYPES[r.type].name, clinician: r.clinician, status: r.status, reason: r.reason || undefined }));
     const texts = all("SELECT * FROM messages WHERE phone IS NOT NULL ORDER BY id").filter((m) => p.phone && sameDigits(m.phone, p.phone))
       .map((m) => ({ at: m.created_at, direction: m.direction === "in" ? "from the patient" : "to the patient", body: m.body }));
     const out = {
-      exported: { at: `${DAYS[0]} ${sandbox.stamp()}`, by: user.name, practice: practice(), note: "Everything this practice holds about the patient in Domi." },
+      exported: { at: `${cal.label(0)} ${sandbox.stamp()}`, by: user.name, practice: practice(), note: "Everything this practice holds about the patient in Domi." },
       patient: { name: p.name, dateOfBirth: p.dob, age: p.age, address: p.addr, postcode: p.pc, phone: p.phone, contact: p.contact, email: p.email,
         reasonForHomeVisit: p.eligibility, nextOfKin: p.rep, powerOfAttorney: p.poa, mayTalkToFamily: p.share, glasses: p.specs, lastSightTest: p.lastTest, prescription: p.rx, visitNotes: p.alerts },
       notes: all("SELECT * FROM notes WHERE patient_id = ? ORDER BY id", p.id).map((n) => ({ when: n.label, by: n.author || undefined, note: n.body })),
@@ -1127,9 +1181,10 @@ function movable(id) {
 async function moveOptions(id, input) {
   const a = movable(id), p = getPatient(a.patientId);
   await warmRoutes({ patientId: p.id });
-  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id })
+  const from = searchFrom(input);
+  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id, from })
     .filter((s) => !(s.clinicianId === a.clinicianId && s.day === a.day && s.start === a.start)).slice(0, 6);
-  return { appointmentId: a.id, patient: { id: p.id, name: p.name, pc: p.pc }, type: a.type, from: { clinicianId: a.clinicianId, day: a.day, start: a.start }, slots };
+  return { appointmentId: a.id, patient: { id: p.id, name: p.name, pc: p.pc }, type: a.type, from: { clinicianId: a.clinicianId, day: a.day, start: a.start }, searchFrom: from, fromLabel: cal.label(from), slots };
 }
 async function moveAppointment(id, input, user) {
   const pre = movable(id);
@@ -1138,25 +1193,25 @@ async function moveAppointment(id, input, user) {
     const a = movable(id), p = getPatient(a.patientId), t = TYPES[a.type];
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
-    const day = Number(input.day), start = Number(input.start);
-    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
+    const day = bookableDay(Number(input.day)), start = Number(input.start);
+    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1 }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
     if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
     const old = getClinician(a.clinicianId);
     run("UPDATE appointments SET clinician_id = ?, day = ?, start_min = ?, drive = ?, reminded = 0, seen = 0 WHERE id = ?", c.id, day, start, slot.driveIn, a.id);
     redrive(old.id, a.day); redrive(c.id, day);
     // PCSE's notification is for a date and time: cancel the old one and lodge the new.
     pcseTask("cancel", a, p); pcseTask("lodge", getAppt(a.id), p);
-    const was = `${DAYS[a.day]} ${hm(a.start)}`;
-    textPatient(p, { kind: "time-change", body: `Hi ${first(p.name)}, it's ${practice()}. Your home visit has moved to ${when(day, start)} with ${c.first} (was ${dayPhrase(a.day).replace(/^on /, "")} at ${hm(a.start)}). Reply CANCEL if that doesn't suit.` });
+    const was = `${cal.label(a.day)} ${hm(a.start)}`;
+    textPatient(p, { kind: "time-change", body: `Hi ${first(p.name)}, it's ${practice()}. Your home visit has moved to ${when(day, start)} with ${c.first} (was ${cal.phrase(a.day).replace(/^on /, "")} at ${hm(a.start)}). Reply CANCEL if that doesn't suit.` });
     sendSms({ to: "clinician", name: old.name, kind: "diary-change", toClinicianId: old.id, body: old.id === c.id
-      ? `Diary change: ${p.name} (${lowerName(t.name)}) has moved from ${was} to ${DAYS[day]} ${hm(start)}.`
+      ? `Diary change: ${p.name} (${lowerName(t.name)}) has moved from ${was} to ${cal.label(day)} ${hm(start)}.`
       : `Diary change: ${p.name} (${was}) has moved to ${c.first}'s round. That time is free now.` });
-    if (old.id !== c.id) sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${lowerName(t.name)}, ${DAYS[day]} ${hm(start)} at ${p.addr} ${p.pc}. Moved from ${old.first}'s round.` });
-    addNote(p.id, `Visit moved by the office from ${was} (${old.name}) to ${DAYS[day]} ${hm(start)} (${c.name}).`, user, { silent: true });
-    audit(user.name, "appointment.move", a.id, `${p.name}: ${was} ${old.name} → ${DAYS[day]} ${hm(start)} ${c.name}`);
+    if (old.id !== c.id) sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit: ${p.name}, ${lowerName(t.name)}, ${cal.label(day)} ${hm(start)} at ${p.addr} ${p.pc}. Moved from ${old.first}'s round.` });
+    addNote(p.id, `Visit moved by the office from ${was} (${old.name}) to ${cal.label(day)} ${hm(start)} (${c.name}).`, user, { silent: true });
+    audit(user.name, "appointment.move", a.id, `${p.name}: ${was} ${old.name} → ${cal.label(day)} ${hm(start)} ${c.name}`);
     bus.emit({ type: "appointment.moved", clinicianId: old.id, appointmentId: a.id });
     if (old.id !== c.id) bus.emit({ type: "appointment.moved", clinicianId: c.id, appointmentId: a.id });
-    return { appointmentId: a.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, dayLabel: DAYS[day], label: slot.label, texted: p.contact !== "Call" };
+    return { appointmentId: a.id, patient: p.name, clinician: c.name, clinicianId: c.id, day, start, dayLabel: cal.label(day), label: slot.label, texted: p.contact !== "Call" };
   });
 }
 
@@ -1207,7 +1262,7 @@ function notDone(id, input, user) {
     const a = getAppt(String(id));
     if (!a) throw new HttpError(404, "That visit no longer exists.");
     if (user.role === "clinician" && a.clinicianId !== user.clinicianId) throw new HttpError(403, "This visit is on another clinician's round.");
-    if (a.day !== 0) throw new HttpError(409, `That visit is on ${DAYS[a.day]}, not today.`);
+    if (a.day !== 0) throw new HttpError(409, `That visit is on ${cal.label(a.day)}, not today.`);
     if (!["booked", "enroute", "live"].includes(a.status)) throw new HttpError(409, `That visit is already ${a.status === "done" ? "complete" : a.status}.`);
     if (a.status === "booked" && a.start > sandbox.nowMin()) throw new HttpError(409, "That visit hasn't started yet. Mark it once you're there.");
     const reason = NOT_DONE[input.reason];
@@ -1330,12 +1385,12 @@ const districts = (v) => {
 const newAccountHash = () => (sandbox.current().live ? auth.hashPassword(crypto.randomBytes(24).toString("base64url")) : auth.DEMO_HASH);
 
 function workingHours(v) {
-  if (!Array.isArray(v) || v.length !== DAYS.length) throw new HttpError(400, "Set hours for each day, Monday to Friday.");
+  if (!Array.isArray(v) || v.length !== 5) throw new HttpError(400, "Set hours for each day, Monday to Friday.");
   const { dayStart, dayEnd } = settings();
   return v.map((h, i) => {
     if (h == null) return null;
     const [s, e] = [Number(h[0]), Number(h[1])];
-    if (!(s % 15 === 0 && e % 15 === 0 && s >= dayStart && e <= dayEnd && e - s >= 60)) throw new HttpError(400, `${DAYS[i].slice(0, 3)}: hours must be between ${hm(dayStart)} and ${hm(dayEnd)} (the practice's opening hours), at least an hour, in quarter hours.`);
+    if (!(s % 15 === 0 && e % 15 === 0 && s >= dayStart && e <= dayEnd && e - s >= 60)) throw new HttpError(400, `${cal.WEEKDAYS[i].slice(0, 3)}: hours must be between ${hm(dayStart)} and ${hm(dayEnd)} (the practice's opening hours), at least an hour, in quarter hours.`);
     return [s, e];
   });
 }
@@ -1359,10 +1414,10 @@ function saveClinician(input, user) {
         const tests = clash("").filter((a) => TYPES[a.type].optom);
         if (tests.length) throw new HttpError(409, `${existing.first} has ${tests.length} eye test${tests.length === 1 ? "" : "s"} or check${tests.length === 1 ? "" : "s"} booked that need an optometrist. Move them first.`);
       }
-      const outside = clash("").filter((a) => { const h = hours[a.day]; return !h || a.start_min < h[0] || a.start_min + TYPES[a.type].dur > h[1]; });
+      const outside = clash("AND a.day >= 0").filter((a) => { const h = cal.isOpen(a.day) ? hours[cal.weekday(a.day)] : null; return !h || a.start_min < h[0] || a.start_min + TYPES[a.type].dur > h[1]; });
       if (outside.length) {
         const x = outside[0];
-        throw new HttpError(409, `${outside.length} booked visit${outside.length === 1 ? " falls" : "s fall"} outside those hours (${x.name}, ${DAYS[x.day]} ${hm(x.start_min)}${outside.length > 1 ? ", and more" : ""}). Move ${outside.length === 1 ? "it" : "them"} first.`);
+        throw new HttpError(409, `${outside.length} booked visit${outside.length === 1 ? " falls" : "s fall"} outside those hours (${x.name}, ${cal.label(x.day)} ${hm(x.start_min)}${outside.length > 1 ? ", and more" : ""}). Move ${outside.length === 1 ? "it" : "them"} first.`);
       }
     }
     const first_ = name.split(" ")[0];

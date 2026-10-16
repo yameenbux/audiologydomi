@@ -2,10 +2,13 @@
 // The refill engine. Pure functions with no database access, so the rules are easy to test and to tune.
 const { DAY_START, DAY_END, TYPES, PRIO, PVN_NOTICE_MIN, canDo, district, hm } = require("./domain");
 const { driveMinutes, driveInfo } = require("./travel");
+const cal = require("./calendar");
 
-/** A clinician's working hours on a day of the demo week: [start, end] in minutes, or null for a day off. */
+/** A clinician's working hours on a day: [start, end] in minutes, or null for a day off or a day the practice is
+ *  closed. Hours are set per weekday, Monday to Friday. */
 const hoursOn = (clinician, day) => {
-  const h = clinician && Array.isArray(clinician.hours) ? clinician.hours[day || 0] : undefined;
+  if (!cal.isOpen(day || 0)) return null;
+  const h = clinician && Array.isArray(clinician.hours) ? clinician.hours[cal.weekday(day || 0)] : undefined;
   return h === undefined ? [DAY_START, DAY_END] : h;
 };
 
@@ -122,17 +125,19 @@ const DAY_PENALTY = { urgent: 25, soon: 14, routine: 6 };
 function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30, days = 5, prio = "routine" }) {
   const perDay = DAY_PENALTY[prio] || DAY_PENALTY.routine;
   const dur = TYPES[type].dur;
-  // An NHS sight test can't start until PCSE has had 48 hours' notice of it.
-  const pvnFrom = TYPES[type].pvn ? now + PVN_NOTICE_MIN : -Infinity;
   const d = district(pc);
   const out = [];
-  for (let day = 0; day < days; day++) {
+  // `days`: a list of day numbers to search, or how many open days to search from today.
+  const dayList = Array.isArray(days) ? days : cal.openDays(0, days);
+  for (const day of dayList) {
+    // An NHS sight test can't start until PCSE has had 48 working hours' notice of it (weekends and bank holidays don't count).
+    const pvnEarliest = TYPES[type].pvn ? cal.earliestWithNotice(day, now, PVN_NOTICE_MIN) : -Infinity;
   for (const c of clinicians) {
     if (!canDo(c, type) || c.active === false) continue;
     const hours = hoursOn(c, day);
     if (!hours) continue; // their day off
     const [dayStart, dayEnd] = hours;
-    const earliestAllowed = ROUND5(Math.max(day === 0 ? Math.max(dayStart, now + noticeMin) : dayStart, pvnFrom - day * 1440));
+    const earliestAllowed = ROUND5(Math.max(day === 0 ? Math.max(dayStart, now + noticeMin) : dayStart, pvnEarliest));
     const area = c.patch.includes(d) ? "patch" : c.near.includes(d) ? "near" : "outside";
     if (area === "outside") continue; // too far to be worth fitting in
     const round = appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === day).sort((x, y) => x.start - y.start);
@@ -160,7 +165,8 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
       why.push(area === "patch" ? `In ${c.first}'s patch (${d})` : `Next to ${c.first}'s patch (${d})`);
       why.push(next ? `Between ${prev.name} and ${next.name}` : prev === base ? "Only visit that day" : `Last visit, after ${prev.name}`);
       // Fewer extra miles first; then the clinician's own patch; then sooner.
-      const score = 100 - extraDrive * 2 + (area === "patch" ? 10 : 0) - day * perDay - Math.round((start - DAY_START) / 120);
+      // Days count from the first day searched, so a later week isn't marked down for being later.
+      const score = 100 - extraDrive * 2 + (area === "patch" ? 10 : 0) - dayList.indexOf(day) * perDay - Math.round((start - DAY_START) / 120);
       out.push({ clinicianId: c.id, day, start, end: start + dur, driveIn, driveOut, extraDrive, area, prev: prev.name, next: next ? next.name : null, score, why, route, label: `${hm(start)}–${hm(start + dur)}` });
     }
   }
@@ -170,7 +176,7 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
   const [top] = out;
   const cheapest = out.reduce((m, x) => (x.extraDrive < m.extraDrive ? x : m), top || {});
   if (top && cheapest.extraDrive < top.extraDrive && cheapest.day > top.day) {
-    const n = cheapest.day - top.day;
+    const n = dayList.indexOf(cheapest.day) - dayList.indexOf(top.day);
     top.why.push(`${n === 1 ? "A day" : n + " days"} sooner than the shortest drive (${PRIO[prio] ? PRIO[prio].label : "Routine"} priority)`);
   }
   return out;

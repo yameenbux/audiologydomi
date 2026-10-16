@@ -13,6 +13,7 @@
 <script src="/powered.js"></script>
 <script src="/areas.js"></script>
 <style>
+  .bk-more { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px }
   /* Patients are often older: larger type, one question at a time, big targets. */
   body.bk { font-size: 18px; background: var(--bg) }
   .bk-top { padding: 18px 20px; border-bottom: 1px solid var(--line); background: var(--surface) }
@@ -83,11 +84,12 @@ function view(e) {
       ${err(e)}
       <button class="btn lg" type="submit">Find a time</button>
     </form>`;
-  if (S.step === 2) return `${steps(2)}<div class="caps">Choose a time</div><h1>${S.slots.length ? "These times are free near you" : "No times online this week"}</h1>
+  if (S.step === 2) return `${steps(2)}<div class="caps">Choose a time</div><h1>${S.slots.length ? "These times are free near you" : "No times online " + (S.win && S.win.fromLabel ? "between " + esc(S.win.fromLabel) + " and " + esc(S.win.untilLabel) : "soon")}</h1>
     ${S.slots.length ? `<p class="bk-lead">We only offer times when a clinician is already visiting nearby, so they spend more time with patients and less time driving.</p>
     <form id="f2"><div class="bk-choices">${S.slots.map((s, i) => `<label class="bk-choice"><input type="radio" name="slot" value="${esc(s.ref)}" ${i === 0 ? "checked" : ""}><span><b>${esc(longDay(s.dayLabel))}</b>, ${esc(s.time.replace("–", " to "))}<small>with ${esc(s.clinician)}</small></span></label>`).join("")}</div>
       ${err(e)}<button class="btn lg" type="submit">Continue</button></form>`
-    : `<p class="bk-lead">Please call us and we'll find a time, or add you to our list for the next free visit nearby.</p>`}
+    : `<p class="bk-lead">${S.win && S.win.next != null ? "Try later dates, or call us" : "Please call us"} and we'll find a time, or add you to our list for the next free visit nearby.</p>`}
+    ${S.win && (S.win.next != null || S.page > 0) ? `<div class="bk-more">${S.page > 0 ? `<button class="btn secondary" type="button" data-later="0">Soonest dates</button>` : ""}${S.win.next != null ? `<button class="btn secondary" type="button" data-later="${S.win.next}">Later dates</button>` : ""}</div>` : ""}
     <button class="linkish bk-back" type="button" data-back="1">Change postcode or visit type</button>`;
   if (S.step === 3) return `${steps(3)}<div class="caps">Your details</div><h1>Nearly done</h1>
     <p class="bk-lead">${esc(longDay(f.choice.dayLabel))}, ${esc(f.choice.time.replace("–", " to "))}, with ${esc(f.choice.clinician)}.</p>
@@ -110,7 +112,15 @@ function render(e) {
   const h = root.querySelector("h1"); if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
   window.scrollTo(0, 0);
 }
-root.addEventListener("click", (ev) => { const b = ev.target.closest("[data-back]"); if (b) { S.step = Number(b.dataset.back); render(); } });
+async function findTimes(from) {
+  const f = S.form, r = await api("POST", `/api/public/${code}/slots`, { pc: f.pc, type: f.type, avail: f.avail, from: from || undefined });
+  S.slots = r.slots; S.win = r; S.page = from ? (S.page || 0) + 1 : 0;
+}
+root.addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-back]"); if (b) { S.step = Number(b.dataset.back); render(); return; }
+  const l = ev.target.closest("[data-later]");
+  if (l) { l.disabled = true; try { await findTimes(Number(l.dataset.later)); render(); } catch (e) { render(e.message); } }
+});
 root.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const btn = ev.target.querySelector("[type=submit]"); btn.disabled = true;
@@ -119,7 +129,7 @@ root.addEventListener("submit", async (ev) => {
     if (ev.target.id === "f1") {
       Object.assign(f, { pc: DomiAreas.read(root, "pc"), type: val("type"), avail: val("avail") });
       if (!f.pc) throw new Error("Please choose your town and postcode area.");
-      S.slots = (await api("POST", `/api/public/${code}/slots`, { pc: f.pc, type: f.type, avail: f.avail })).slots;
+      await findTimes(0);
       S.step = 2;
     } else if (ev.target.id === "f2") {
       f.choice = S.slots.find((s) => s.ref === val("slot")); S.step = 3;
