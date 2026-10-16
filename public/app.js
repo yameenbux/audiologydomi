@@ -244,6 +244,14 @@ async function enter() {
   connect();
 }
 async function submitPassword(email, password, join) {
+  if (META.live) { // a real practice: no demo to start
+    const code = META.live.practice ? META.live.practice.code : String(join || "").toUpperCase();
+    const r = await api("POST", "/api/auth/password", { sandbox: code, email, password });
+    UI.auth = { step: "code", challenge: r.challenge, name: r.name, email };
+    clearErrors(); render();
+    const c = $("#code"); if (c) c.focus();
+    return;
+  }
   const start = (body) => api("POST", "/api/demo/start", body).then((r) => r.sandbox);
   let sb = join ? await start({ join: join.toUpperCase() }) : DEMO_SB || await start({ brand: BRAND_ID });
   let r;
@@ -279,12 +287,13 @@ const isOffice = () => !!S && !!S.signedInAs && S.signedInAs.role === "admin";
 function render() {
   const signedIn = !!S;
   $("#clock").hidden = !signedIn; $("#roles").hidden = !signedIn || !isOffice(); $("#actions").hidden = !signedIn;
-  $("#reset").hidden = !isOffice();
+  $("#reset").hidden = !isOffice() || !!META.live; // a live practice can't be reset
+  if (META.live) $("#open-phone").hidden = true;    // phone pairing by QR is a demo shortcut
   document.body.classList.toggle("clin-mode", signedIn && !isAdmin());
   if (!signedIn) { $("#app").innerHTML = signInView(); return; }
   $("#role-admin").setAttribute("aria-pressed", isAdmin());
   $("#role-clin").setAttribute("aria-pressed", !isAdmin());
-  $("#open-phone").hidden = !isAdmin();
+  $("#open-phone").hidden = !isAdmin() || !!META.live;
   paint($("#app"), isAdmin() ? officeShell() : clinView());
   mountMaps($("#app"));
   tick();
@@ -321,6 +330,22 @@ function signInView() {
         ${qr ? `<details><summary>Or try it with a real authenticator app</summary><div class="enrol"><div class="qr sm">${qr}</div><p class="muted">Scan with Google Authenticator, Microsoft Authenticator or 1Password. The app then shows the same codes. In the real system this is a one-time setup after a person's first sign-in.</p></div></details>` : ""}</div>` : ""}
       <button class="linkish" type="button" data-act="auth-back">${icon("back")}Use a different account</button>
     </form></div>`;
+  }
+  if (META.live) {
+    const P = META.live.practice;
+    return `<div class="signin">${brand}
+    <section class="signin-form">
+      <div><div class="caps">${P ? esc(P.name) : "Domi"}</div><h2 style="margin-top:8px">Sign in</h2>
+      <p class="muted" style="margin:8px 0 0">Your email and password, then the code from your authenticator app.</p></div>
+      <form id="pw-form" class="pw-form">
+        ${P ? "" : `<div class="field"><label for="join-code">Practice code</label><input class="input code-input" id="join-code" maxlength="12" autocomplete="organization" required data-keep value="${esc(A.join || "")}"></div>`}
+        <div class="field"><label for="email">Email</label><input class="input" id="email" type="email" autocomplete="username" required data-keep value="${esc(A.email || "")}"></div>
+        <div class="field"><label for="password">Password</label><input class="input" id="password" type="password" autocomplete="current-password" required data-keep></div>
+        <button class="btn block lg" type="submit">Continue${icon("next")}</button>
+        <p class="hint">${icon("shield")}<span>Forgotten your password, or a new phone? Ask your practice manager.</span></p>
+      </form>
+    </section>
+  </div>`;
   }
   return `<div class="signin">${brand}
     <section class="signin-form">
@@ -2394,8 +2419,8 @@ document.addEventListener("submit", async (e) => {
       closeDrawer(); await load(); toast("Added to the waiting list");
     }
     if (e.target.id === "pw-form") {
-      const join = $("#join-code").value.trim();
-      if (join && join.length !== 6) { toast("Demo codes are 6 characters, shown on the office screen", true); return; }
+      const join = ($("#join-code") || { value: "" }).value.trim();
+      if (!META.live && join && join.length !== 6) { toast("Demo codes are 6 characters, shown on the office screen", true); return; }
       const btn = e.target.querySelector("[type=submit]"); btn.disabled = true;
       try { await submitPassword($("#email").value.trim(), $("#password").value, join); } finally { btn.disabled = false; }
     }

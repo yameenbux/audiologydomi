@@ -106,14 +106,25 @@ function clinicianCanSee(user, patientId) {
 // `?brand=` styles the sign-in screen before a demo exists; afterwards the demo's own brand comes with /api/state.
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
   types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, days: D.DAYS, smsProvider: provider, routing: travel.routingStatus().provider,
-  demoUsers: USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })),
+  demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
+  // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
+  live: auth.DEMO ? null : { practice: livePractice() },
   brand: brands.pub(brand), areas: regions.areasFor(brand.region),
 }; });
 
 /* ---------- Sign-in ---------- */
 // Start a private demo (a practice of its own), or check a code to join one. No account is signed in yet.
+/** The practice this server signs people in to when the demo is off: PRACTICE_CODE, or the only one there is. */
+function livePractice() {
+  const open = sandbox.all().filter((sb) => sb.live);
+  const want = String(process.env.PRACTICE_CODE || "").toUpperCase();
+  const sb = want ? open.find((x) => x.id === want) : open.length === 1 ? open[0] : null;
+  return sb ? { code: sb.id, name: sb.settings.practice } : null;
+}
+
 route("POST", "/api/demo/start", { public: true }, (req, body) => {
+  if (!auth.DEMO) throw new svc.HttpError(404, "No such endpoint."); // a live server never makes sample practices
   if (body.join) {
     const sb = sandbox.get(String(body.join));
     if (!sb) throw new svc.HttpError(404, "That demo code has expired. Start a new demo instead.");
@@ -126,7 +137,8 @@ route("POST", "/api/demo/start", { public: true }, (req, body) => {
 route("POST", "/api/auth/password", { public: true }, async (req, body) => {
   limitSignIn(req);
   const sb = sandbox.get(String(body.sandbox || ""));
-  if (!sb) throw new svc.HttpError(404, "That demo has expired. Start a new one.");
+  if (!sb) throw new svc.HttpError(404, auth.DEMO ? "That demo has expired. Start a new one." : "Check the practice code.");
+  if (!auth.DEMO && !sb.live) throw new svc.HttpError(404, "Check the practice code.");
   return sandbox.run(sb, async () => {
     const email = String(body.email || "").trim().toLowerCase();
     const found = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
@@ -625,6 +637,8 @@ const server = http.createServer(async (req, res) => {
     req.auth = who; req.cookies = [];
     if (who) who.sb.base = publicBase(req); // links in texts (cancellation links) point back at this address
     const data = who && !r.raw ? await sandbox.run(who.sb, () => r.handler(req, body, who.user, params)) : await r.handler(req, body, who && who.user, params);
+    // A live practice answers only once the change is saved in Postgres.
+    await sandbox.settle().catch(() => { throw new svc.HttpError(503, "That couldn't be saved just now. Please try again in a moment."); });
     send(res, 200, data, req.cookies);
   } catch (err) {
     status = err.status || 500;
@@ -641,6 +655,7 @@ const server = http.createServer(async (req, res) => {
 
 const sweeper = setInterval(() => {
   for (const sb of sandbox.all()) sandbox.run(sb, () => { try { svc.sweepExpired(); svc.sweepReminders(); svc.sweepRecalls(); } catch (e) { console.error("sweep failed", sb.id, e); } });
+  sandbox.settle().catch(() => {}); // live practices: save anything the sweeps or late text receipts changed
 }, 5000);
 sweeper.unref();
 
@@ -649,7 +664,11 @@ function start(port = PORT) {
 }
 
 if (require.main === module) {
-  start().then(() => {
+  // With DATABASE_URL set, the real practices kept in Postgres are opened first. Demos work either way.
+  require("./live").start().then((opened) => {
+    if (opened.length) console.log(`Live practices open: ${opened.map((sb) => sb.id).join(", ")}`);
+    return start();
+  }).then(() => {
     console.log(`Domi demo running on http://localhost:${PORT}`);
     console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
     console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);

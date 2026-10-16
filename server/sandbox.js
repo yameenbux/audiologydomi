@@ -49,11 +49,27 @@ function newCode() {
 
 function evict() {
   const now = Date.now();
-  for (const [id, sb] of sandboxes) if (now - sb.lastSeen > IDLE_MS) { sb.db.close(); sandboxes.delete(id); }
-  while (sandboxes.size >= MAX) {
-    const oldest = [...sandboxes.values()].sort((a, b) => a.lastSeen - b.lastSeen)[0];
+  // Live practices are never evicted: only demos are.
+  const demos = () => [...sandboxes.values()].filter((sb) => !sb.live);
+  for (const sb of demos()) if (now - sb.lastSeen > IDLE_MS) { sb.db.close(); sandboxes.delete(sb.id); }
+  while (demos().length >= MAX) {
+    const oldest = demos().sort((a, b) => a.lastSeen - b.lastSeen)[0];
     oldest.db.close(); sandboxes.delete(oldest.id);
   }
+}
+
+/** Register a live practice (see server/live.js): same shape as a demo, but its data is kept in Postgres. */
+function adopt(sb) {
+  const full = { t0: Date.now(), lastSeen: Date.now(), txDepth: 0, pending: null, remindedDay: 0, recalledDay: 0, ...sb, live: true };
+  sandboxes.set(full.id, full);
+  return full;
+}
+
+/** Wait until every live practice's changes are saved in Postgres. Demos have nothing to save. */
+async function settle() {
+  const live = [...sandboxes.values()].filter((sb) => sb.live && sb.flush);
+  for (const sb of live) sb.flush(); // changes made outside a transaction (a sign-in, a delivery note) are caught here
+  await Promise.all(live.map((sb) => sb.store.settled()));
 }
 
 function create(brandId) {
@@ -71,6 +87,7 @@ function get(id) {
 }
 
 function reset(sb) {
+  if (sb.live) throw new Error("A live practice can't be reset");
   sb.db.close();
   sb.db = openDb(sb.brand);
   sb.settings = defaults(sb.brand);
@@ -85,8 +102,10 @@ function current() {
   return sb;
 }
 
-/* Demo clock: starts at 10:20 when the sandbox is created and runs in real time. */
-const nowSec = (sb = current()) => DEMO_START * 60 + Math.floor((Date.now() - sb.t0) / 1000);
+/* Demo clock: starts at 10:20 when the sandbox is created and runs in real time. A live practice uses UK time. */
+const LONDON = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const londonSec = (ms = Date.now()) => { const [h, m, s] = LONDON.format(ms).split(":").map(Number); return h * 3600 + m * 60 + s; };
+const nowSec = (sb = current()) => (sb.live ? londonSec() : DEMO_START * 60 + Math.floor((Date.now() - sb.t0) / 1000));
 const nowMin = (sb = current()) => Math.floor(nowSec(sb) / 60);
 const pad = (n) => String(n).padStart(2, "0");
 const stamp = (sb = current()) => { const s = nowSec(sb); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`; };
@@ -97,4 +116,4 @@ function brandView(sb = current()) {
   return { ...brands.pub(sb.brand), practice: st.practice, phone: st.phone, email: st.email, logo: st.logo, logoAlt: st.practice };
 }
 
-module.exports = { brandView, publicSettings, create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };
+module.exports = { brandView, publicSettings, defaults, adopt, settle, londonSec, create, get, reset, run, current, all: () => [...sandboxes.values()], nowMin, nowSec, stamp, setOpener: (f) => { openDb = f; } };
