@@ -13,6 +13,16 @@ const TYPES = {
   repair: { name: "Repair & adjustment", dur: 20 },
   follow: { name: "Follow-up check", dur: 30, optom: true },
 };
+// Each practice sets its own visit lengths (Settings > Visits & prices). `dur` reads the practice in context, so
+// booking, refills, route planning and the diary all use the same length; outside a practice, the default above.
+const DEFAULT_DUR = Object.fromEntries(Object.entries(TYPES).map(([k, t]) => [k, t.dur]));
+for (const k of Object.keys(TYPES)) {
+  Object.defineProperty(TYPES[k], "dur", { enumerable: true, get() {
+    let sb = null; try { sb = require("./sandbox").current(); } catch { /* not inside a practice */ }
+    const v = sb && sb.settings && sb.settings.durations ? Number(sb.settings.durations[k]) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : DEFAULT_DUR[k];
+  } });
+}
 
 /**
  * NHS domiciliary sight tests in England need a pre-visit notification (PVN) to PCSE at least 48 hours
@@ -41,4 +51,4 @@ const hm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m %
 const district = (pc) => String(pc).trim().split(" ")[0].toUpperCase();
 const first = (n) => String(n).split(" ")[0];
 
-module.exports = { DAY_START, DAY_END, WORK_WEEKDAYS, TYPES, PVN_NOTICE_MIN, canDo, PRIO, AVAIL, REASONS, hm, district, first };
+module.exports = { DEFAULT_DUR, DAY_START, DAY_END, WORK_WEEKDAYS, TYPES, PVN_NOTICE_MIN, canDo, PRIO, AVAIL, REASONS, hm, district, first };

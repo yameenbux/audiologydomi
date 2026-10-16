@@ -68,7 +68,9 @@ const first = (n) => String(n).split(" ")[0];
 const initials = (n) => String(n).split(" ").map((w) => w[0]).join("").slice(0, 2);
 const district = (pc) => String(pc).split(" ")[0];
 const active = (a) => a.status !== "cancelled";
-const T = (k) => META.types[k];
+/** A visit type, with this practice's own length (from /api/state; /api/meta has the defaults). */
+const TYPES_NOW = () => (S && S.types) || META.types;
+const T = (k) => TYPES_NOW()[k];
 const isAdmin = () => !!S && S.user.role === "admin";
 const pat = (id) => S.patients.find((p) => p.id === id) || { id, name: "Patient", pc: "", addr: "", alerts: [], phone: "" };
 const cln = (id) => S.clinicians.find((c) => c.id === id);
@@ -582,7 +584,7 @@ function referralDrawer(d) {
         ${row("Home visit because", esc(r.eligibility))}${row("NHS entitlement", esc(r.entitlement.map((k) => o.entitlement[k]).join(", ") || "None ticked"))}
         ${row("Home", esc(META.avail[r.avail]))}${r.fromKind !== "self" ? row("Referred by", esc([r.fromName, r.fromPhone].filter(Boolean).join(", "))) : ""}${row("Notes", esc(r.notes || ""))}</dl>
       <div class="hr" style="margin:18px 0"></div>
-      <div class="row2"><div class="field"><label for="rf-type">Waiting list for</label><select class="input" id="rf-type">${Object.entries(META.types).map(([k, v]) => `<option value="${k}" ${k === r.need ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
+      <div class="row2"><div class="field"><label for="rf-type">Waiting list for</label><select class="input" id="rf-type">${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}" ${k === r.need ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
         <div class="field"><label for="rf-prio">Priority</label><select class="input" id="rf-prio">${Object.entries(META.prio).map(([k, v]) => `<option value="${k}" ${k === (r.urgent ? "urgent" : "routine") ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div></div>
       ${d.dup ? `<div class="err" role="alert">${esc(d.dup)}</div>` : ""}
       <details style="margin-top:14px"><summary class="muted" style="font-size:13.5px;cursor:pointer">Decline instead</summary>
@@ -1174,6 +1176,12 @@ function hoursPreview(s, e) {
   return `<div class="hp" aria-hidden="true"><div class="hp-r hp-main"><span class="hp-n">Practice</span><span class="hp-track"><i style="left:${pc(s)}%;right:${100 - pc(e)}%"></i>${ticks}</span><span class="hp-v"><b>${hm(s)}–${hm(e)}</b></span></div>${clin.map(row).join("")}</div>`;
 }
 
+/** How many of the most common visit fit in a clinician's day at these lengths, with typical driving between. */
+function dayFit(st) {
+  const len = T("sight").dur, drive = 20, day = st.dayEnd - st.dayStart;
+  const n = Math.floor((day + drive) / (len + drive));
+  return `<div class="callout plain" style="margin:0 0 12px">${icon("clock")}<div>At ${len} minutes for an NHS sight test and about ${drive} minutes' driving between patients, a ${hm(st.dayStart)}–${hm(st.dayEnd)} day fits about <b>${n} sight tests</b>.</div></div>`;
+}
 /** How far ahead each kind of booking can go. */
 function aheadCard(st) {
   const opt = (sel, list) => list.map(([v, l]) => `<option value="${v}" ${Number(sel) === v ? "selected" : ""}>${l}</option>`).join("");
@@ -1227,16 +1235,16 @@ function settingsPage() {
       ${closuresCard(st)}
       ${setFoot()}</form>`;
   } else if (sec === "visits") {
-    const types = Object.entries(META.types || {});
+    const types = Object.entries(TYPES_NOW() || {});
     body = `<form id="set-visits" class="pg-form" novalidate>
       <section class="card tbl-card"><div class="card-h" style="padding:20px 22px 0"><h2>Visits and prices</h2><p>The price is what the patient is invoiced when a visit is done. £0 means no invoice: NHS sight tests are claimed on a GOS form, and glasses are charged when ordered.</p></div>
         <div class="tbl-wrap"><table class="ptable vtable"><thead><tr><th scope="col">Visit</th><th scope="col">Length</th><th scope="col">Price</th><th scope="col">Patients can book online</th></tr></thead><tbody>
         ${types.map(([k, t]) => { const can = k !== "dispense"; const on = (st.online || []).includes(k); return `<tr><td><b>${esc(t.name)}</b>${t.optom ? `<span class="muted">Optometrists only${t.pvn ? " · PCSE notice 48 hours before" : ""}</span>` : `<span class="muted">Any clinician</span>`}</td>
-          <td><span class="mono">${t.dur} min</span></td>
+          <td><select class="input len-in" data-dur="${k}" aria-label="Length of ${esc(t.name)}">${[10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 75, 90, 105, 120].concat(t.dur).filter((m, i, a) => a.indexOf(m) === i).sort((a, b) => a - b).map((m) => `<option value="${m}" ${m === t.dur ? "selected" : ""}>${m} min</option>`).join("")}</select></td>
           <td><label class="money-in"><span>£</span><input class="input" type="number" min="0" max="5000" step="1" data-price="${k}" value="${Number((st.prices || {})[k] || 0)}" aria-label="Price for ${esc(t.name)}"></label></td>
           <td>${can ? `<label class="chk"><input type="checkbox" data-online="${k}" ${on ? "checked" : ""}><span>${on ? "Yes" : "No"}</span></label>` : `<span class="muted">Arranged by the practice</span>`}</td></tr>`; }).join("")}
         </tbody></table></div>
-        <div style="padding:0 22px 20px"><p class="set-note">Lengths are fixed for now, because the refill engine and route planner are tuned to them. Ask us if a visit type needs a different length.</p>${uses(["Invoices", "Booking page", "Today's income figures"])}</div></section>
+        <div style="padding:0 22px 20px"><p class="set-note">The length is the time with the patient; Domi adds the driving between visits itself. It shapes every booking, refill offer, planned route and the diary. If a longer length would run a booked visit into the next one, Domi names it so it can be moved first.</p>${dayFit(st)}${uses(["Diary", "Booking", "Refilling cancellations", "Route planning", "Invoices", "Booking page"])}</div></section>
       ${setFoot()}</form>`;
   } else if (sec === "refill") {
     const mins = [5, 10, 15, 20, 30, 45, 60, 90, 120];
@@ -1881,7 +1889,7 @@ function bookDrawer() {
     <div id="bk-new" ${sel === "new" ? "" : "hidden"}><div class="row2"><div class="field"><label for="bk-name">Name</label><input class="input" id="bk-name" data-keep placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="bk-addr">Address</label><input class="input" id="bk-addr" data-keep placeholder="House and street"></div></div>
       <div class="field">${DomiAreas.picker(S.areas || [], "bk-pc", DomiAreas.read(document, "bk-pc"))}</div>
       <div class="row2"><div class="field"><label for="bk-phone">Mobile</label><input class="input" id="bk-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
-    <div class="row2"><div class="field"><label for="bk-type">Visit type</label><select class="input" id="bk-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name} · ${v.dur} min</option>`).join("")}</select></div>
+    <div class="row2"><div class="field"><label for="bk-type">Visit type</label><select class="input" id="bk-type" data-keep>${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}">${v.name} · ${v.dur} min</option>`).join("")}</select></div>
     <div class="field"><label for="bk-avail">Patient is home</label><select class="input" id="bk-avail" data-keep>${Object.entries(META.avail).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
     <div class="field"><label for="bk-from">Earliest date</label><input class="input" type="date" id="bk-from" data-keep min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${esc((B.results && B.results.from ? (calDay(B.results.from) || {}).iso : "") || "")}"><div class="muted" style="font-size:12.5px;margin-top:4px">Leave as today for the soonest gaps, or pick a later date, up to ${S.cal.bookAheadDays >= 60 ? Math.round(S.cal.bookAheadDays / 30.4) + " months" : S.cal.bookAheadDays + " days"} ahead.</div></div>
     <button class="btn block lg" type="submit">${icon("pin")}Find the best slots</button>
@@ -1897,7 +1905,7 @@ function wlDrawer() {
     <div id="wl-new" ${opts.length ? "hidden" : ""}><div class="row2"><div class="field"><label for="wl-name">Name</label><input class="input" id="wl-name" data-keep placeholder="e.g. Ruth Ingham"></div></div>
       <div class="field">${DomiAreas.picker(S.areas || [], "wl-pc", DomiAreas.read(document, "wl-pc"))}</div>
       <div class="row2"><div class="field"><label for="wl-addr">Address</label><input class="input" id="wl-addr" data-keep placeholder="House and street"></div><div class="field"><label for="wl-phone">Mobile</label><input class="input" id="wl-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
-    <div class="row2"><div class="field"><label for="wl-type">Visit type</label><select class="input" id="wl-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("")}</select></div>
+    <div class="row2"><div class="field"><label for="wl-type">Visit type</label><select class="input" id="wl-type" data-keep>${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("")}</select></div>
     <div class="field"><label for="wl-prio">Priority</label><select class="input" id="wl-prio" data-keep><option value="routine">Routine</option><option value="soon">Soon</option><option value="urgent">Urgent</option></select></div></div>
     <div class="row2"><div class="field"><label for="wl-avail">Availability</label><select class="input" id="wl-avail" data-keep>${Object.entries(META.avail).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
     <div class="field"><label for="wl-short">Short notice</label><select class="input" id="wl-short" data-keep><option value="1">Can take a same-day visit</option><option value="0">Needs 24h notice</option></select></div></div>
@@ -2073,7 +2081,7 @@ function invoicesDrawer(d) {
       <div class="rp-tiles">${`<div class="rp-tile"><b>${pounds(d.totals.unpaidPence)}</b><span>unpaid</span></div><div class="rp-tile"><b>${pounds(d.totals.paidPence)}</b><span>paid</span></div>`}</div>
       <div class="soon-row">${soon("card", "Take card payment", "check")}${soon("xero", "Sync to Xero", "reset")}${soon("carehome", "Bill a care home", "users")}</div>
       <details class="prices"><summary>Prices per visit type</summary>
-        <div class="price-grid">${Object.entries(META.types).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
+        <div class="price-grid">${Object.entries(TYPES_NOW()).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
         <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised: NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered. No VAT is added: check your VAT treatment with your accountant.</p></details>
       ${d.invoices.length ? `<ul class="invs">${d.invoices.map((i) => { const p = pat(i.patientId); return `<li>
         <div style="min-width:0"><div class="nm"><span class="mono">${esc(i.number)}</span> · ${esc(p ? p.name : "")}</div><div class="meta">${esc(i.items.map((x) => x.desc).join(", "))}</div></div>
@@ -2490,7 +2498,7 @@ document.addEventListener("submit", async (e) => {
       const body = {
         "set-practice": () => ({ practice: v("practice"), phone: v("phone"), email: v("email"), officeHours: v("hoursText"), logo: v("logo") }),
         "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")), bookAheadDays: Number(v("ba")), onlineAheadDays: Number(v("oa")), offerAheadDays: Number(v("fa")), closures: (UI.pg && UI.pg.clo) || S.settings.closures || [] }),
-        "set-visits": () => ({ prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
+        "set-visits": () => ({ durations: Object.fromEntries([...e.target.querySelectorAll("[data-dur]")].map((i) => [i.dataset.dur, Number(i.value)])), prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
         "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")), autoRecalls: $("#set-arc").checked, recallAt: Number(v("rat")) }),
       }[e.target.id];
       if (!body) return;

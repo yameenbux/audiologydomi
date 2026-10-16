@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, PVN_NOTICE_MIN, REASONS, hm, first, district } = require("./domain");
+const { TYPES, DEFAULT_DUR, PVN_NOTICE_MIN, REASONS, hm, first, district } = require("./domain");
 const cal = require("./calendar");
 const { rankCandidates, parseReply, planOffer, suggestSlots, hoursOn } = require("./refill");
 const travel = require("./travel");
@@ -1003,7 +1003,7 @@ async function updatePatient(id, input, user) {
 
 /* ---------- Settings: the practice's own details and rules, which the rest of Domi reads ---------- */
 const SETTING_LABELS = { practice: "practice name", phone: "phone number", email: "email", logo: "logo", officeHours: "office hours", dayStart: "opening time", dayEnd: "closing time",
-  prices: "prices", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
+  prices: "prices", durations: "visit lengths", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
   bookAheadDays: "how far ahead the office can book", onlineAheadDays: "how far ahead patients can book online", offerAheadDays: "how far ahead gaps are offered", closures: "closure days" };
 const plain = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -1050,6 +1050,27 @@ function saveSettings(input, user) {
       prices[k] = Math.round(n);
     }
     next.prices = prices;
+  }
+  if (has("durations")) {
+    if (!input.durations || typeof input.durations !== "object") throw new HttpError(400, "Visit lengths must be a list of visit types.");
+    const durations = { ...(st.durations || {}) };
+    for (const [k, v] of Object.entries(input.durations)) {
+      if (!(k in TYPES)) throw new HttpError(400, "That isn't one of the practice's visit types.");
+      const n = Number(v);
+      if (!(Number.isInteger(n) && n >= 10 && n <= 180 && n % 5 === 0)) throw new HttpError(400, `${TYPES[k].name}: a visit must be 10 minutes to 3 hours, in 5-minute steps.`);
+      durations[k] = n;
+    }
+    // Longer visits mustn't run into the next booked visit, or past the clinician's day.
+    const lenOf = (t) => durations[t] || DEFAULT_DUR[t];
+    const booked = all("SELECT a.*, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status IN ('booked','enroute') AND a.day >= 0 ORDER BY a.clinician_id, a.day, a.start_min");
+    const clash = [];
+    booked.forEach((a, i) => {
+      const n = booked[i + 1], end = a.start_min + lenOf(a.type);
+      const c = getClinician(a.clinician_id), h = c && cal.isOpen(a.day) ? (c.hours || [])[cal.weekday(a.day)] : null;
+      if ((n && n.clinician_id === a.clinician_id && n.day === a.day && end > n.start_min) || (h && end > h[1])) clash.push(a);
+    });
+    if (clash.length) { const x = clash[0]; throw new HttpError(409, `With those lengths, ${clash.length} booked visit${clash.length === 1 ? " runs" : "s run"} into the next one or past the end of the day (${x.name}, ${cal.label(x.day)} ${hm(x.start_min)}${clash.length > 1 ? ", and more" : ""}). Move ${clash.length === 1 ? "it" : "them"} first, or choose shorter lengths.`); }
+    next.durations = durations;
   }
   if (has("online")) {
     const list = Array.isArray(input.online) ? [...new Set(input.online.map(String))] : null;
