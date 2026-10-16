@@ -167,3 +167,36 @@ test("true count: where a booking came from, how likely it is to go ahead, and e
   const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
   assert.strictEqual((await call("PUT", `/api/appointments/${v1.id}/likelihood`, amira.token, { reliability: 1 })).status, 403);
 });
+
+test("a director: a clinician with office access gets the office, and can switch to their own round", async () => {
+  const o = await office();
+  const amira = (await call("GET", "/api/team", o.token)).data.clinicians.find((c) => c.id === "c1");
+  const before = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  assert.strictEqual((await call("GET", "/api/team", before.token)).status, 403, "a clinician can't open the team");
+
+  assert.strictEqual((await call("POST", "/api/team/clinicians", o.token, { ...amira, office: true })).status, 200);
+  assert.strictEqual((await call("GET", "/api/team", o.token)).data.clinicians.find((c) => c.id === "c1").office, true);
+  const a = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  const raw = await call("GET", "/api/state", a.token);
+  assert.strictEqual(raw.status, 200, JSON.stringify(raw.data).slice(0, 300) + " signin:" + JSON.stringify(a));
+  let st = raw.data;
+  assert.strictEqual(st.user.role, "admin"); assert.strictEqual(st.signedInAs.dual, true);
+  assert.strictEqual(st.user.clinicianId, "c1", "still her own clinician record");
+  assert.strictEqual((await call("GET", "/api/team", a.token)).status, 200, "office pages open");
+  assert.ok(st.clinicians.length > 1, "sees every diary");
+
+  // Her own round, as her phone shows it.
+  assert.strictEqual((await call("POST", "/api/auth/view-as", a.token, { userId: a.user.id, as: "clinician" })).status, 200);
+  st = (await call("GET", "/api/state", a.token)).data;
+  assert.strictEqual(st.user.role, "clinician"); assert.strictEqual(st.clinicians.length, 1); assert.strictEqual(st.clinicians[0].id, "c1");
+  // And back to the office.
+  await call("POST", "/api/auth/view-as", a.token, { userId: a.user.id, as: "office" });
+  assert.strictEqual((await call("GET", "/api/state", a.token)).data.user.role, "admin");
+
+  // Taking office access away works at once, on the session she already has.
+  await call("POST", "/api/team/clinicians", o.token, { ...amira, office: false });
+  assert.strictEqual((await call("GET", "/api/state", a.token)).data.user.role, "clinician");
+  assert.strictEqual((await call("GET", "/api/team", a.token)).status, 403);
+  // A plain clinician asking for the office view gets nothing new.
+  assert.strictEqual((await call("POST", "/api/auth/view-as", a.token, { userId: a.user.id, as: "office" })).status, 403);
+});

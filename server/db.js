@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS users (
   totp_step INTEGER NOT NULL DEFAULT -1,            -- last code step used, so a code can't be replayed
   failed INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0,
   title TEXT, color TEXT,
-  active INTEGER NOT NULL DEFAULT 1                -- 0 = can't sign in (left the practice); kept for the audit trail
+  active INTEGER NOT NULL DEFAULT 1,               -- 0 = can't sign in (left the practice); kept for the audit trail
+  office INTEGER NOT NULL DEFAULT 0                -- a clinician who also runs the practice (a director): office access too
 );
 CREATE TABLE IF NOT EXISTS confirmations (       -- confirmation calls (CC1-CC3), one row per call made
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,6 +160,7 @@ const ADDED_COLUMNS = [
   ["patients", "recall_months", "BIGINT"],
   ["appointments", "source", "TEXT"],
   ["appointments", "reliability", "REAL"],
+  ["users", "office", "BIGINT NOT NULL DEFAULT 0"],
 ];
 const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
@@ -343,7 +345,7 @@ function leadEmail(name, practice, phone, hours, email) {
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
-  user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0 }),
+  user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0, office: r.role === "admin" || !!r.office }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, erased: !!r.erased }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),

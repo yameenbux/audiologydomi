@@ -1461,7 +1461,7 @@ const userOf = (cid) => one("SELECT * FROM users WHERE clinician_id = ?", cid);
 function teamList() {
   const users = all("SELECT * FROM users ORDER BY role, name").map(map.user);
   return {
-    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => { const u = users.find((x) => x.clinicianId === c.id) || {}; return { ...c, email: u.email || null, userId: u.id || null }; }),
+    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => { const u = users.find((x) => x.clinicianId === c.id) || {}; return { ...c, email: u.email || null, userId: u.id || null, office: u.role === "clinician" && !!u.office }; }),
     staff: users.filter((u) => u.role === "admin"),
     roles: ROLES,
   };
@@ -1524,6 +1524,10 @@ function saveClinician(input, user) {
         const email = input.email ? validEmail(input.email) : u.email;
         if (emailTaken(email, u.id)) throw new HttpError(409, "Another account already signs in with that email.");
         run("UPDATE users SET name = ?, title = ?, color = ?, email = ? WHERE id = ?", name, role, color, email, u.id);
+        if (Object.prototype.hasOwnProperty.call(input, "office") && !!u.office !== !!input.office) {
+          run("UPDATE users SET office = ? WHERE id = ?", input.office ? 1 : 0, u.id);
+          audit(user.name, input.office ? "user.office-on" : "user.office-off", u.id, `${name}: office access ${input.office ? "given" : "removed"}`);
+        }
       }
       audit(user.name, "clinician.update", cid, name);
     } else {
@@ -1531,7 +1535,7 @@ function saveClinician(input, user) {
       if (emailTaken(email, null)) throw new HttpError(409, "Another account already signs in with that email.");
       cid = newId("c");
       run("INSERT INTO clinicians (id, name, first, role, color, area_name, patch, near, base, hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cid, name, first_, role, color, areaName, JSON.stringify(patch), JSON.stringify(near), base, JSON.stringify(hours));
-      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, newAccountHash(), auth.newSecret(), role, color);
+      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color, office) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, newAccountHash(), auth.newSecret(), role, color, input.office ? 1 : 0);
       audit(user.name, "clinician.add", cid, `${name}, ${role}`);
     }
     bus.emit({ type: "team.updated" });

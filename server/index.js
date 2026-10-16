@@ -23,7 +23,10 @@ const PORT = Number(process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, "..", "public");
 
 /* ---------- Sessions: server-side, referenced by an HttpOnly cookie (see auth.js) ---------- */
-const pub = (u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId });
+const pub = (u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId, dual: !!u.dual });
+/** A clinician with office access (a director) signs in to the office, and can switch to their own round. */
+const SELF = "self:clinician";
+const asSignedIn = (u) => (u && u.role === "clinician" && u.office ? { ...u, role: "admin", dual: true } : u);
 /** An account in a practice's own database (the office can add and switch off accounts), or null. */
 const account = (sb, id) => { const r = sandbox.run(sb, () => db.prepare("SELECT * FROM users WHERE id = ?").get(String(id || ""))); return r ? map.user(r) : null; };
 /** Who is calling: their session, their demo, the person signed in, and who they're viewing as. */
@@ -31,7 +34,8 @@ function verify(req) {
   const s = auth.getSession(auth.readCookie(req));
   if (!s) return null;
   const sb = sandbox.get(s.sbId);
-  const real = sb && account(sb, s.uid), eff = sb && account(sb, s.actingAs || s.uid);
+  const real = sb && asSignedIn(account(sb, s.uid));
+  const eff = sb && (s.actingAs === SELF ? account(sb, s.uid) : s.actingAs ? account(sb, s.actingAs) : real);
   if (!sb || !real || !real.active) { auth.endSession(s.id, sb ? "account switched off" : "demo expired"); return null; }
   if (!eff || !eff.active) { s.actingAs = null; return verify(req); }
   sb.lastSeen = Date.now();
@@ -218,9 +222,9 @@ route("POST", "/api/auth/view-as", {}, (req, body) => {
   if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Only the office can switch views.");
   const target = account(req.auth.sb, body.userId);
   if (!target || !target.active) throw new svc.HttpError(400, "Unknown user.");
-  req.auth.session.actingAs = target.id === req.auth.real.id ? null : target.id;
+  req.auth.session.actingAs = target.id !== req.auth.real.id ? target.id : body.as === "clinician" && req.auth.real.dual ? SELF : null;
   if (target.id !== req.auth.real.id) svc.audit(req.auth.real.name, "auth.view-as", target.id, `Viewing the app as ${target.name}`);
-  return { user: pub(target) };
+  return { user: pub(target.id === req.auth.real.id && !req.auth.session.actingAs ? req.auth.real : target) };
 });
 
 // Demo only: a single-use link (shown as a QR code) that signs a phone in as a clinician, valid 10 minutes.

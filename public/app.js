@@ -296,8 +296,9 @@ async function submitCode(code) {
   }
 }
 /** The office looking at the app as a clinician sees it (or back to the office). */
-async function viewAs(userId) {
-  await api("POST", "/api/auth/view-as", { userId });
+async function viewAs(userId, asOffice = false) {
+  // A director (a clinician with office access) is the same account in both views: say which one.
+  await api("POST", "/api/auth/view-as", { userId, as: asOffice ? "office" : "clinician" });
   await enter();
 }
 const isOffice = () => !!S && !!S.signedInAs && S.signedInAs.role === "admin";
@@ -796,7 +797,7 @@ function todayTab(c) {
   const moved = list.find((a) => (a.moved || a.bookedMin != null) && !a.seen);
   const nxt = list.find((a) => !finished(a));
   const rest = list.filter((a) => a !== nxt);
-  const switcher = !isOffice() ? "" : `<span class="preview-tag">Office preview</span><select class="who-select" id="me" aria-label="Switch clinician">${clinUsers().map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
+  const switcher = !isOffice() ? "" : `<span class="preview-tag">${S.signedInAs.dual && S.user.id === S.signedInAs.id ? "Your round" : "Office preview"}</span><select class="who-select" id="me" aria-label="Switch clinician">${clinUsers().map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
   let hero = "";
   if (nxt) {
     const p = pat(nxt.patientId), t = T(nxt.type), act = nextAction(nxt);
@@ -1387,7 +1388,7 @@ function teamPage() {
   if (!t) return `<div class="pg">${pageHead({ eyebrow: esc(S.settings.practice), title: "Team &amp; hours" })}<p class="muted">Loading…</p></div>`;
   const clin = t.clinicians.filter((c) => c.active), off = t.clinicians.filter((c) => !c.active);
   const card = (c) => `<a class="pcard ${c.active ? "" : "off"}" href="#/team/clin/${esc(c.id)}">
-      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}</span></span>${c.active ? signinBadge(c.signin) : `<span class="badge b-plain">Switched off</span>`}</span>
+      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}${c.office ? " · office access" : ""}</span></span>${c.active ? signinBadge(c.signin) : `<span class="badge b-plain">Switched off</span>`}</span>
       <span class="pc-area">${icon("pin")}${esc(c.areaName || "No area set")}</span>
       <span class="chips-r">${c.patch.slice(0, 8).map((d) => `<span class="chip">${esc(d)}</span>`).join("")}${c.patch.length > 8 ? `<span class="chip">+${c.patch.length - 8}</span>` : ""}</span>
       <span class="pc-hours">${weekBar(c.hours)}<span class="muted">${esc(hoursText(c.hours))}</span></span></a>`;
@@ -1424,7 +1425,8 @@ function personPage(t, edit) {
     <form id="tm-clin" data-id="${esc(edit.id || "")}" class="pg-form">
       <section class="card"><div class="card-h"><h2>Profile</h2><p>How they appear in the diary and on patients' texts.</p></div>
         <div class="row2">${f("name", "Full name", c.name, 'maxlength="60" required')}<div class="field"><label for="tm-role">Role</label><span class="hint">Only optometrists are offered eye examinations.</span><select class="input" id="tm-role">${t.roles.map((r) => `<option ${r === c.role ? "selected" : ""}>${r}</option>`).join("")}</select></div></div>
-        <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:46px;padding:4px"></div></div></section>
+        <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:46px;padding:4px"></div></div>
+        <label class="chk"><input type="checkbox" id="tm-office" ${c.office ? "checked" : ""}><span><b>Also runs the practice</b> <span class="muted">(for a director: office access to every diary, patient and setting, as well as their own round)</span></span></label></section>
       <section class="card"><div class="card-h"><h2>Area</h2><p>Who they're offered: patients in these postcode areas first, then the ones they'll also go to.</p></div>
         ${f("area", "Area name", c.areaName, 'maxlength="60" placeholder="e.g. Bolton & Bury"')}
         <div class="row2">${f("patch", "Postcode areas they cover", c.patch.join(", "), 'placeholder="BL1, BL2, BL3"', "Separate with commas.")}${f("near", "Will also go to", c.near.join(", "), 'placeholder="BL4, M8"', "Used when nobody nearer fits.")}</div>
@@ -2251,7 +2253,8 @@ async function openPatient(id, apptId) {
 async function switchRole(admin) {
   if (!S || isAdmin() === admin) return;
   closeDrawer();
-  await viewAs(admin ? S.signedInAs.id : UI.lastClin);
+  if (!admin && S.signedInAs.dual && !UI.pickedClin) UI.lastClin = S.signedInAs.id; // a director's own round first
+  await viewAs(admin ? S.signedInAs.id : UI.lastClin, admin);
 }
 
 document.addEventListener("click", async (e) => {
@@ -2594,7 +2597,7 @@ document.addEventListener("submit", async (e) => {
       const v = (id) => ($("#tm-" + id) || {}).value || "";
       const hours = WD().map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
       const id = e.target.dataset.id || undefined;
-      const r = await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
+      const r = await api("POST", "/api/team/clinicians", { id, office: !!($("#tm-office") || {}).checked, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
       await load();
       if (id) { go("team"); toast("Saved"); }
       else { UI.pg.invite = r.invite; go("team/clin/" + r.id); toast(r.invite.emailed ? `Added. ${first(r.name)} has been emailed an invitation.` : `Added. Send ${first(r.name)} their invitation link.`); }
@@ -2654,7 +2657,7 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }
     if (e.target.id === "practice-name") { const v = e.target.value.trim(); if (v.length < 2) { e.target.value = S.settings.practice; return; } await api("PUT", "/api/settings", { practice: v }); await load(); toast("Texts now signed " + v); }
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
-    if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
+    if (e.target.id === "me") { UI.lastClin = e.target.value; UI.pickedClin = true; await viewAs(e.target.value); }
     if (e.target.dataset && e.target.dataset.price) { await api("PUT", "/api/settings", { prices: { [e.target.dataset.price]: Number(e.target.value) } }); await load(); toast("Price saved"); }
     if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; redraw(); }
   } catch (err) { fail(err); }
@@ -2678,7 +2681,7 @@ $("#signout").onclick = async () => {
 };
 $("#reset").onclick = async () => {
   try {
-    if (!isAdmin()) await viewAs(S.signedInAs.id);
+    if (!isAdmin()) await viewAs(S.signedInAs.id, true);
     await api("POST", "/api/admin/reset"); closeDrawer(); UI.pid = null; UI.rec = null; await load(); toast("Demo started again from 10:20");
   } catch (err) { fail(err); }
 };
