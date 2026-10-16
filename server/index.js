@@ -107,7 +107,7 @@ function clinicianCanSee(user, patientId) {
 
 // `?brand=` styles the sign-in screen before a demo exists; afterwards the demo's own brand comes with /api/state.
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
-  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
+  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
@@ -520,6 +520,8 @@ route("POST", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); ret
 
 // Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
 route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(require("./calendar").openDays(1, 1)[0], user.name); });
+// Where a booking came from, and how likely it is to go ahead (the true count).
+route("PUT", "/api/appointments/:id/likelihood", {}, (req, body, user, { id }) => { needAdmin(user); return svc.setLikelihood(id, body, user); });
 // Confirmation calls (CC1-CC3): today's list, and recording each one.
 route("GET", "/api/calls", {}, (req, body, user) => { needAdmin(user); return calls.list(); });
 route("POST", "/api/calls/:id", {}, (req, body, user, { id }) => { needAdmin(user); return calls.record(id, body.stage, body.outcome, user); });

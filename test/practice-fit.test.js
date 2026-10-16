@@ -135,3 +135,35 @@ test("the recall line also keeps cancelled NHS visits from being offered to some
   assert.strictEqual(c.ok, false);
   assert.match(c.reason, /not due until 1 Nov 2026/);
 });
+
+test("true count: where a booking came from, how likely it is to go ahead, and each clinic's strength", async () => {
+  const o = await office();
+  const meta = (await call("GET", "/api/meta")).data;
+  assert.strictEqual(meta.sources.recall.count, 1);
+  assert.strictEqual(meta.sources.facebook.count, 0.5);
+  let st = (await call("GET", "/api/state", o.token)).data;
+  assert.ok(st.appts.every((a) => a.source && typeof a.count === "number"));
+  assert.ok(st.appts.some((a) => a.source === "recall" && a.count === 1) && st.appts.some((a) => a.count === 0.5) && st.appts.some((a) => a.count === 0.25));
+  assert.strictEqual(st.settings.clinicTarget, 10);
+
+  // A booking for someone on the recall list counts 1; a new patient 0.5; the office can say otherwise.
+  const recallPid = st.waitlist.find((w) => w.source === "recall" && w.status === "waiting").patientId;
+  const s1 = (await call("POST", "/api/slots", o.token, { patientId: recallPid, type: "exam", avail: "any", date: "2026-11-02" })).data.slots[0];
+  const b1 = (await call("POST", "/api/bookings", o.token, { patientId: recallPid, type: "exam", avail: "any", clinicianId: s1.clinicianId, day: s1.day, start: s1.start })).data;
+  const s2 = (await call("POST", "/api/slots", o.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "repair", avail: "any", date: "2026-11-03" })).data.slots[0];
+  const b2 = (await call("POST", "/api/bookings", o.token, { patientId: "new", name: "Ruth Ingham", pc: "LS16", addr: "3 Holt Lane", type: "repair", avail: "any", clinicianId: s2.clinicianId, day: s2.day, start: s2.start, source: "facebook" })).data;
+  st = (await call("GET", "/api/state", o.token)).data;
+  const v1 = st.appts.find((a) => a.id === b1.appointmentId), v2 = st.appts.find((a) => a.id === b2.appointmentId);
+  assert.strictEqual(v1.source, "recall"); assert.strictEqual(v1.count, 1);
+  assert.strictEqual(v2.source, "facebook"); assert.strictEqual(v2.count, 0.5);
+
+  const low = await call("PUT", `/api/appointments/${v1.id}/likelihood`, o.token, { reliability: 0.25 });
+  assert.strictEqual(low.status, 200, JSON.stringify(low.data));
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.appts.find((a) => a.id === v1.id).count, 0.25);
+  assert.strictEqual((await call("PUT", `/api/appointments/${v1.id}/likelihood`, o.token, { reliability: 0.6 })).status, 400);
+  assert.strictEqual((await call("PUT", `/api/appointments/${v1.id}/likelihood`, o.token, { source: "magic" })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { clinicTarget: 12 })).status, 200);
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { clinicTarget: 0 })).status, 400);
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  assert.strictEqual((await call("PUT", `/api/appointments/${v1.id}/likelihood`, amira.token, { reliability: 1 })).status, 403);
+});

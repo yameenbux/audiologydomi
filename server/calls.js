@@ -13,7 +13,7 @@ const cal = require("./calendar");
 const sandbox = require("./sandbox");
 const { db } = require("./db");
 const { sendSms } = require("./notify");
-const { TYPES, hm, first } = require("./domain");
+const { TYPES, SOURCES, hm, first } = require("./domain");
 const svc = require("./service");
 const bus = require("./bus");
 
@@ -84,6 +84,7 @@ function list() {
       tries: tries[stage], last: last ? { outcome: last.outcome, by: last.by_name, at: last.at } : null,
       earlier: Object.keys(done).filter((k) => done[k]).map(Number),
       say: w.say, text: w.text, canText: !!p.phone && p.contact !== "Call",
+      count: r.reliability != null ? r.reliability : (SOURCES[r.source] || SOURCES.new).count, source: r.source || "new",
     });
   }
   return { stages: STAGES, calls: out, count: out[1].length + out[2].length + out[3].length };

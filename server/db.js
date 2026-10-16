@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   moved INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, note TEXT, reason TEXT, gap INTEGER NOT NULL DEFAULT 0,
   cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT,
   reminded INTEGER NOT NULL DEFAULT 0,             -- day-before reminder sent
+  source TEXT,                                     -- where the booking came from (domain SOURCES)
+  reliability REAL,                                -- the office's own "true count" for this visit; NULL = the source's
   cancel_token TEXT UNIQUE                         -- secret for the family cancellation link (/cancel/<practice>/<token>)
 );
 CREATE TABLE IF NOT EXISTS invoices (
@@ -155,6 +157,8 @@ const USERS = [
  */
 const ADDED_COLUMNS = [
   ["patients", "recall_months", "BIGINT"],
+  ["appointments", "source", "TEXT"],
+  ["appointments", "reliability", "REAL"],
 ];
 const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
@@ -310,6 +314,10 @@ function seed(db, brand) {
     : [["ld1", "08:12", 492, "new", "Joan Whittle", "07700 900960", "joan.whittle@example.com", "LS16 7AB", [["Who is the eye test for?", "My mum"], ["When did they last have an eye test?", "Over 2 years ago"]]],
        ["ld2", "09:31", 571, "new", "Derek Lord", "07700 900961", "derek.lord@example.com", "LS17 6JN", [["Who is the eye test for?", "Me"], ["When did they last have an eye test?", "I don't know"]]],
        ["ld3", "Yesterday 16:40", -440, "contacted", "Pauline Haworth", "07700 900962", "p.haworth@example.com", "LS15 8PL", [["Who is the eye test for?", "My dad"], ["When did they last have an eye test?", "1 to 2 years ago"]], "Left a voicemail at 9:15. Try again after 2pm."]];
+  // Where each sample booking came from, and a few the office doesn't trust to be in.
+  const MIX = ["recall", "recall", "facebook", "recall", "old-recall", "referral", "recall", "new", "recall"];
+  db.prepare("SELECT id FROM appointments ORDER BY id").all().forEach((r, i) => db.prepare("UPDATE appointments SET source = ? WHERE id = ?").run(MIX[i % MIX.length], r.id));
+  db.prepare("UPDATE appointments SET reliability = 0.25 WHERE id IN ('a4', 'w2c30', 'w3c11')").run();
   LEADS.forEach(([id, created_at, created_min, status, name, phone, email, pc, answers, note]) => {
     ins("leads", { id, created_at, created_min, status, source: "facebook", campaign: AD, name, phone, email, pc, answers: JSON.stringify(answers), note: note || null, handled_by: note ? "Sarah Lane" : null, handled_at: note ? "09:15" : null });
     const subject = `Thank you for getting in touch with ${brand.practice}`;
@@ -337,7 +345,7 @@ const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0 }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, erased: !!r.erased }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),

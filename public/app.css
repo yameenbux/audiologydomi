@@ -1037,3 +1037,13 @@ button.rm-row:hover { background: var(--subtle) }
 .cr-acts { flex-direction: row !important; flex-wrap: wrap; gap: 6px !important; justify-content: flex-end }
 @media (max-width: 1100px) { .call-row { grid-template-columns: 1fr 1fr } .cr-acts { justify-content: flex-start } }
 @media (max-width: 600px) { .call-row { grid-template-columns: 1fr } }
+
+/* True count: how likely a visit is to go ahead, and each clinic's total */
+.tcount-line { display: inline-block; margin-top: 3px; font-size: 11.5px; color: var(--forest); background: color-mix(in srgb, var(--forest) 9%, transparent); padding: 1px 7px; border-radius: 99px }
+.tcount-line.weak { color: var(--apricot-ink, #9a4a12); background: color-mix(in srgb, var(--apricot) 18%, transparent) }
+.blk .tcount { position: absolute; top: 4px; right: 5px; font: 600 10.5px/1 var(--f-mono); padding: 3px 5px; border-radius: 6px; background: color-mix(in srgb, var(--apricot) 25%, var(--surface)); color: var(--ink) }
+.blk .tcount.low { background: var(--apricot); color: #fff }
+.wk-cell .tcount-line { margin-top: 6px }
+.likely { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px }
+.tcount-line { white-space: nowrap }
+.wk-cell .tcount-line { font-size: 10.5px; padding: 1px 6px; align-self: flex-start }
