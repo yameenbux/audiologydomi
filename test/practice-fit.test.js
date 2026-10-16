@@ -88,3 +88,50 @@ test("confirmation calls: CC3 the day before, CC2 within a week with a window, C
   const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
   assert.strictEqual((await call("GET", "/api/calls", amira.token)).status, 403);
 });
+
+test("the recall line: no NHS sight test before the recall date less a month, unless it's an early retest", async () => {
+  const svc = require("../server/service");
+  // Their own example: seen 15 Oct 2025 on a 12-month recall, no sooner than 16 Sep 2026.
+  assert.strictEqual(svc.nhsFrom({ lastTest: "2025-10-15" }).iso, "2026-09-16");
+  assert.strictEqual(svc.nhsFrom({ lastTest: "2026-04-10", recallMonths: 6 }).iso, "2026-09-11");
+  assert.strictEqual(svc.nhsFrom({ lastTest: "2025-12-31", recallMonths: 3 }).iso, "2026-03-01", "end of a short month");
+  assert.strictEqual(svc.nhsFrom({}), null);
+
+  const o = await office();
+  // p9 had a sight test on 20 Nov 2025: not before 21 Oct 2026 (day 9).
+  const put = await call("PUT", "/api/patients/p9", o.token, { lastTest: "2025-11-20", recallMonths: 12 });
+  assert.strictEqual(put.status, 200, JSON.stringify(put.data));
+  assert.deepStrictEqual(put.data.changed, ["last sight test"], "12 is the default, so only the date changed");
+  const rec = (await call("GET", "/api/patients/p9", o.token)).data;
+  assert.strictEqual((rec.patient || rec).nhsFrom.iso, "2026-10-21");
+
+  const found = (await call("POST", "/api/slots", o.token, { patientId: "p9", type: "sight", avail: "any" })).data;
+  assert.strictEqual(found.recallLine.label, "21 Oct 2026");
+  assert.ok(found.slots.length && found.slots.every((s) => s.day >= 9), "times start from the line");
+  // A private examination isn't held back.
+  assert.ok((await call("POST", "/api/slots", o.token, { patientId: "p9", type: "exam", avail: "any" })).data.slots.some((s) => s.day < 9));
+
+  const early = (await call("POST", "/api/slots", o.token, { patientId: "p9", type: "sight", avail: "any", early: true })).data;
+  assert.strictEqual(early.recallLine, null);
+  const x = early.slots.find((s) => s.day < 9);
+  const refused = await call("POST", "/api/bookings", o.token, { patientId: "p9", type: "sight", avail: "any", clinicianId: x.clinicianId, day: x.day, start: x.start });
+  assert.strictEqual(refused.status, 409);
+  assert.match(refused.data.error, /before 21 Oct 2026.*early retest/);
+  const ok = await call("POST", "/api/bookings", o.token, { patientId: "p9", type: "sight", avail: "any", clinicianId: x.clinicianId, day: x.day, start: x.start, early: true });
+  assert.strictEqual(ok.status, 200, JSON.stringify(ok.data));
+
+  // Validation.
+  assert.strictEqual((await call("PUT", "/api/patients/p5", o.token, { recallMonths: 9 })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/patients/p5", o.token, { lastTest: "2030-01-01" })).status, 400);
+});
+
+test("the recall line also keeps cancelled NHS visits from being offered to someone not yet due", () => {
+  const { rankCandidates } = require("../server/refill");
+  const clinician = { id: "c1", first: "Amira", optom: true, patch: ["LS6"], near: [], hours: [[540, 1050], [540, 1050], [540, 1050], [540, 1050], [540, 1050]] };
+  const slot = { id: "s", clinicianId: "c1", day: 3, start: 600, type: "sight" };
+  const waitlist = [{ id: "w1", patientId: "p1", type: "sight", prio: "routine", status: "waiting", avail: "any", days: 10, shortNotice: true }];
+  const patientsById = { p1: { id: "p1", name: "Joan", pc: "LS6 1AA", nhsFrom: { day: 20, label: "1 Nov 2026" } } };
+  const [c] = rankCandidates({ slot, clinician, dayAppts: [slot], waitlist, patientsById, sameDay: false }).candidates;
+  assert.strictEqual(c.ok, false);
+  assert.match(c.reason, /not due until 1 Nov 2026/);
+});

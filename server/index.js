@@ -299,6 +299,7 @@ route("GET", "/api/patients/:id", {}, (req, body, user, { id }) => {
   if (!clinicianCanSee(user, id)) throw new svc.HttpError(403, "This patient isn't on your round or in your area.");
   const p = svc.getPatient(id);
   if (!p) throw new svc.HttpError(404, "Patient not found.");
+  p.nhsFrom = svc.nhsFrom(p); // the earliest NHS sight test can be claimed
   if (new URL(req.url, "http://x").searchParams.get("background") !== "1") svc.audit(user.name, "patient.view", id, p.name);
   return { ...p, history: db.prepare("SELECT * FROM notes WHERE patient_id = ? ORDER BY id DESC").all(id).map(map.note) };
 });

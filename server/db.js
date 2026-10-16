@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS patients (
   poa TEXT,                                       -- who holds lasting power of attorney (health and welfare), and how to reach them
   share TEXT CHECK (share IN ('yes','no')),       -- whether the practice may discuss visits with the next of kin or carer; NULL = not asked
   last_test TEXT,                                 -- date of the last sight test, ISO
+  recall_months INTEGER,                          -- months to the next sight test, set by the optometrist (12, 6 or 3); NULL = 12
   erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
 );
 CREATE TABLE IF NOT EXISTS notes (
@@ -147,6 +148,14 @@ const USERS = [
   { id: "u-c3", email: "priya@airevalleyeyecare.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Optometrist", color: "#7A5A8C" },
 ];
 
+/**
+ * Columns added after a table was first made. A fresh database gets them from SCHEMA; a live practice's Postgres
+ * tables, made with an older SCHEMA, get them added when the practice opens (pgstore.ensure). Each must be
+ * nullable or have a default, so existing rows stay valid.
+ */
+const ADDED_COLUMNS = [
+  ["patients", "recall_months", "BIGINT"],
+];
 const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
@@ -327,7 +336,7 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0 }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, erased: !!r.erased }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, erased: !!r.erased }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
@@ -340,4 +349,4 @@ const map = {
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, openDb, map, SCHEMA, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };
+module.exports = { ADDED_COLUMNS, db, openDb, map, SCHEMA, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };

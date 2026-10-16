@@ -41,6 +41,26 @@ function bookableDay(day) {
   if (why) throw new HttpError(400, `The practice is closed on ${cal.label(day)} (${why}).`);
   return day;
 }
+/**
+ * The earliest an NHS sight test can be claimed for this patient: their recall date (last test plus the months the
+ * optometrist set, 12 unless changed) less one month, plus a day. Seen 15 Oct 2025 on a 12-month recall: not
+ * before 16 Sep 2026. Earlier needs an early-retest reason on the GOS form, so the office must say so. Null when
+ * there's no last test on record.
+ */
+function nhsFrom(p) {
+  if (!p || !p.lastTest || !/^\d{4}-\d{2}-\d{2}/.test(p.lastTest)) return null;
+  const months = p.recallMonths || 12, [y, m, d] = p.lastTest.slice(0, 10).split("-").map(Number);
+  const back = new Date(Date.UTC(y, m - 1 + months - 1, 1)), last = new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth() + 1, 0)).getUTCDate();
+  const iso = new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth(), Math.min(d, last)) + 864e5).toISOString().slice(0, 10);
+  return { iso, day: cal.dayOf(iso), months, label: new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) };
+}
+/** Refuse an NHS sight test before the patient's recall line, unless the office gives an early-retest reason. */
+function checkNhsLine(p, type, day, early) {
+  if (!TYPES[type] || !TYPES[type].pvn) return;
+  const f = nhsFrom(p);
+  if (!f || day >= f.day || early) return;
+  throw new HttpError(409, `${p.name} can't have an NHS sight test before ${f.label}: their last was ${new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}, on a ${f.months}-month recall. Book from then, or tick "early retest" if their sight has changed (the GOS form needs the reason).`);
+}
 /** The day-before reminder. Also shown on the Settings page, so the office sees exactly what patients get. */
 const reminderText = (name, clinFirst, day, start, type, link) =>
   `Hi ${first(name)}, a reminder from ${practice()}: ${clinFirst} visits you ${when(day, start)} for your ${lowerName(TYPES[type].name)}. Can't make it? Reply CANCEL${link ? ` or cancel online at ${link}` : ""} and we'll offer the time to someone waiting.`;
@@ -86,7 +106,7 @@ function tx(fn) {
 function rank(slot, declined) {
   const clinician = getClinician(slot.clinicianId);
   const waitlist = all("SELECT * FROM waitlist WHERE status = 'waiting'").map(map.wait);
-  const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => [r.id, map.patient(r)]));
+  const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => { const p = map.patient(r); p.nhsFrom = nhsFrom(p); return [r.id, p]; }));
   const leadMin = cal.workMinutesUntil(slot.day, slot.start, sandbox.nowMin()); // PCSE's 48 hours are working hours
   return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0, leadMin }) };
 }
@@ -629,6 +649,8 @@ function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, 
     .map((r) => ({ ...map.appt(r), pc: r.pc, name: r.name }));
   const wait = patient.id && one("SELECT prio FROM waitlist WHERE patient_id = ? AND status = 'waiting'", patient.id);
   // `count` open days from `from`: today onwards by default, or the week the office picked.
+  const f = TYPES[type].pvn && patient.id && !patient.early ? nhsFrom(patient) : null;
+  if (f && f.day > from) from = f.day; // not before their recall line
   const days = cal.openDays(from, count, max);
   return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
 }
@@ -657,8 +679,11 @@ async function findSlots(input) {
   await warmRoutes(input);
   const patient = bookingPatient(input);
   const from = searchFrom(input);
+  if (input.early === true) patient.early = true;
+  const line = TYPES[input.type] && TYPES[input.type].pvn && !patient.early ? nhsFrom(patient) : null;
   const slots = slotsFor(patient, input.type, input.avail, { from }).slice(0, 6);
-  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, from, fromLabel: cal.label(from), slots };
+  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, from, fromLabel: cal.label(from), slots,
+    recallLine: line && line.day > from ? { label: line.label, day: line.day, months: line.months } : null };
 }
 
 /** Book a visit into a slot. The slot is re-checked here, so two people can't book the same gap. */
@@ -669,6 +694,8 @@ async function bookVisit(input, user) {
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
     const start = Number(input.start), day = bookableDay(Number(input.day || 0));
+    checkNhsLine(draft, input.type, day, input.early === true);
+    if (input.early === true) draft.early = true;
     const slot = slotsFor(draft, input.type, input.avail, { from: day, count: 1 }).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
     if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
     return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office" });
@@ -902,7 +929,7 @@ function redrive(cid, day) {
 }
 
 const PATIENT_LABELS = { name: "name", addr: "address", pc: "postcode", phone: "phone", contact: "how to contact", email: "email", dob: "date of birth",
-  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes" };
+  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes", lastTest: "last sight test", recallMonths: "recall" };
 
 /** The checks on a patient's details, shared by adding and editing. Only the fields sent are checked and returned. */
 function patientFields(input, before) {
@@ -934,6 +961,16 @@ function patientFields(input, before) {
   if (has("rep")) next.rep = clean(input.rep, 120) || null;
   if (has("poa")) next.poa = clean(input.poa, 120) || null;
   if (has("share")) { if (!["yes", "no", "", null].includes(input.share)) throw new HttpError(400, "Choose whether we may talk to their next of kin or carer."); next.share = input.share || null; }
+  if (has("lastTest")) {
+    const v = String(input.lastTest || "");
+    if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= "1990-01-01" && v <= cal.iso(0))) throw new HttpError(400, "Enter the last sight test as a date, not in the future.");
+    next.lastTest = v || null;
+  }
+  if (has("recallMonths")) {
+    const v = input.recallMonths == null || input.recallMonths === "" ? null : Number(input.recallMonths);
+    if (v != null && ![3, 6, 12, 24].includes(v)) throw new HttpError(400, "Choose a recall of 3, 6, 12 or 24 months.");
+    next.recallMonths = v === 12 ? null : v; // 12 is the default, stored as none
+  }
   if (has("specs")) next.specs = clean(input.specs, 80) || "None on record";
   if (has("alerts")) {
     const list = (Array.isArray(input.alerts) ? input.alerts : String(input.alerts || "").split("\n")).map((a) => clean(a, 120)).filter(Boolean).slice(0, 8);
@@ -980,7 +1017,7 @@ async function updatePatient(id, input, user) {
   if (!changed.length) return { patient: before, changed: [] };
   if (next.pc) await travel.prepare([next.pc, ...upcoming(before.id).map((a) => getClinician(a.clinicianId).base)]);
   return tx(() => {
-    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts" };
+    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts", lastTest: "last_test", recallMonths: "recall_months" };
     for (const k of changed) run(`UPDATE patients SET ${cols[k]} = ? WHERE id = ?`, k === "alerts" ? JSON.stringify(next[k]) : next[k], before.id);
     if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((cal.todayMs() - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
     const labels = changed.map((k) => PATIENT_LABELS[k]);
@@ -1216,6 +1253,8 @@ async function moveAppointment(id, input, user) {
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
     const day = bookableDay(Number(input.day)), start = Number(input.start);
+    checkNhsLine(p, a.type, day, input.early === true);
+    if (input.early === true) p.early = true;
     const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1 }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
     if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
     const old = getClinician(a.clinicianId);
@@ -1519,4 +1558,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
