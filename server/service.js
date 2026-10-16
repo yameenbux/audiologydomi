@@ -48,11 +48,15 @@ function bookableDay(day) {
  * there's no last test on record.
  */
 function nhsFrom(p) {
-  if (!p || !p.lastTest || !/^\d{4}-\d{2}-\d{2}/.test(p.lastTest)) return null;
-  const months = p.recallMonths || 12, [y, m, d] = p.lastTest.slice(0, 10).split("-").map(Number);
-  const back = new Date(Date.UTC(y, m - 1 + months - 1, 1)), last = new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth() + 1, 0)).getUTCDate();
-  const iso = new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth(), Math.min(d, last)) + 864e5).toISOString().slice(0, 10);
-  return { iso, day: cal.dayOf(iso), months, label: new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) };
+  const ymd = (iso) => String(iso).slice(0, 10).split("-").map(Number);
+  const addMonths = ([y, m, d], n) => { const first = new Date(Date.UTC(y, m - 1 + n, 1)), last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate(); return Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), Math.min(d, last)); };
+  const isDate = (v) => v && /^\d{4}-\d{2}-\d{2}/.test(v);
+  let due, months = p && (p.recallMonths || 12);
+  if (p && isDate(p.nextExam)) due = ymd(p.nextExam); // Opticabase's own next exam date, when imported
+  else if (p && isDate(p.lastTest)) { const t = addMonths(ymd(p.lastTest), months); due = ymd(new Date(t).toISOString()); }
+  else return null;
+  const iso = new Date(addMonths(due, -1) + 864e5).toISOString().slice(0, 10);
+  return { iso, day: cal.dayOf(iso), months, fromNextExam: !!(p && isDate(p.nextExam)), label: new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) };
 }
 /** Where a booking for this patient came from, unless the office said: on the recall list, a Facebook lead, a
  *  referral, seen before (an old recall), or new. */
@@ -87,7 +91,7 @@ function checkNhsLine(p, type, day, early) {
   if (!TYPES[type] || !TYPES[type].pvn) return;
   const f = nhsFrom(p);
   if (!f || day >= f.day || early) return;
-  throw new HttpError(409, `${p.name} can't have an NHS sight test before ${f.label}: their last was ${new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}, on a ${f.months}-month recall. Book from then, or tick "early retest" if their sight has changed (the GOS form needs the reason).`);
+  throw new HttpError(409, `${p.name} can't have an NHS sight test before ${f.label}: ${f.fromNextExam ? "a month before the next exam Opticabase set" : `their last was ${new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}, on a ${f.months}-month recall`}. Book from then, or tick "early retest" if their sight has changed (the GOS form needs the reason).`);
 }
 /** The day-before reminder. Also shown on the Settings page, so the office sees exactly what patients get. */
 const reminderText = (name, clinFirst, day, start, type, link) =>
@@ -788,8 +792,8 @@ function commitImport(input, user) {
     const seq = one("SELECT COALESCE(MAX(added_seq), 0) AS s FROM waitlist").s;
     for (const row of ready) {
       const p = row.patient, id = newId("p");
-      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest);
+      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test, next_exam, recall_months, ob_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest, p.nextExam || null, p.recallMonths || null, p.obId || null);
       run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", id, "Imported", p.notes ? `Imported from spreadsheet. ${p.notes}` : "Imported from spreadsheet.", user.name, sandbox.stamp());
       if (row.recall && row.recall.dueDay <= 14) {
         const rid = newId("r"), wid = newId("w");
@@ -957,7 +961,7 @@ function redrive(cid, day) {
 }
 
 const PATIENT_LABELS = { name: "name", addr: "address", pc: "postcode", phone: "phone", contact: "how to contact", email: "email", dob: "date of birth",
-  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes", lastTest: "last sight test", recallMonths: "recall" };
+  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes", lastTest: "last sight test", recallMonths: "recall", obId: "Opticabase ID", nextExam: "next exam" };
 
 /** The checks on a patient's details, shared by adding and editing. Only the fields sent are checked and returned. */
 function patientFields(input, before) {
@@ -993,6 +997,17 @@ function patientFields(input, before) {
     const v = String(input.lastTest || "");
     if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= "1990-01-01" && v <= cal.iso(0))) throw new HttpError(400, "Enter the last sight test as a date, not in the future.");
     next.lastTest = v || null;
+  }
+  if (has("obId")) {
+    const v = String(input.obId || "").trim().replace(/\s+/g, "");
+    if (v && !/^[A-Za-z0-9/-]{1,20}$/.test(v)) throw new HttpError(400, "An Opticabase ID is letters and numbers, up to 20.");
+    if (v && one("SELECT 1 FROM patients WHERE ob_id = ? AND id IS NOT ?", v, before.id || null)) throw new HttpError(409, `Another patient already has Opticabase ID ${v}.`);
+    next.obId = v || null;
+  }
+  if (has("nextExam")) {
+    const v = String(input.nextExam || "");
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, "Enter the next exam as a date.");
+    next.nextExam = v || null;
   }
   if (has("recallMonths")) {
     const v = input.recallMonths == null || input.recallMonths === "" ? null : Number(input.recallMonths);
@@ -1045,7 +1060,7 @@ async function updatePatient(id, input, user) {
   if (!changed.length) return { patient: before, changed: [] };
   if (next.pc) await travel.prepare([next.pc, ...upcoming(before.id).map((a) => getClinician(a.clinicianId).base)]);
   return tx(() => {
-    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts", lastTest: "last_test", recallMonths: "recall_months" };
+    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts", lastTest: "last_test", recallMonths: "recall_months", obId: "ob_id", nextExam: "next_exam" };
     for (const k of changed) run(`UPDATE patients SET ${cols[k]} = ? WHERE id = ?`, k === "alerts" ? JSON.stringify(next[k]) : next[k], before.id);
     if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((cal.todayMs() - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
     const labels = changed.map((k) => PATIENT_LABELS[k]);

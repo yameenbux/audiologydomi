@@ -32,6 +32,9 @@ const FIELDS = [
   { key: "alerts", label: "Access notes" },
   { key: "specs", label: "Glasses" },
   { key: "lastTest", label: "Last sight test" },
+  { key: "nextExam", label: "Next exam due" },
+  { key: "recallMonths", label: "Recall (months)" },
+  { key: "obId", label: "Opticabase ID" },
   { key: "notes", label: "Notes" },
 ];
 const FIELD_KEYS = new Set(FIELDS.map((f) => f.key));
@@ -51,19 +54,22 @@ const SYNONYMS = {
   phone2: ["landline", "homephone", "home", "otherphone", "phone2", "telephone2", "alternativenumber", "altphone", "homenumber"],
   email: ["email", "emailaddress", "mail"],
   contact: ["contactpreference", "prefers", "preferredcontact", "contactby", "contactmethod", "preference"],
-  eligibility: ["eligibility", "eligibilityreason", "reason", "homevisitreason", "reasonforhomevisit", "condition", "medicalcondition", "whyhomevisit", "conditions"],
+  eligibility: ["domireason", "domreason", "domiciliaryreason", "eligibility", "eligibilityreason", "reason", "homevisitreason", "reasonforhomevisit", "condition", "medicalcondition", "whyhomevisit", "conditions"],
   rep: ["nextofkin", "nok", "carer", "representative", "contactperson", "relative", "familycontact", "emergencycontact", "kin"],
   repPhone: ["nokphone", "nextofkinphone", "nextofkinnumber", "nokno", "noknumber", "carerphone", "carernumber", "relativephone", "emergencycontactnumber", "emergencynumber"],
   alerts: ["access", "accessnotes", "alerts", "keysafe", "warnings", "accessinfo", "accessdetails"],
   specs: ["glasses", "spectacles", "specs", "currentglasses", "lenstype", "lenses"],
-  lastTest: ["lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested"],
+  nextExam: ["nextexam", "nextexamdate", "nexttest", "nextsighttest", "nextdue", "recalldate", "duedate", "nexteyetest"],
+  recallMonths: ["recall", "recallmonths", "recallperiod", "recallinterval"],
+  obId: ["id", "obid", "opticabaseid", "opticabase", "patientid", "pxid", "pxno", "patientno", "patientnumber", "ref", "reference"],
+  lastTest: ["examdate", "lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested"],
   notes: ["notes", "comments", "comment", "info", "additionalinfo", "other", "note", "details"],
 };
 // Looser matches for headers that aren't in the list: a word the header contains.
 const CONTAINS = [
   ["repPhone", /(kin|carer|relative|emergency).*(phone|tel|number|no)/], ["rep", /kin|carer|relative|emergency/],
   ["phone2", /landline|home ?phone|alt/], ["phone", /mobile|phone|tel/], ["pc", /post ?code/], ["dob", /birth|dob/],
-  ["lastTest", /last.*(test|exam|visit|seen)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
+  ["nextExam", /next.*(exam|test|due)|recall ?date/], ["lastTest", /last.*(test|exam|visit|seen)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
   ["first", /first|forename/], ["last", /surname|last ?name/], ["addr", /address/], ["notes", /note|comment/],
 ];
 
@@ -102,7 +108,10 @@ function guessMapping(headers) {
   const used = new Set();
   const out = headers.map(() => null);
   const take = (i, key) => { if (!used.has(key) && out[i] == null) { out[i] = key; used.add(key); } };
+  // A "Mobile" column is the number to text, even when a "Phone" column comes first (Opticabase has both).
+  headers.forEach((h, i) => { if (/^(mobile|mobilenumber|mobileno|mob|mobilephone)$/.test(squash(h))) take(i, "phone"); });
   headers.forEach((h, i) => { const k = Object.keys(SYNONYMS).find((f) => SYNONYMS[f].includes(squash(h))); if (k) take(i, k); });
+  headers.forEach((h, i) => { if (out[i] == null && /^(phone|telephone|tel|phonenumber)$/.test(squash(h))) take(i, "phone2"); });
   headers.forEach((h, i) => {
     if (out[i] != null) return;
     const low = String(h).toLowerCase();
@@ -236,18 +245,33 @@ function readRow(cells, mapping, { townOf } = {}) {
     }
   }
 
+  // From Opticabase: its patient ID (kept to match the two systems), the next exam it worked out, and the recall.
+  const obId = String(v.obId || "").trim().replace(/\s+/g, "").slice(0, 20) || null;
+  let nextExam = null, recallMonths = null;
+  if (v.recallMonths) {
+    const n = Number(String(v.recallMonths).replace(/[^\d]/g, ""));
+    if ([3, 6, 12, 24].includes(n)) recallMonths = n === 12 ? null : n; else warnings.push(`Recall "${v.recallMonths}" isn't 3, 6, 12 or 24 months`);
+  }
+  if (v.nextExam) {
+    const d = parseDate(v.nextExam);
+    if (!d) warnings.push(`Next exam "${v.nextExam}" not recognised`);
+    else {
+      nextExam = d.iso;
+      recall = { dueDay: Math.round((d.t - today()) / DAY_MS), reason: "Next exam due (from Opticabase)" };
+    }
+  }
   const alerts = String(v.alerts || "").split(/[;|\n]+/).map((x) => x.trim()).filter(Boolean).slice(0, 8);
   return {
     errors, warnings, recall,
     patient: {
       name, pc: pc.value, addr: addr || "Address to confirm", phone, contact, dob, age, email: email || null,
       eligibility: eligibility || null, rep: rep || null, alerts, specs: String(v.specs || "").trim() || "None on record",
-      lastTest, notes: String(v.notes || "").trim().slice(0, 4000) || null,
+      lastTest, nextExam, recallMonths, obId, notes: String(v.notes || "").trim().slice(0, 4000) || null,
     },
   };
 }
 
-const keyOf = (p) => ({ phone: p.phone.replace(/\D/g, ""), namePc: `${p.name.toLowerCase()}|${p.pc.replace(/\s/g, "")}`, nameDob: p.dob ? `${p.name.toLowerCase()}|${p.dob}` : null });
+const keyOf = (p) => ({ ob: p.obId ? String(p.obId).toLowerCase() : null, phone: p.phone.replace(/\D/g, ""), namePc: `${p.name.toLowerCase()}|${p.pc.replace(/\s/g, "")}`, nameDob: p.dob ? `${p.name.toLowerCase()}|${p.dob}` : null });
 
 /**
  * Check a whole file. `existing` is the patients already on the system, so duplicates are caught before
@@ -267,9 +291,10 @@ function check(csv, mappingIn, existing = [], opts = {}) {
   if (!mapping.some((k) => k === "name" || k === "first" || k === "last")) missing.push("a name");
   if (!mapping.includes("pc")) missing.push("a postcode");
 
-  const seen = { phone: new Map(), namePc: new Map(), nameDob: new Map() };
+  const seen = { ob: new Map(), phone: new Map(), namePc: new Map(), nameDob: new Map() };
   for (const p of existing) {
     const k = keyOf(p);
+    if (k.ob) seen.ob.set(k.ob, { name: p.name, existing: true });
     if (k.phone.length >= 10) seen.phone.set(k.phone, { name: p.name, existing: true });
     seen.namePc.set(k.namePc, { name: p.name, existing: true });
     if (k.nameDob) seen.nameDob.set(k.nameDob, { name: p.name, existing: true });
@@ -279,10 +304,11 @@ function check(csv, mappingIn, existing = [], opts = {}) {
     const out = { line: i + 2, ...r, status: r.errors.length ? "error" : "ready", duplicateOf: null };
     if (!r.errors.length) {
       const k = keyOf(r.patient);
-      const hit = (k.phone.length >= 10 && seen.phone.get(k.phone)) || seen.namePc.get(k.namePc) || (k.nameDob && seen.nameDob.get(k.nameDob));
+      const hit = (k.ob && seen.ob.get(k.ob)) || (k.phone.length >= 10 && seen.phone.get(k.phone)) || seen.namePc.get(k.namePc) || (k.nameDob && seen.nameDob.get(k.nameDob));
       if (hit) { out.status = "duplicate"; out.duplicateOf = hit.existing ? `${hit.name}, already on Domi` : `${hit.name}, row ${hit.line}`; }
       else {
         const me = { name: r.patient.name, line: out.line };
+        if (k.ob) seen.ob.set(k.ob, me);
         if (k.phone.length >= 10) seen.phone.set(k.phone, me);
         seen.namePc.set(k.namePc, me);
         if (k.nameDob) seen.nameDob.set(k.nameDob, me);

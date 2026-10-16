@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS patients (
   poa TEXT,                                       -- who holds lasting power of attorney (health and welfare), and how to reach them
   share TEXT CHECK (share IN ('yes','no')),       -- whether the practice may discuss visits with the next of kin or carer; NULL = not asked
   last_test TEXT,                                 -- date of the last sight test, ISO
-  recall_months INTEGER,                          -- months to the next sight test, set by the optometrist (12, 6 or 3); NULL = 12
+  recall_months INTEGER,
+  next_exam TEXT,                                 -- the next exam Opticabase worked out, ISO; when set, the recall line comes from it
+  ob_id TEXT,                                     -- the patient's Opticabase ID, so the two systems can be matched                          -- months to the next sight test, set by the optometrist (12, 6 or 3); NULL = 12
   erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
 );
 CREATE TABLE IF NOT EXISTS notes (
@@ -158,6 +160,8 @@ const USERS = [
  */
 const ADDED_COLUMNS = [
   ["patients", "recall_months", "BIGINT"],
+  ["patients", "next_exam", "TEXT"],
+  ["patients", "ob_id", "TEXT"],
   ["appointments", "source", "TEXT"],
   ["appointments", "reliability", "REAL"],
   ["users", "office", "BIGINT NOT NULL DEFAULT 0"],
@@ -316,6 +320,8 @@ function seed(db, brand) {
     : [["ld1", "08:12", 492, "new", "Joan Whittle", "07700 900960", "joan.whittle@example.com", "LS16 7AB", [["Who is the eye test for?", "My mum"], ["When did they last have an eye test?", "Over 2 years ago"]]],
        ["ld2", "09:31", 571, "new", "Derek Lord", "07700 900961", "derek.lord@example.com", "LS17 6JN", [["Who is the eye test for?", "Me"], ["When did they last have an eye test?", "I don't know"]]],
        ["ld3", "Yesterday 16:40", -440, "contacted", "Pauline Haworth", "07700 900962", "p.haworth@example.com", "LS15 8PL", [["Who is the eye test for?", "My dad"], ["When did they last have an eye test?", "1 to 2 years ago"]], "Left a voicemail at 9:15. Try again after 2pm."]];
+  // Home Visiting Optics use Opticabase: their sample patients carry an Opticabase ID, as their diary does.
+  if (brand.id === "hvo") db.prepare("SELECT id FROM patients ORDER BY rowid").all().forEach((r, i) => db.prepare("UPDATE patients SET ob_id = ? WHERE id = ?").run(String(25180 + i * 7), r.id));
   // Where each sample booking came from, and a few the office doesn't trust to be in.
   const MIX = ["recall", "recall", "facebook", "recall", "old-recall", "referral", "recall", "new", "recall"];
   db.prepare("SELECT id FROM appointments ORDER BY id").all().forEach((r, i) => db.prepare("UPDATE appointments SET source = ? WHERE id = ?").run(MIX[i % MIX.length], r.id));
@@ -346,7 +352,7 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0, office: r.role === "admin" || !!r.office }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, erased: !!r.erased }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, erased: !!r.erased }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),

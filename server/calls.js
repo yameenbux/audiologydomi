@@ -80,7 +80,7 @@ function list() {
     const w = wording(stage, r, p, c), last = h.filter((x) => x.stage === stage).pop();
     out[stage].push({
       apptId: r.id, stage, day: r.day, dayLabel: cal.label(r.day), start: r.start_min, type: r.type, window: stage === 2 ? arrivalWindow(r.start_min) : null,
-      patient: { id: p.id, name: p.name, phone: p.phone, contact: p.contact, rep: p.rep, addr: p.addr, pc: p.pc }, clinician: { id: c.id, name: c.name, first: c.first, color: c.color },
+      patient: { id: p.id, obId: p.obId, name: p.name, phone: p.phone, contact: p.contact, rep: p.rep, addr: p.addr, pc: p.pc }, clinician: { id: c.id, name: c.name, first: c.first, color: c.color },
       tries: tries[stage], last: last ? { outcome: last.outcome, by: last.by_name, at: last.at } : null,
       earlier: Object.keys(done).filter((k) => done[k]).map(Number),
       say: w.say, text: w.text, canText: !!p.phone && p.contact !== "Call",

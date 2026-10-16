@@ -200,3 +200,42 @@ test("a director: a clinician with office access gets the office, and can switch
   // A plain clinician asking for the office view gets nothing new.
   assert.strictEqual((await call("POST", "/api/auth/view-as", a.token, { userId: a.user.id, as: "office" })).status, 403);
 });
+
+test("Opticabase: its export imports with the ID, the home-visit reason and the next exam; NHS numbers are left out", async () => {
+  const importer = require("../server/importer");
+  const csv = [
+    "ID,Title,Last Name,Name,DOB,Address,Post code,Phone,Mobile,E-Mail,NHS Reason,Domi Reason,NHS No,Last Exam,Next Exam,Optometrist",
+    "30111,Mrs,Whittle,Joan,14/03/1938,12 Weetwood Lane,LS16 5NX,0113 555 0123,07700 900401,,60+,Dementia: can't go out alone,9990001111,20/11/2025,20/11/2026,Amira Shah",
+    "30112,Mr,Ashworth,Frank,02/07/1941,3 Otley Road,LS6 4DH,0113 555 0124,,,60+,After a stroke: uses a wheelchair,9990002222,05/04/2026,05/10/2026,Amira Shah",
+  ].join("\n");
+  const r = importer.check(csv);
+  const m = Object.fromEntries(r.headers.map((h, i) => [h, r.mapping[i]]));
+  assert.strictEqual(m.ID, "obId"); assert.strictEqual(m["Last Name"], "last"); assert.strictEqual(m.Name, "first");
+  assert.strictEqual(m.Mobile, "phone", "the mobile is the number to text"); assert.strictEqual(m.Phone, "phone2");
+  assert.strictEqual(m["Domi Reason"], "eligibility"); assert.notStrictEqual(m["NHS Reason"], "eligibility");
+  assert.strictEqual(m["Last Exam"], "lastTest"); assert.strictEqual(m["Next Exam"], "nextExam");
+  assert.strictEqual(m["NHS No"], null, "NHS numbers aren't imported");
+  const [joan, frank] = r.rows;
+  assert.strictEqual(joan.patient.name, "Joan Whittle");
+  assert.strictEqual(joan.patient.obId, "30111");
+  assert.strictEqual(joan.patient.phone.replace(/\s/g, ""), "07700900401");
+  assert.strictEqual(joan.patient.nextExam, "2026-11-20");
+  assert.strictEqual(frank.patient.contact, "Call", "landline only: phoned");
+
+  // Through the app: imported, then the recall line comes from Opticabase's next exam.
+  const o = await office();
+  const pre = await call("POST", "/api/import/preview", o.token, { csv });
+  assert.strictEqual(pre.status, 200, JSON.stringify(pre.data).slice(0, 200));
+  const done = await call("POST", "/api/import/commit", o.token, { csv });
+  assert.strictEqual(done.status, 200, JSON.stringify(done.data).slice(0, 200));
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const j = st.patients.find((p) => p.obId === "30111");
+  assert.ok(j, "imported with the Opticabase ID");
+  const rec = (await call("GET", `/api/patients/${j.id}`, o.token)).data;
+  assert.strictEqual((rec.patient || rec).nhsFrom.iso, "2026-10-21", "a month before the next exam, plus a day");
+  // Importing the same export again finds them by their ID.
+  const again = await call("POST", "/api/import/preview", o.token, { csv });
+  assert.ok(again.data.rows.every((x) => x.status === "duplicate"));
+  // The ID is unique within the practice.
+  assert.strictEqual((await call("PUT", "/api/patients/p5", o.token, { obId: "30111" })).status, 409);
+});
