@@ -37,7 +37,7 @@ const SECTORS = ["domiciliary-opticians", "audiology", "podiatry", "physiotherap
 
 test("privacy, terms, thank-you, not-found and sector pages: titles, descriptions, previews, breadcrumbs and working links", () => {
   const b = build({});
-  for (const f of ["privacy/index.html", "terms/index.html", "thanks/index.html", "404.html", ...SECTORS.map((s) => s + "/index.html")]) {
+  for (const f of ["privacy/index.html", "terms/index.html", "thanks/index.html", "video/index.html", "404.html", ...SECTORS.map((s) => s + "/index.html")]) {
     const html = b.read(f);
     assert.match(html, /<title>[^<]+ · Domi<\/title>/, f);
     assert.match(html, /<meta name="description" content="[^"]{40,}">/, f);
@@ -53,7 +53,7 @@ test("privacy, terms, thank-you, not-found and sector pages: titles, description
   assert.match(b.read("privacy/index.html"), /"@type":"BreadcrumbList"/);
   assert.match(b.read("terms/index.html"), /og:title" content="Terms and conditions · Domi"/);
   const sitemap = b.read("sitemap.xml");
-  assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", ...SECTORS.slice().sort().map((s) => `https://domi.example/${s}/`), "https://domi.example/privacy/", "https://domi.example/terms/"]);
+  assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", ...SECTORS.slice().sort().map((s) => `https://domi.example/${s}/`), "https://domi.example/privacy/", "https://domi.example/terms/", "https://domi.example/video/"]);
   // The homepage links to each sector page, and each one says what isn't built yet
   for (const s of SECTORS) {
     assert.match(b.read("index.html"), new RegExp(`href="/${s}/"`), s);
