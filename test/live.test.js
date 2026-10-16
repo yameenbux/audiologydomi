@@ -55,6 +55,12 @@ test("a live practice's changes are saved to Postgres and come back after a rest
   assert.strictEqual((await inPg("SELECT phone FROM p_test1.patients WHERE id = $1", [pid]))[0].phone, "07700 900333");
   assert.strictEqual((await inPg("SELECT COUNT(*)::int AS n FROM p_test1.notes"))[0].n, 0);
 
+  // An invitation sent before a restart still works after it (the link's hash is saved, not the link).
+  const ayesha = sandbox.run(sb, () => db.prepare("SELECT id FROM users WHERE email = 'ayesha@testoptics.example'").get());
+  const invite = sandbox.run(sb, () => require("../server/invites").issue(ayesha.id, office, "https://app.example", { isNew: true }));
+  await sandbox.settle();
+  assert.strictEqual((await inPg("SELECT COUNT(*)::int AS n FROM p_test1.invites WHERE user_id = $1", [ayesha.id]))[0].n, 1);
+
   // "Restart": stop, forget the practice, open it again from Postgres.
   await live.stop();
   const [reopened] = await live.start(URL_);
@@ -69,6 +75,7 @@ test("a live practice's changes are saved to Postgres and come back after a rest
   const acct = sandbox.run(reopened, () => db.prepare("SELECT pass_hash FROM users WHERE email = 'ayesha@testoptics.example'").get());
   assert.ok(acct && !(await require("../server/auth").checkPassword(require("../server/auth").DEMO_PASSWORD, acct.pass_hash)));
   assert.strictEqual(sandbox.run(reopened, () => db.prepare("SELECT COUNT(*) AS n FROM clinicians").get().n), 1);
+  assert.strictEqual(sandbox.run(reopened, () => require("../server/invites").describe(invite.url.split("/").pop())).first, "Ayesha");
 
   // New rows after a restart don't collide with the ones loaded back in.
   sandbox.run(reopened, () => svc.addNote(pid, "Phoned about a visit next week.", office));

@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS users (
   title TEXT, color TEXT,
   active INTEGER NOT NULL DEFAULT 1                -- 0 = can't sign in (left the practice); kept for the audit trail
 );
+CREATE TABLE IF NOT EXISTS invites (
+  id TEXT PRIMARY KEY,                             -- a hash of the token in the link: the link itself is never stored
+  user_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK (kind IN ('invite','reset')),
+  created_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0,
+  pass_hash TEXT, totp_secret TEXT                 -- chosen during set-up; kept here until a first code proves the app works
+);
 CREATE TABLE IF NOT EXISTS patients (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER, addr TEXT NOT NULL, pc TEXT NOT NULL, phone TEXT NOT NULL,
   contact TEXT NOT NULL DEFAULT 'Text', alerts TEXT NOT NULL DEFAULT '[]', specs TEXT NOT NULL DEFAULT 'None on record', rx TEXT,
@@ -132,7 +140,7 @@ const USERS = [
   { id: "u-c3", email: "priya@airevalleyeyecare.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Optometrist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
+const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
 function openDb(brand = brands.get(), { empty = false } = {}) {
