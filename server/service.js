@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { TYPES, PVN_NOTICE_MIN, REASONS, hm, first, district } = require("./domain");
+const { SOURCES, COUNTS, TYPES, DEFAULT_DUR, PVN_NOTICE_MIN, REASONS, hm, first, district } = require("./domain");
 const cal = require("./calendar");
 const { rankCandidates, parseReply, planOffer, suggestSlots, hoursOn } = require("./refill");
 const travel = require("./travel");
@@ -40,6 +40,58 @@ function bookableDay(day) {
   const why = cal.closedWhy(day);
   if (why) throw new HttpError(400, `The practice is closed on ${cal.label(day)} (${why}).`);
   return day;
+}
+/**
+ * The earliest an NHS sight test can be claimed for this patient: their recall date (last test plus the months the
+ * optometrist set, 12 unless changed) less one month, plus a day. Seen 15 Oct 2025 on a 12-month recall: not
+ * before 16 Sep 2026. Earlier needs an early-retest reason on the GOS form, so the office must say so. Null when
+ * there's no last test on record.
+ */
+function nhsFrom(p) {
+  const ymd = (iso) => String(iso).slice(0, 10).split("-").map(Number);
+  const addMonths = ([y, m, d], n) => { const first = new Date(Date.UTC(y, m - 1 + n, 1)), last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate(); return Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), Math.min(d, last)); };
+  const isDate = (v) => v && /^\d{4}-\d{2}-\d{2}/.test(v);
+  let due, months = p && (p.recallMonths || 12);
+  if (p && isDate(p.nextExam)) due = ymd(p.nextExam); // Opticabase's own next exam date, when imported
+  else if (p && isDate(p.lastTest)) { const t = addMonths(ymd(p.lastTest), months); due = ymd(new Date(t).toISOString()); }
+  else return null;
+  const iso = new Date(addMonths(due, -1) + 864e5).toISOString().slice(0, 10);
+  return { iso, day: cal.dayOf(iso), months, fromNextExam: !!(p && isDate(p.nextExam)), label: new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) };
+}
+/** Where a booking for this patient came from, unless the office said: on the recall list, a Facebook lead, a
+ *  referral, seen before (an old recall), or new. */
+function sourceFor(patientId, given) {
+  if (given && SOURCES[given]) return given;
+  if (!patientId) return "new";
+  if (one("SELECT 1 FROM waitlist WHERE patient_id = ? AND source = 'recall'", patientId) || one("SELECT 1 FROM recalls WHERE patient_id = ? AND status IN ('due','texted','booked')", patientId)) return "recall";
+  if (one("SELECT 1 FROM leads WHERE patient_id = ?", patientId)) return "facebook";
+  if (one("SELECT 1 FROM referrals WHERE patient_id = ?", patientId)) return "referral";
+  if (one("SELECT 1 FROM appointments WHERE patient_id = ? AND status = 'done'", patientId) || one("SELECT 1 FROM patients WHERE id = ? AND last_test IS NOT NULL", patientId)) return "old-recall";
+  return "new";
+}
+/** The office changes where a booking came from, or how likely it is to go ahead (its true count). */
+function setLikelihood(id, input, user) {
+  return tx(() => {
+    const a = one("SELECT * FROM appointments WHERE id = ?", String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    const has = (k) => Object.prototype.hasOwnProperty.call(input, k), p = getPatient(a.patient_id), parts = [];
+    if (has("source")) { if (!SOURCES[input.source]) throw new HttpError(400, "Choose where the booking came from."); run("UPDATE appointments SET source = ? WHERE id = ?", input.source, a.id); parts.push(`came from ${SOURCES[input.source].label.toLowerCase()}`); }
+    if (has("reliability")) {
+      const v = input.reliability == null ? null : Number(input.reliability);
+      if (v != null && !COUNTS.includes(v)) throw new HttpError(400, "Choose a count of 1, 0.75, 0.5, 0.25 or 0.");
+      run("UPDATE appointments SET reliability = ? WHERE id = ?", v, a.id); parts.push(v == null ? "count back to its source's" : `count ${v}`);
+    }
+    audit(user.name, "appointment.likelihood", a.id, `${p.name} ${cal.label(a.day)} ${hm(a.start_min)}: ${parts.join(", ")}`);
+    bus.emit({ type: "appointment.updated", appointmentId: a.id });
+    return getAppt(a.id);
+  });
+}
+/** Refuse an NHS sight test before the patient's recall line, unless the office gives an early-retest reason. */
+function checkNhsLine(p, type, day, early) {
+  if (!TYPES[type] || !TYPES[type].pvn) return;
+  const f = nhsFrom(p);
+  if (!f || day >= f.day || early) return;
+  throw new HttpError(409, `${p.name} can't have an NHS sight test before ${f.label}: ${f.fromNextExam ? "a month before the next exam Opticabase set" : `their last was ${new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}, on a ${f.months}-month recall`}. Book from then, or tick "early retest" if their sight has changed (the GOS form needs the reason).`);
 }
 /** The day-before reminder. Also shown on the Settings page, so the office sees exactly what patients get. */
 const reminderText = (name, clinFirst, day, start, type, link) =>
@@ -86,7 +138,7 @@ function tx(fn) {
 function rank(slot, declined) {
   const clinician = getClinician(slot.clinicianId);
   const waitlist = all("SELECT * FROM waitlist WHERE status = 'waiting'").map(map.wait);
-  const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => [r.id, map.patient(r)]));
+  const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => { const p = map.patient(r); p.nhsFrom = nhsFrom(p); return [r.id, p]; }));
   const leadMin = cal.workMinutesUntil(slot.day, slot.start, sandbox.nowMin()); // PCSE's 48 hours are working hours
   return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0, leadMin }) };
 }
@@ -223,8 +275,8 @@ function book(slot, waitlistId, offerId, actor, how = offerId ? "offer" : "insta
   if (clash) throw new HttpError(409, "That slot has already been filled.");
   const id = newId("n");
   const note = `${old.name} cancelled. ${p.name} (${lowerName(t.name)}) now booked ${when(slot.day, slot.start)}, ${p.addr}.`;
-  run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, moved, note, booked_min, filled_from) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', 1, ?, ?, ?)",
-    id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id);
+  run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, moved, note, booked_min, filled_from, source) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', 1, ?, ?, ?, ?)",
+    id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id, w.source === "recall" ? "recall" : sourceFor(p.id));
   run("UPDATE appointments SET gap = 0 WHERE id = ?", slot.id);
   pcseTask("lodge", getAppt(id), p);
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
@@ -309,12 +361,13 @@ function sendReminders(day, actor = "system") {
   });
 }
 
-/** Sends tomorrow's reminders once the demo clock passes the practice's reminder time. */
+/** Sends reminders for the next working day (Monday's on a Friday) once the clock passes the reminder time. */
 function sweepReminders() {
   const st = settings(), sb = sandbox.current();
   if (!st.reminders || sandbox.nowMin() < st.reminderAt || sb.remindedDay === 1) return;
   sb.remindedDay = 1;
-  sendReminders(1);
+  const next = cal.openDays(1, 1)[0];
+  if (next != null) sendReminders(next);
 }
 
 /** Offers nobody answered in time pass to the next people. Runs on a timer in every sandbox. */
@@ -628,6 +681,8 @@ function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, 
     .map((r) => ({ ...map.appt(r), pc: r.pc, name: r.name }));
   const wait = patient.id && one("SELECT prio FROM waitlist WHERE patient_id = ? AND status = 'waiting'", patient.id);
   // `count` open days from `from`: today onwards by default, or the week the office picked.
+  const f = TYPES[type].pvn && patient.id && !patient.early ? nhsFrom(patient) : null;
+  if (f && f.day > from) from = f.day; // not before their recall line
   const days = cal.openDays(from, count, max);
   return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
 }
@@ -656,8 +711,11 @@ async function findSlots(input) {
   await warmRoutes(input);
   const patient = bookingPatient(input);
   const from = searchFrom(input);
+  if (input.early === true) patient.early = true;
+  const line = TYPES[input.type] && TYPES[input.type].pvn && !patient.early ? nhsFrom(patient) : null;
   const slots = slotsFor(patient, input.type, input.avail, { from }).slice(0, 6);
-  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, from, fromLabel: cal.label(from), slots };
+  return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, from, fromLabel: cal.label(from), slots,
+    recallLine: line && line.day > from ? { label: line.label, day: line.day, months: line.months } : null };
 }
 
 /** Book a visit into a slot. The slot is re-checked here, so two people can't book the same gap. */
@@ -668,14 +726,16 @@ async function bookVisit(input, user) {
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
     const start = Number(input.start), day = bookableDay(Number(input.day || 0));
+    checkNhsLine(draft, input.type, day, input.early === true);
+    if (input.early === true) draft.early = true;
     const slot = slotsFor(draft, input.type, input.avail, { from: day, count: 1 }).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
     if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
-    return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office" });
+    return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office", source: input.source });
   });
 }
 
 /** Write a new visit into a round (inside a transaction): patient if new, appointment, next leg, texts, audit, event. */
-function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
+function placeVisit({ draft, c, type, day, start, slot, actor, by, source }) {
   let p = draft;
   if (!draft.id) {
     const id = newId("p");
@@ -685,8 +745,8 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by }) {
   const t = TYPES[type];
   const id = newId("v");
   const note = `New visit booked by ${by}: ${p.name} (${lowerName(t.name)}) ${when(day, start)}, ${p.addr}.`;
-  run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
-    id, c.id, p.id, type, day, start, slot.driveIn, note, sandbox.nowMin());
+  run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min, source) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?, ?)",
+    id, c.id, p.id, type, day, start, slot.driveIn, note, sandbox.nowMin(), sourceFor(draft.id ? p.id : null, source || (by === "the patient online" ? "new" : null)));
   // The visit after this one is now reached from the new patient's house.
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
   if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
@@ -732,8 +792,8 @@ function commitImport(input, user) {
     const seq = one("SELECT COALESCE(MAX(added_seq), 0) AS s FROM waitlist").s;
     for (const row of ready) {
       const p = row.patient, id = newId("p");
-      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest);
+      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test, next_exam, recall_months, ob_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest, p.nextExam || null, p.recallMonths || null, p.obId || null);
       run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", id, "Imported", p.notes ? `Imported from spreadsheet. ${p.notes}` : "Imported from spreadsheet.", user.name, sandbox.stamp());
       if (row.recall && row.recall.dueDay <= 14) {
         const rid = newId("r"), wid = newId("w");
@@ -901,7 +961,7 @@ function redrive(cid, day) {
 }
 
 const PATIENT_LABELS = { name: "name", addr: "address", pc: "postcode", phone: "phone", contact: "how to contact", email: "email", dob: "date of birth",
-  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes" };
+  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes", lastTest: "last sight test", recallMonths: "recall", obId: "Opticabase ID", nextExam: "next exam" };
 
 /** The checks on a patient's details, shared by adding and editing. Only the fields sent are checked and returned. */
 function patientFields(input, before) {
@@ -933,6 +993,27 @@ function patientFields(input, before) {
   if (has("rep")) next.rep = clean(input.rep, 120) || null;
   if (has("poa")) next.poa = clean(input.poa, 120) || null;
   if (has("share")) { if (!["yes", "no", "", null].includes(input.share)) throw new HttpError(400, "Choose whether we may talk to their next of kin or carer."); next.share = input.share || null; }
+  if (has("lastTest")) {
+    const v = String(input.lastTest || "");
+    if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= "1990-01-01" && v <= cal.iso(0))) throw new HttpError(400, "Enter the last sight test as a date, not in the future.");
+    next.lastTest = v || null;
+  }
+  if (has("obId")) {
+    const v = String(input.obId || "").trim().replace(/\s+/g, "");
+    if (v && !/^[A-Za-z0-9/-]{1,20}$/.test(v)) throw new HttpError(400, "An Opticabase ID is letters and numbers, up to 20.");
+    if (v && one("SELECT 1 FROM patients WHERE ob_id = ? AND id IS NOT ?", v, before.id || null)) throw new HttpError(409, `Another patient already has Opticabase ID ${v}.`);
+    next.obId = v || null;
+  }
+  if (has("nextExam")) {
+    const v = String(input.nextExam || "");
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, "Enter the next exam as a date.");
+    next.nextExam = v || null;
+  }
+  if (has("recallMonths")) {
+    const v = input.recallMonths == null || input.recallMonths === "" ? null : Number(input.recallMonths);
+    if (v != null && ![3, 6, 12, 24].includes(v)) throw new HttpError(400, "Choose a recall of 3, 6, 12 or 24 months.");
+    next.recallMonths = v === 12 ? null : v; // 12 is the default, stored as none
+  }
   if (has("specs")) next.specs = clean(input.specs, 80) || "None on record";
   if (has("alerts")) {
     const list = (Array.isArray(input.alerts) ? input.alerts : String(input.alerts || "").split("\n")).map((a) => clean(a, 120)).filter(Boolean).slice(0, 8);
@@ -979,7 +1060,7 @@ async function updatePatient(id, input, user) {
   if (!changed.length) return { patient: before, changed: [] };
   if (next.pc) await travel.prepare([next.pc, ...upcoming(before.id).map((a) => getClinician(a.clinicianId).base)]);
   return tx(() => {
-    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts" };
+    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts", lastTest: "last_test", recallMonths: "recall_months", obId: "ob_id", nextExam: "next_exam" };
     for (const k of changed) run(`UPDATE patients SET ${cols[k]} = ? WHERE id = ?`, k === "alerts" ? JSON.stringify(next[k]) : next[k], before.id);
     if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((cal.todayMs() - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
     const labels = changed.map((k) => PATIENT_LABELS[k]);
@@ -1003,7 +1084,7 @@ async function updatePatient(id, input, user) {
 
 /* ---------- Settings: the practice's own details and rules, which the rest of Domi reads ---------- */
 const SETTING_LABELS = { practice: "practice name", phone: "phone number", email: "email", logo: "logo", officeHours: "office hours", dayStart: "opening time", dayEnd: "closing time",
-  prices: "prices", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
+  prices: "prices", durations: "visit lengths", clinicTarget: "patients-per-day target", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
   bookAheadDays: "how far ahead the office can book", onlineAheadDays: "how far ahead patients can book online", offerAheadDays: "how far ahead gaps are offered", closures: "closure days" };
 const plain = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -1050,6 +1131,32 @@ function saveSettings(input, user) {
       prices[k] = Math.round(n);
     }
     next.prices = prices;
+  }
+  if (has("clinicTarget")) {
+    const n = Number(input.clinicTarget);
+    if (!(Number.isInteger(n) && n >= 1 && n <= 30)) throw new HttpError(400, "The target is patients seen per clinician per day: 1 to 30.");
+    next.clinicTarget = n;
+  }
+  if (has("durations")) {
+    if (!input.durations || typeof input.durations !== "object") throw new HttpError(400, "Visit lengths must be a list of visit types.");
+    const durations = { ...(st.durations || {}) };
+    for (const [k, v] of Object.entries(input.durations)) {
+      if (!(k in TYPES)) throw new HttpError(400, "That isn't one of the practice's visit types.");
+      const n = Number(v);
+      if (!(Number.isInteger(n) && n >= 10 && n <= 180 && n % 5 === 0)) throw new HttpError(400, `${TYPES[k].name}: a visit must be 10 minutes to 3 hours, in 5-minute steps.`);
+      durations[k] = n;
+    }
+    // Longer visits mustn't run into the next booked visit, or past the clinician's day.
+    const lenOf = (t) => durations[t] || DEFAULT_DUR[t];
+    const booked = all("SELECT a.*, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status IN ('booked','enroute') AND a.day >= 0 ORDER BY a.clinician_id, a.day, a.start_min");
+    const clash = [];
+    booked.forEach((a, i) => {
+      const n = booked[i + 1], end = a.start_min + lenOf(a.type);
+      const c = getClinician(a.clinician_id), h = c && cal.isOpen(a.day) ? (c.hours || [])[cal.weekday(a.day)] : null;
+      if ((n && n.clinician_id === a.clinician_id && n.day === a.day && end > n.start_min) || (h && end > h[1])) clash.push(a);
+    });
+    if (clash.length) { const x = clash[0]; throw new HttpError(409, `With those lengths, ${clash.length} booked visit${clash.length === 1 ? " runs" : "s run"} into the next one or past the end of the day (${x.name}, ${cal.label(x.day)} ${hm(x.start_min)}${clash.length > 1 ? ", and more" : ""}). Move ${clash.length === 1 ? "it" : "them"} first, or choose shorter lengths.`); }
+    next.durations = durations;
   }
   if (has("online")) {
     const list = Array.isArray(input.online) ? [...new Set(input.online.map(String))] : null;
@@ -1194,10 +1301,13 @@ async function moveAppointment(id, input, user) {
     const c = getClinician(String(input.clinicianId || ""));
     if (!c) throw new HttpError(400, "Choose a clinician.");
     const day = bookableDay(Number(input.day)), start = Number(input.start);
+    checkNhsLine(p, a.type, day, input.early === true);
+    if (input.early === true) p.early = true;
     const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1 }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
     if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
     const old = getClinician(a.clinicianId);
     run("UPDATE appointments SET clinician_id = ?, day = ?, start_min = ?, drive = ?, reminded = 0, seen = 0 WHERE id = ?", c.id, day, start, slot.driveIn, a.id);
+    if (a.day !== day || a.start_min !== start) run("DELETE FROM confirmations WHERE appointment_id = ?", a.id); // a new time means calling again
     redrive(old.id, a.day); redrive(c.id, day);
     // PCSE's notification is for a date and time: cancel the old one and lodge the new.
     pcseTask("cancel", a, p); pcseTask("lodge", getAppt(a.id), p);
@@ -1366,7 +1476,7 @@ const userOf = (cid) => one("SELECT * FROM users WHERE clinician_id = ?", cid);
 function teamList() {
   const users = all("SELECT * FROM users ORDER BY role, name").map(map.user);
   return {
-    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => { const u = users.find((x) => x.clinicianId === c.id) || {}; return { ...c, email: u.email || null, userId: u.id || null }; }),
+    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => { const u = users.find((x) => x.clinicianId === c.id) || {}; return { ...c, email: u.email || null, userId: u.id || null, office: u.role === "clinician" && !!u.office }; }),
     staff: users.filter((u) => u.role === "admin"),
     roles: ROLES,
   };
@@ -1429,6 +1539,10 @@ function saveClinician(input, user) {
         const email = input.email ? validEmail(input.email) : u.email;
         if (emailTaken(email, u.id)) throw new HttpError(409, "Another account already signs in with that email.");
         run("UPDATE users SET name = ?, title = ?, color = ?, email = ? WHERE id = ?", name, role, color, email, u.id);
+        if (Object.prototype.hasOwnProperty.call(input, "office") && !!u.office !== !!input.office) {
+          run("UPDATE users SET office = ? WHERE id = ?", input.office ? 1 : 0, u.id);
+          audit(user.name, input.office ? "user.office-on" : "user.office-off", u.id, `${name}: office access ${input.office ? "given" : "removed"}`);
+        }
       }
       audit(user.name, "clinician.update", cid, name);
     } else {
@@ -1436,7 +1550,7 @@ function saveClinician(input, user) {
       if (emailTaken(email, null)) throw new HttpError(409, "Another account already signs in with that email.");
       cid = newId("c");
       run("INSERT INTO clinicians (id, name, first, role, color, area_name, patch, near, base, hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cid, name, first_, role, color, areaName, JSON.stringify(patch), JSON.stringify(near), base, JSON.stringify(hours));
-      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, newAccountHash(), auth.newSecret(), role, color);
+      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color, office) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, newAccountHash(), auth.newSecret(), role, color, input.office ? 1 : 0);
       audit(user.name, "clinician.add", cid, `${name}, ${role}`);
     }
     bus.emit({ type: "team.updated" });
@@ -1496,4 +1610,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

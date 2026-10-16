@@ -9,7 +9,7 @@
 //  - the server answers a request only once its changes are in Postgres, and texts go out only after that.
 //
 // It assumes one server process per practice (one Fly machine), which is how Domi runs.
-const { SCHEMA, TABLES } = require("./db");
+const { SCHEMA, TABLES, ADDED_COLUMNS } = require("./db");
 
 let Pool = null;
 const pgPool = (url) => {
@@ -49,6 +49,7 @@ class Store {
       await c.query(`CREATE SCHEMA IF NOT EXISTS ${qi(this.schema)}`);
       await c.query(`SET LOCAL search_path TO ${qi(this.schema)}`);
       await c.query(pgDDL());
+      for (const [t, col, type] of ADDED_COLUMNS) await c.query(`ALTER TABLE ${qi(t)} ADD COLUMN IF NOT EXISTS ${qi(col)} ${type}`);
       // Belt and braces on Supabase: row level security on, no policies, nothing granted to the API roles. Only the
       // schema's owner (the Domi server) can read or write.
       for (const t of TABLES) await c.query(`ALTER TABLE ${qi(t)} ENABLE ROW LEVEL SECURITY`);

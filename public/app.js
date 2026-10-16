@@ -68,10 +68,18 @@ const first = (n) => String(n).split(" ")[0];
 const initials = (n) => String(n).split(" ").map((w) => w[0]).join("").slice(0, 2);
 const district = (pc) => String(pc).split(" ")[0];
 const active = (a) => a.status !== "cancelled";
-const T = (k) => META.types[k];
+/** A visit type, with this practice's own length (from /api/state; /api/meta has the defaults). */
+const TYPES_NOW = () => (S && S.types) || META.types;
+const T = (k) => TYPES_NOW()[k];
 const isAdmin = () => !!S && S.user.role === "admin";
 const pat = (id) => S.patients.find((p) => p.id === id) || { id, name: "Patient", pc: "", addr: "", alerts: [], phone: "" };
 const cln = (id) => S.clinicians.find((c) => c.id === id);
+/** A clinic's strength: its visits' true counts added up (recall 1, others 0.5, or what the office set). */
+const countOf = (a) => (a.count != null ? a.count : 0.5);
+const fmtCount = (n) => (Math.round(n * 100) / 100).toString();
+const clinicCount = (cid, day) => S.appts.filter((a) => a.clinicianId === cid && (a.day || 0) === day && !["cancelled", "missed"].includes(a.status)).reduce((t, a) => t + countOf(a), 0);
+const targetOf = () => (S.settings && S.settings.clinicTarget) || 10;
+const strengthTag = (cid, day) => { const n = clinicCount(cid, day), t = targetOf(); return `<span class="tcount-line ${n < t * 0.7 ? "weak" : ""}" title="True count: how many patients are likely to be in, against your target of ${t}">True count <b>${fmtCount(n)}</b>/${t}</span>`; };
 const dayAppts = (c, day = 0) => S.appts.filter((a) => a.clinicianId === c && (a.day || 0) === day && active(a)).sort((x, y) => x.start - y.start);
 /* ---------- The calendar (server/calendar.js): day numbers count from today; weekends and holidays are closed ---------- */
 let calOf = null, calMap = new Map();
@@ -288,8 +296,9 @@ async function submitCode(code) {
   }
 }
 /** The office looking at the app as a clinician sees it (or back to the office). */
-async function viewAs(userId) {
-  await api("POST", "/api/auth/view-as", { userId });
+async function viewAs(userId, asOffice = false) {
+  // A director (a clinician with office access) is the same account in both views: say which one.
+  await api("POST", "/api/auth/view-as", { userId, as: asOffice ? "office" : "clinician" });
   await enter();
 }
 const isOffice = () => !!S && !!S.signedInAs && S.signedInAs.role === "admin";
@@ -498,10 +507,11 @@ function needsYou() {
     { k: "recalls", none: "No recalls due", n: recalls.length, what: recalls.length === 1 ? "recall due" : "recalls due", note: overdue ? `${overdue} overdue` : "Offered cancelled visits nearby", hot: false },
     { k: "pcse", none: "PCSE is up to date", n: pcse.length, what: pcse.length === 1 ? "PCSE notice to lodge" : "PCSE notices to lodge", note: pcse.length ? "48 hours before each NHS test" : "Nothing to lodge", hot: false },
     (() => { const ns = notSeenToday(), todo = ns.filter((x) => !x.back).length; return { k: "notseen", none: ns.length ? `${ns.length} not seen, all rebooked` : "Every visit went ahead", n: todo, what: todo === 1 ? "visit not seen: rebook" : "visits not seen: rebook", note: todo ? "Marked from the clinician's phone" : ns.length ? "Back on the waiting list" : "Nothing missed today", hot: todo > 0 }; })(),
-    { k: "texts", none: tomorrow.length ? "Tomorrow is reminded" : "No visits tomorrow", n: unreminded, what: unreminded === 1 ? "reminder for tomorrow" : "reminders for tomorrow", note: S.settings.reminders ? `Sent at ${hm(S.settings.reminderAt)}` : "Reminders are off", hot: false },
+    (() => { const c = S.calls || { 1: 0, 2: 0, 3: 0 }, n = c[1] + c[2] + c[3]; return { k: "calls", go: "calls", none: "Every call is made", n, what: n === 1 ? "confirmation call" : "confirmation calls", note: n ? [c[3] && `${c[3]} for tomorrow`, c[2] && `${c[2]} this week`, c[1] && `${c[1]} new`].filter(Boolean).join(" · ") : S.settings.reminders ? `${unreminded} reminder text${unreminded === 1 ? "" : "s"} at ${hm(S.settings.reminderAt)}` : "Reminder texts are off", hot: c[3] > 0 }; })(),
   ];
+  void tomorrow;
   return `<section class="needs" aria-label="Needs you today"><div class="needs-h caps">Needs you today</div>
-    <div class="needs-row">${cards.map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}">
+    <div class="needs-row">${cards.map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" ${c.go ? `data-act="go" data-v="${c.go}"` : `data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}"`}>
       <span class="nn">${c.n ? c.n : icon("check")}</span><span class="nw"><b>${c.n ? c.what : c.none}</b><span>${esc(c.note)}</span></span></button>`).join("")}</div></section>`;
 }
 /** How long a new lead has been waiting for a call, on the demo clock. */
@@ -582,7 +592,7 @@ function referralDrawer(d) {
         ${row("Home visit because", esc(r.eligibility))}${row("NHS entitlement", esc(r.entitlement.map((k) => o.entitlement[k]).join(", ") || "None ticked"))}
         ${row("Home", esc(META.avail[r.avail]))}${r.fromKind !== "self" ? row("Referred by", esc([r.fromName, r.fromPhone].filter(Boolean).join(", "))) : ""}${row("Notes", esc(r.notes || ""))}</dl>
       <div class="hr" style="margin:18px 0"></div>
-      <div class="row2"><div class="field"><label for="rf-type">Waiting list for</label><select class="input" id="rf-type">${Object.entries(META.types).map(([k, v]) => `<option value="${k}" ${k === r.need ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
+      <div class="row2"><div class="field"><label for="rf-type">Waiting list for</label><select class="input" id="rf-type">${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}" ${k === r.need ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
         <div class="field"><label for="rf-prio">Priority</label><select class="input" id="rf-prio">${Object.entries(META.prio).map(([k, v]) => `<option value="${k}" ${k === (r.urgent ? "urgent" : "routine") ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div></div>
       ${d.dup ? `<div class="err" role="alert">${esc(d.dup)}</div>` : ""}
       <details style="margin-top:14px"><summary class="muted" style="font-size:13.5px;cursor:pointer">Decline instead</summary>
@@ -695,7 +705,8 @@ function board(nowM) {
         + (h > 60 && !a.moved && a.bookedMin != null ? `<span class="badge b-forest" style="margin-top:4px">${icon("plus")}New booking</span>` : "")
         + (h > 84 && a.status === "enroute" ? `<span class="badge b-warn" style="margin-top:4px">${icon("car")}On the way</span>` : "")
         + (a.status === "missed" ? `<span class="badge b-plain" style="margin-top:4px">Not seen</span>` : "");
-      return `${drive}<button class="blk ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}">${head}${extra}</button>`;
+      const tc = countOf(a) < 1 && ["booked", "enroute"].includes(a.status) ? `<span class="tcount ${countOf(a) <= 0.25 ? "low" : ""}" title="True count ${fmtCount(countOf(a))}: may not be in">${fmtCount(countOf(a))}</span>` : "";
+      return `${drive}<button class="blk ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}${tc ? `, true count ${fmtCount(countOf(a))}` : ""}">${tc}${head}${extra}</button>`;
     }).join("");
     const filled = new Set(list.map((a) => a.start));
     const gaps = S.appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === UI.day && a.status === "cancelled" && !filled.has(a.start)).map((a) => {
@@ -705,7 +716,7 @@ function board(nowM) {
     }).join("");
     return `<div class="lane" style="height:${H}px;background-size:100% ${60 * PX}px">${off}${blocks}${gaps}${UI.day === 0 ? `<div class="now" data-now style="top:${nowY}px">${ci === 0 ? `<span class="now-label mono" data-clock>${hm(nowM)}</span>` : ""}</div>` : ""}</div>`;
   }).join("");
-  const heads = team.map((c) => `<div class="col-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div style="min-width:0;flex:1"><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div></div><button class="icon-btn sm" type="button" data-act="route" data-c="${c.id}" title="${esc(c.first)}'s route on a map" aria-label="${esc(c.first)}'s route on a map">${icon("pin")}</button></div>`).join("");
+  const heads = team.map((c) => `<div class="col-h"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div style="min-width:0;flex:1"><div class="nm">${esc(c.name)}</div><div class="rl">${esc(c.role)} · ${esc(c.areaName)}</div>${hoursFor(c, UI.day) ? strengthTag(c.id, UI.day) : ""}</div><button class="icon-btn sm" type="button" data-act="route" data-c="${c.id}" title="${esc(c.first)}'s route on a map" aria-label="${esc(c.first)}'s route on a map">${icon("pin")}</button></div>`).join("");
   return `<div class="board" style="grid-template-columns:56px repeat(${team.length},minmax(210px,1fr))"><div class="col-h"></div>${heads}<div class="times" style="height:${H}px">${ticks}</div>${lanes}</div>`;
 }
 
@@ -723,7 +734,7 @@ function weekView() {
       return `<button class="wk-cell" type="button" data-act="day" data-v="${i}" aria-label="${esc(c.name)}, ${d}: ${list.length} visits">
         <span class="wk-n">${list.length}<small> visits</small></span>
         <span class="wk-bar"><i style="width:${pct}%"></i></span>
-        <span class="wk-sub">${pct}% of the day booked${fresh ? ` · ${fresh} new` : ""}</span></button>`;
+        <span class="wk-sub">${pct}% of the day booked${fresh ? ` · ${fresh} new` : ""}</span>${list.length ? strengthTag(c.id, i) : ""}</button>`;
     }).join("")}</div>`).join("");
   return `<div class="week" data-scroll="week"><div class="wk-row wk-head"><div></div>${[0, 1, 2, 3, 4].map((k) => { const i = UI.wk + k; return `<div class="caps">${i === 0 ? "Today" : esc(dayName(i))}</div>`; }).join("")}</div>${cells}</div>`;
 }
@@ -786,7 +797,7 @@ function todayTab(c) {
   const moved = list.find((a) => (a.moved || a.bookedMin != null) && !a.seen);
   const nxt = list.find((a) => !finished(a));
   const rest = list.filter((a) => a !== nxt);
-  const switcher = !isOffice() ? "" : `<span class="preview-tag">Office preview</span><select class="who-select" id="me" aria-label="Switch clinician">${clinUsers().map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
+  const switcher = !isOffice() ? "" : `<span class="preview-tag">${S.signedInAs.dual && S.user.id === S.signedInAs.id ? "Your round" : "Office preview"}</span><select class="who-select" id="me" aria-label="Switch clinician">${clinUsers().map((u) => `<option value="${u.id}" ${u.id === "u-" + c.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>`;
   let hero = "";
   if (nxt) {
     const p = pat(nxt.patientId), t = T(nxt.type), act = nextAction(nxt);
@@ -811,6 +822,7 @@ function todayTab(c) {
           <div class="ad">${icon("pin")}<span>${esc(p.addr)}, ${esc(p.pc)}</span></div>
           ${p.alerts.length && a.status !== "done" ? `<div class="ad" style="color:var(--warn)">${icon("users")}<span>${esc(p.alerts[0])}</span></div>` : ""}
           ${pvnChip(a) ? `<div class="ad">${pvnChip(a)}</div>` : ""}
+          ${countOf(a) <= 0.5 && ["booked", "enroute"].includes(a.status) ? `<div class="ad" style="color:var(--apricot-ink, #9a4a12)">${icon("phone")}<span>Ring first: they may not be in</span></div>` : ""}
         </div></button>`;
   }).join("");
   return `<div class="ph-head"><div><div class="caps">${esc(dayName(0))} · <span data-clock>${hm(demoNow())}</span></div><h2 style="margin-top:6px">Morning, ${esc(c.first)}</h2></div>${switcher}</div>
@@ -864,7 +876,7 @@ function record(p) {
     </div>
     <div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
 </div>
-    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.poa ? `<dt>Power of attorney</dt><dd>${esc(p.poa)}</dd>` : ""}<dt>Talk to family?</dt><dd>${p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet"}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
+    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.poa ? `<dt>Power of attorney</dt><dd>${esc(p.poa)}</dd>` : ""}<dt>Talk to family?</dt><dd>${p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet"}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall</dd>` : ""}${p.nhsFrom ? `<dt>Next NHS test</dt><dd>${p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now (from ${esc(p.nhsFrom.label)})`}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a && UI.nd === a.id ? `<div class="sec">${notDoneForm(a)}</div>` : ""}
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${canNotDo(a) && UI.nd !== a.id ? `<button class="btn secondary" type="button" data-act="nd-open" data-id="${a.id}">Couldn't do it</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
@@ -881,7 +893,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -908,6 +920,9 @@ async function syncPage() {
     if (!UI.pg || UI.pg.kind !== "plans") { UI.pg = { kind: "plans", day: UI.view === "week" ? 1 : UI.day, list: null }; setTimeout(() => loadPlans(UI.pg.day), 0); }
   } else if (r.page === "mileage") {
     UI.pg = { kind: "report", data: await api("GET", "/api/reports/week").catch(() => null) };
+  } else if (r.page === "calls") {
+    const keep = UI.pg && UI.pg.kind === "calls" ? UI.pg.stage : null;
+    UI.pg = { kind: "calls", stage: keep, data: await api("GET", "/api/calls").catch(() => null) };
   } else if (r.page === "invoices") {
     UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
   } else if (r.page === "import") {
@@ -940,7 +955,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -950,10 +965,44 @@ function sideNav() {
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
+}
+/* ---------- Confirmation calls (CC1-CC3) ---------- */
+function callsPage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Confirmation calls",
+    lead: "Every visit gets three calls, so the patient is in when the clinician knocks. Ring, then tick it off. No answer keeps it on the list for later. Text instead sends the same words as a text, for patients who'd rather have it in writing." });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const order = [3, 2, 1], stage = g.stage || order.find((k) => d.calls[k].length) || 3;
+  const tabs = `<div class="seg calls-tabs" role="tablist" aria-label="Which calls">${order.map((k) => `<button type="button" role="tab" data-act="calls-stage" data-v="${k}" aria-pressed="${k === stage}"><b>${d.stages[k].code}</b>&nbsp;${esc(d.stages[k].title)}<span class="mono">${d.calls[k].length}</span></button>`).join("")}</div>`;
+  const row = (x) => {
+    const tel = String(x.patient.phone || "").replace(/[^\d+]/g, "");
+    return `<li class="call-row">
+      <div class="cr-who"><a class="nm" href="#/patients/${esc(x.patient.id)}">${esc(x.patient.name)}</a>${x.patient.obId ? `<span class="muted mono" style="font-size:12px">Opticabase ${esc(x.patient.obId)}</span>` : ""}
+        ${x.patient.phone ? `<a class="mono cr-tel" href="tel:${esc(tel)}">${icon("phone")}${esc(x.patient.phone)}</a>` : `<span class="muted">No phone number</span>`}
+        ${x.patient.rep ? `<span class="muted cr-rep">Family: ${esc(x.patient.rep)}</span>` : ""}
+        ${x.patient.contact === "Call" ? `<span class="badge b-plain">Phone only</span>` : ""}</div>
+      <div class="cr-visit"><span><span class="dot" style="background:${x.clinician.color}"></span>${esc(x.dayLabel)} · ${hm(x.start)} · ${esc(x.clinician.first)}</span>
+        <span class="muted">${esc(T(x.type).name)}</span>
+        ${x.window ? `<span class="badge b-forest">Window ${hm(x.window[0])}–${hm(x.window[1])}</span>` : ""}
+        ${x.count != null && x.count < 1 ? `<span class="badge b-apricot" title="True count: may not be in">True count ${fmtCount(x.count)}</span>` : ""}</div>
+      <div class="cr-say"><span class="caps">Tell them</span><q>${esc(x.say)}</q>
+        ${x.tries ? `<span class="late">No answer ×${x.tries}${x.last ? ` · ${esc(x.last.by)}, ${esc(x.last.at)}` : ""}</span>` : ""}</div>
+      <div class="cr-acts">
+        <button class="btn sm" type="button" data-act="call-rec" data-id="${esc(x.apptId)}" data-s="${x.stage}" data-v="done">${icon("check")}Spoken to</button>
+        <button class="btn secondary sm" type="button" data-act="call-rec" data-id="${esc(x.apptId)}" data-s="${x.stage}" data-v="no-answer">No answer</button>
+        <button class="btn ghost sm" type="button" data-act="call-rec" data-id="${esc(x.apptId)}" data-s="${x.stage}" data-v="texted" ${x.canText ? `title="${esc(x.text)}"` : `disabled title="Asked to be phoned, not texted"`}>${icon("msg")}Text instead</button></div>
+    </li>`;
+  };
+  const list = d.calls[stage];
+  return `<div class="pg">${head}
+    ${tabs}
+    <p class="muted calls-what">${esc(d.stages[stage].code)}: ${esc(d.stages[stage].what)}.${stage === 2 ? " The window comes from the clinician's planned route, so plan routes first for the best times." : stage === 3 ? " A visit called here doesn't also get the automatic reminder text." : ""}</p>
+    ${list.length ? `<ul class="calls">${list.map(row).join("")}</ul>` : `<div class="empty"><b>No ${esc(d.stages[stage].code)} calls to make</b>${stage === 3 ? "Everyone visited on the next working day has been called." : stage === 2 ? "Everyone visited in the next week has their window." : "Every new booking has been told its date."}</div>`}
+  </div>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
 const pageHead = ({ eyebrow, title, lead, actions = "", crumbs = "" }) => `<header class="pg-h">${crumbs}
@@ -979,7 +1028,7 @@ function patientsPage() {
       actions: `<button class="btn secondary" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary" type="button" data-act="book">${icon("cal")}Book a visit</button><a class="btn" href="#/patients/new">${icon("plus")}Add a patient</a>` })}
     <div class="stats">${tile("all", all.length, "patients")}${tile("booked", all.filter(F.booked).length, "booked this week")}${tile("waiting", all.filter(F.waiting).length, "on the waiting list")}${tile("recall", all.filter(F.recall).length, "due a recall")}${tile("phone", all.filter(F.phone).length, "phone, don't text")}</div>
     <section class="card tbl-card" aria-label="Patient list">
-      <div class="tbl-tools"><div class="search-w">${icon("search")}<input class="input" id="pg-q" data-keep type="search" placeholder="Search by name, postcode, phone or date of birth" autocomplete="off" value="${esc(UI.pq || "")}" aria-label="Search patients"></div>
+      <div class="tbl-tools"><div class="search-w">${icon("search")}<input class="input" id="pg-q" data-keep type="search" placeholder="Search by name, postcode, phone, date of birth or Opticabase ID" autocomplete="off" value="${esc(UI.pq || "")}" aria-label="Search patients"></div>
         <span class="muted tbl-count">${list.length === all.length ? `${all.length} patients` : `${list.length} of ${all.length}`}</span></div>
       ${list.length ? `<div class="tbl-wrap"><table class="ptable"><thead><tr><th scope="col">Patient</th><th scope="col">Area</th><th scope="col">Contact</th><th scope="col">Next visit</th><th scope="col"><span class="sr">Status</span></th></tr></thead><tbody>
         ${list.slice(0, UI.plimit || PAGE).map((p) => { const a = nextVisit(p.id); return `<tr data-act="go" data-v="patients/${esc(p.id)}">
@@ -1018,7 +1067,7 @@ function patientPage() {
     const a = visits[0];
     body = `<div class="cards2">
       <section class="card"><div class="card-h"><h2>Contact</h2></div><dl class="kv lg">${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${row("How to reach them", p.contact === "Call" ? "Phone, don't text" : "Text messages")}${p.email ? row("Email", esc(p.email)) : ""}${row("Next of kin or carer", esc(p.rep || "None recorded"))}${row("Power of attorney", esc(p.poa || "None recorded"))}${row("May we talk to family?", p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet")}</dl></section>
-      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
+      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${p.obId ? row("Opticabase ID", `<span class="mono">${esc(p.obId)}</span>`) : ""}${p.nextExam ? row("Next exam (Opticabase)", esc(new Date(p.nextExam).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))) : ""}${row("Last sight test", p.lastTest ? `${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall` : `<span class="muted">Not recorded</span>`)}${p.nhsFrom ? row("Next NHS sight test", p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now <span class="muted">(from ${esc(p.nhsFrom.label)})</span>`) : ""}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
       <section class="card"><div class="card-h"><h2>Next visit</h2></div>${a ? `<div class="nv"><b>${a.day ? esc(dayName(a.day)) : "Today"} at ${hm(a.start)}</b><span>${esc(T(a.type).name)} with ${esc((cln(a.clinicianId) || {}).name || "")}</span></div><a class="linkish" href="#/patients/${esc(p.id)}/visits">All visits and actions</a>` : `<p class="muted">Nothing booked.</p><button class="btn secondary sm" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button>`}</section>
       <section class="card"><div class="card-h"><h2>Waiting list${rec ? " and recall" : ""}</h2></div>${waits.length || rec ? `<ul class="mini">${waits.map((w) => `<li><b>${T(w.type).name}</b> · ${esc(META.prio[w.prio].label)} priority${w.note ? `<div>${esc(w.note)}</div>` : ""}</li>`).join("")}${rec ? `<li><b>Recall</b> · ${esc(rec.reason)}</li>` : ""}</ul><p class="muted" style="font-size:13px;margin:10px 0 0">Offered any cancelled visit nearby that fits.</p>` : `<p class="muted">Not waiting for anything.</p>`}</section>
     </div>`;
@@ -1102,7 +1151,7 @@ function leadPage() {
       <div class="pg-acts">${tel ? `<a class="btn secondary" href="tel:${esc(tel)}">${icon("phone")}Call ${esc(l.phone)}</a>` : ""}${p ? `<a class="btn" href="#/patients/${esc(p.id)}">${icon("users")}Open their record</a>` : `<button class="btn" type="button" data-act="lead-patient" data-id="${esc(l.id)}">${icon("plus")}Add as a patient</button>`}</div></section>
     ${l.status === "new" ? `<div class="callout apricot">${icon("clock")}<div><b>Call them soon</b><div style="margin-top:2px">People called within the hour are far more likely to book. Mark the lead below once you've spoken.</div></div></div>` : ""}
     <div class="cards2">
-      <section class="card"><div class="card-h"><h2>What they told you</h2></div><dl class="kv lg">${row("Phone", l.phone ? `<span class="mono">${esc(l.phone)}</span>` : "None given")}${row("Email", esc(l.email || "None given"))}${row("Postcode", esc(l.pc || "Not given"))}${l.answers.map(([q, a]) => row(esc(q), esc(a))).join("")}</dl></section>
+      <section class="card"><div class="card-h"><h2>What they told you</h2></div><dl class="kv lg">${row("Phone", l.phone ? `<span class="mono">${esc(l.phone)}</span>` : "None given")}${row("Email", esc(l.email || "None given"))}${(l.addr ? row("Street address", esc(l.addr)) : "")}${l.dob ? row("Date of birth", `${esc(new Date(l.dob).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }))} <span class="muted">· check it on the call</span>`) : ""}${row("Postcode", l.pc ? `${esc(l.pc)}${l.pcFrom === "address" ? ` <span class="muted">· found in their address</span>` : ""}` : `<span class="late">Not on the form: ask for it on the call</span>`)}${l.answers.map(([q, a]) => row(esc(q), esc(a))).join("")}</dl></section>
       <section class="card"><div class="card-h"><h2>After the call</h2><p>What happened, so everyone in the office knows.</p></div>
         <div class="field"><label for="ld-note">Note</label><textarea class="input" id="ld-note" data-keep rows="4" placeholder="e.g. Spoke to her daughter. Wants a morning visit next week.">${esc(l.note || "")}</textarea></div>
         ${l.handledBy ? `<p class="set-note" style="margin-top:6px">Last updated by ${esc(l.handledBy)} at ${esc(l.handledAt)}.</p>` : ""}
@@ -1174,6 +1223,12 @@ function hoursPreview(s, e) {
   return `<div class="hp" aria-hidden="true"><div class="hp-r hp-main"><span class="hp-n">Practice</span><span class="hp-track"><i style="left:${pc(s)}%;right:${100 - pc(e)}%"></i>${ticks}</span><span class="hp-v"><b>${hm(s)}–${hm(e)}</b></span></div>${clin.map(row).join("")}</div>`;
 }
 
+/** How many of the most common visit fit in a clinician's day at these lengths, with typical driving between. */
+function dayFit(st) {
+  const len = T("sight").dur, drive = 20, day = st.dayEnd - st.dayStart;
+  const n = Math.floor((day + drive) / (len + drive));
+  return `<div class="callout plain" style="margin:0 0 12px">${icon("clock")}<div>At ${len} minutes for an NHS sight test and about ${drive} minutes' driving between patients, a ${hm(st.dayStart)}–${hm(st.dayEnd)} day fits about <b>${n} sight tests</b>.</div></div>`;
+}
 /** How far ahead each kind of booking can go. */
 function aheadCard(st) {
   const opt = (sel, list) => list.map(([v, l]) => `<option value="${v}" ${Number(sel) === v ? "selected" : ""}>${l}</option>`).join("");
@@ -1227,16 +1282,16 @@ function settingsPage() {
       ${closuresCard(st)}
       ${setFoot()}</form>`;
   } else if (sec === "visits") {
-    const types = Object.entries(META.types || {});
+    const types = Object.entries(TYPES_NOW() || {});
     body = `<form id="set-visits" class="pg-form" novalidate>
       <section class="card tbl-card"><div class="card-h" style="padding:20px 22px 0"><h2>Visits and prices</h2><p>The price is what the patient is invoiced when a visit is done. £0 means no invoice: NHS sight tests are claimed on a GOS form, and glasses are charged when ordered.</p></div>
         <div class="tbl-wrap"><table class="ptable vtable"><thead><tr><th scope="col">Visit</th><th scope="col">Length</th><th scope="col">Price</th><th scope="col">Patients can book online</th></tr></thead><tbody>
         ${types.map(([k, t]) => { const can = k !== "dispense"; const on = (st.online || []).includes(k); return `<tr><td><b>${esc(t.name)}</b>${t.optom ? `<span class="muted">Optometrists only${t.pvn ? " · PCSE notice 48 hours before" : ""}</span>` : `<span class="muted">Any clinician</span>`}</td>
-          <td><span class="mono">${t.dur} min</span></td>
+          <td><select class="input len-in" data-dur="${k}" aria-label="Length of ${esc(t.name)}">${[10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 75, 90, 105, 120].concat(t.dur).filter((m, i, a) => a.indexOf(m) === i).sort((a, b) => a - b).map((m) => `<option value="${m}" ${m === t.dur ? "selected" : ""}>${m} min</option>`).join("")}</select></td>
           <td><label class="money-in"><span>£</span><input class="input" type="number" min="0" max="5000" step="1" data-price="${k}" value="${Number((st.prices || {})[k] || 0)}" aria-label="Price for ${esc(t.name)}"></label></td>
           <td>${can ? `<label class="chk"><input type="checkbox" data-online="${k}" ${on ? "checked" : ""}><span>${on ? "Yes" : "No"}</span></label>` : `<span class="muted">Arranged by the practice</span>`}</td></tr>`; }).join("")}
         </tbody></table></div>
-        <div style="padding:0 22px 20px"><p class="set-note">Lengths are fixed for now, because the refill engine and route planner are tuned to them. Ask us if a visit type needs a different length.</p>${uses(["Invoices", "Booking page", "Today's income figures"])}</div></section>
+        <div style="padding:0 22px 20px"><p class="set-note">The length is the time with the patient; Domi adds the driving between visits itself. It shapes every booking, refill offer, planned route and the diary. If a longer length would run a booked visit into the next one, Domi names it so it can be moved first.</p>${dayFit(st)}<div class="field" style="max-width:340px"><label for="set-tgt">Target: patients seen per clinician per day</label><select class="input" id="set-tgt">${Array.from({ length: 20 }, (_, i) => i + 1).map((n) => `<option ${n === (st.clinicTarget || 10) ? "selected" : ""}>${n}</option>`).join("")}</select><span class="hint after">Each clinic's true count is shown against this in the diary. Recalls count 1; old recalls, new patients, Facebook leads and referrals 0.5.</span></div>${uses(["Diary", "Booking", "Refilling cancellations", "Route planning", "Invoices", "Booking page"])}</div></section>
       ${setFoot()}</form>`;
   } else if (sec === "refill") {
     const mins = [5, 10, 15, 20, 30, 45, 60, 90, 120];
@@ -1287,7 +1342,7 @@ function newPatientPage() {
   const pre = (UI.pg && UI.pg.pre) || {};
   const f = (id, label, extra = "", hint = "") => `<div class="field"><label for="np-${id}">${label}</label><input class="input" id="np-${id}" value="${esc(pre[id] || "")}" ${hint ? `aria-describedby="np-${id}-h"` : ""} ${extra}>${hint ? `<span class="hint after" id="np-${id}-h">${hint}</span>` : ""}</div>`;
   return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/patients", "Patients"], ["", "Add a patient"]]), eyebrow: "New patient", title: "Add a patient",
-      lead: pre.leadId ? "From their Facebook lead: what they gave is filled in. Add the address and anything else you learned on the call." : "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
+      lead: pre.leadId ? `From their Facebook lead: what they gave is filled in.${pre.pc ? "" : " Their form didn't ask for a postcode, so add it from the call."} Check the date of birth with them, and add anything else you learned.` : "For someone who phoned in or was referred on paper. Name, address and a phone number are enough to book them; the rest can follow." })}
     <form id="np-form" class="pg-form" novalidate>
       <section class="card"><div class="card-h"><h2>Who they are</h2></div>
         <div class="row2">${f("name", "Full name", 'maxlength="80" required autocomplete="off"')}${f("dob", "Date of birth", 'type="date" min="1900-01-01" max="2026-10-12"', "Checked against everyone already on Domi.")}</div></section>
@@ -1318,6 +1373,8 @@ function patientFormFields(p) {
     ${f("email", "Email", p.email, 'type="email" maxlength="120"')}
     ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
     <div class="row2">${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}${f("specs", "Glasses", p.specs, 'maxlength="80"')}</div>
+<div class="row2">${f("ob", "Opticabase ID", p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", "Next exam (from Opticabase)", p.nextExam, 'type="date"')}</div>
+    <div class="row2">${f("last", "Last sight test", p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the optometrist)</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
     <div class="row2">${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120" placeholder="Leave empty if nobody holds one"')}<div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="form-f"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
@@ -1332,7 +1389,7 @@ function teamPage() {
   if (!t) return `<div class="pg">${pageHead({ eyebrow: esc(S.settings.practice), title: "Team &amp; hours" })}<p class="muted">Loading…</p></div>`;
   const clin = t.clinicians.filter((c) => c.active), off = t.clinicians.filter((c) => !c.active);
   const card = (c) => `<a class="pcard ${c.active ? "" : "off"}" href="#/team/clin/${esc(c.id)}">
-      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}</span></span>${c.active ? signinBadge(c.signin) : `<span class="badge b-plain">Switched off</span>`}</span>
+      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}${c.office ? " · office access" : ""}</span></span>${c.active ? signinBadge(c.signin) : `<span class="badge b-plain">Switched off</span>`}</span>
       <span class="pc-area">${icon("pin")}${esc(c.areaName || "No area set")}</span>
       <span class="chips-r">${c.patch.slice(0, 8).map((d) => `<span class="chip">${esc(d)}</span>`).join("")}${c.patch.length > 8 ? `<span class="chip">+${c.patch.length - 8}</span>` : ""}</span>
       <span class="pc-hours">${weekBar(c.hours)}<span class="muted">${esc(hoursText(c.hours))}</span></span></a>`;
@@ -1369,7 +1426,8 @@ function personPage(t, edit) {
     <form id="tm-clin" data-id="${esc(edit.id || "")}" class="pg-form">
       <section class="card"><div class="card-h"><h2>Profile</h2><p>How they appear in the diary and on patients' texts.</p></div>
         <div class="row2">${f("name", "Full name", c.name, 'maxlength="60" required')}<div class="field"><label for="tm-role">Role</label><span class="hint">Only optometrists are offered eye examinations.</span><select class="input" id="tm-role">${t.roles.map((r) => `<option ${r === c.role ? "selected" : ""}>${r}</option>`).join("")}</select></div></div>
-        <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:46px;padding:4px"></div></div></section>
+        <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:46px;padding:4px"></div></div>
+        <label class="chk"><input type="checkbox" id="tm-office" ${c.office ? "checked" : ""}><span><b>Also runs the practice</b> <span class="muted">(for a director: office access to every diary, patient and setting, as well as their own round)</span></span></label></section>
       <section class="card"><div class="card-h"><h2>Area</h2><p>Who they're offered: patients in these postcode areas first, then the ones they'll also go to.</p></div>
         ${f("area", "Area name", c.areaName, 'maxlength="60" placeholder="e.g. Bolton & Bury"')}
         <div class="row2">${f("patch", "Postcode areas they cover", c.patch.join(", "), 'placeholder="BL1, BL2, BL3"', "Separate with commas.")}${f("near", "Will also go to", c.near.join(", "), 'placeholder="BL4, M8"', "Used when nobody nearer fits.")}</div>
@@ -1714,7 +1772,10 @@ function apptDrawer(id) {
   return `<div class="drawer-h"><div><div class="caps">${a.day ? dayName(a.day) + " · " : ""}${hm(a.start)}–${hm(a.start + t.dur)} · ${esc(c.name)}</div><h2 style="margin-top:6px">${esc(p.name)}</h2>
       <div style="display:flex;gap:6px;margin-top:8px"><span class="badge ${status[0]}">${status[1]}</span>${a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved forward</span>` : ""}</div></div>${closeX}</div>
     <div class="drawer-b">
-      <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd><dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
+      <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd>${p.obId ? `<dt>Opticabase</dt><dd class="mono">${esc(p.obId)}</dd>` : ""}<dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
+      ${isAdmin() && ["booked", "enroute"].includes(a.status) ? `<div class="likely">
+        <div class="field"><label for="ap-src">How they came to us</label><select class="input" id="ap-src" data-id="${a.id}">${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}" ${k === a.source ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>
+        <div class="field"><label for="ap-count">True count <span class="muted">(how likely they are to be in)</span></label><select class="input" id="ap-count" data-id="${a.id}">${(META.counts || [1, 0.5]).map((n) => `<option value="${n}" ${n === countOf(a) ? "selected" : ""}>${n}${n === ((META.sources || {})[a.source] || { count: 0.5 }).count ? " (usual for this source)" : ""}</option>`).join("")}</select></div></div>` : ""}
       ${tools}${record}
       ${canCancel ? `<div class="hr" style="margin:20px 0"></div>
         <div class="field"><label for="reason">Why is it cancelled?</label><select class="input" id="reason" data-keep>${META.reasons.map((r) => `<option>${r}</option>`).join("")}</select></div>
@@ -1778,7 +1839,7 @@ function flowDrawer() {
 /* Book a visit: who, what, when they're home -> best slots across every round, ranked by extra driving. */
 function bookInput() {
   const v = (id) => { const e = $("#" + id); return e ? e.value : ""; };
-  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail"), date: v("bk-from") || undefined };
+  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail"), date: v("bk-from") || undefined, source: v("bk-src") || undefined, early: !!($("#bk-early") || {}).checked };
 }
 /* ---------- Importing patients from a spreadsheet ---------- */
 // The file is read in the browser and sent for checking; nothing is saved until the office presses Import.
@@ -1881,9 +1942,12 @@ function bookDrawer() {
     <div id="bk-new" ${sel === "new" ? "" : "hidden"}><div class="row2"><div class="field"><label for="bk-name">Name</label><input class="input" id="bk-name" data-keep placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="bk-addr">Address</label><input class="input" id="bk-addr" data-keep placeholder="House and street"></div></div>
       <div class="field">${DomiAreas.picker(S.areas || [], "bk-pc", DomiAreas.read(document, "bk-pc"))}</div>
       <div class="row2"><div class="field"><label for="bk-phone">Mobile</label><input class="input" id="bk-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
-    <div class="row2"><div class="field"><label for="bk-type">Visit type</label><select class="input" id="bk-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name} · ${v.dur} min</option>`).join("")}</select></div>
+    <div class="row2"><div class="field"><label for="bk-type">Visit type</label><select class="input" id="bk-type" data-keep>${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}">${v.name} · ${v.dur} min</option>`).join("")}</select></div>
     <div class="field"><label for="bk-avail">Patient is home</label><select class="input" id="bk-avail" data-keep>${Object.entries(META.avail).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
     <div class="field"><label for="bk-from">Earliest date</label><input class="input" type="date" id="bk-from" data-keep min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${esc((B.results && B.results.from ? (calDay(B.results.from) || {}).iso : "") || "")}"><div class="muted" style="font-size:12.5px;margin-top:4px">Leave as today for the soonest gaps, or pick a later date, up to ${S.cal.bookAheadDays >= 60 ? Math.round(S.cal.bookAheadDays / 30.4) + " months" : S.cal.bookAheadDays + " days"} ahead.</div></div>
+    ${B.results && B.results.recallLine ? `<div class="callout apricot" style="margin-bottom:12px">${icon("shield")}<div><b>NHS sight test not before ${esc(B.results.recallLine.label)}</b><div style="margin-top:2px">That's their recall line (${B.results.recallLine.months}-month recall, less a month), so these times start from then.</div></div></div>` : ""}
+    <div class="field"><label for="bk-src">How they came to us</label><select class="input" id="bk-src" data-keep><option value="">Work it out (recall list, Facebook lead, referral, seen before or new)</option>${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}">${esc(v.label)} · true count ${v.count}</option>`).join("")}</select></div>
+    <label class="chk" style="margin:0 0 12px"><input type="checkbox" id="bk-early" data-keep ${B.early ? "checked" : ""}><span>Early retest: their sight has changed <span class="muted">(allows an NHS test before the recall line; the GOS form needs the reason)</span></span></label>
     <button class="btn block lg" type="submit">${icon("pin")}Find the best slots</button>
     ${results}
   </form>`;
@@ -1897,7 +1961,7 @@ function wlDrawer() {
     <div id="wl-new" ${opts.length ? "hidden" : ""}><div class="row2"><div class="field"><label for="wl-name">Name</label><input class="input" id="wl-name" data-keep placeholder="e.g. Ruth Ingham"></div></div>
       <div class="field">${DomiAreas.picker(S.areas || [], "wl-pc", DomiAreas.read(document, "wl-pc"))}</div>
       <div class="row2"><div class="field"><label for="wl-addr">Address</label><input class="input" id="wl-addr" data-keep placeholder="House and street"></div><div class="field"><label for="wl-phone">Mobile</label><input class="input" id="wl-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
-    <div class="row2"><div class="field"><label for="wl-type">Visit type</label><select class="input" id="wl-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("")}</select></div>
+    <div class="row2"><div class="field"><label for="wl-type">Visit type</label><select class="input" id="wl-type" data-keep>${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("")}</select></div>
     <div class="field"><label for="wl-prio">Priority</label><select class="input" id="wl-prio" data-keep><option value="routine">Routine</option><option value="soon">Soon</option><option value="urgent">Urgent</option></select></div></div>
     <div class="row2"><div class="field"><label for="wl-avail">Availability</label><select class="input" id="wl-avail" data-keep>${Object.entries(META.avail).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
     <div class="field"><label for="wl-short">Short notice</label><select class="input" id="wl-short" data-keep><option value="1">Can take a same-day visit</option><option value="0">Needs 24h notice</option></select></div></div>
@@ -1906,7 +1970,7 @@ function wlDrawer() {
 }
 /* ---------- Patients: find anyone, open their record, change it, export or erase it ---------- */
 const OPEN = ["booked", "enroute", "live"];
-const searchText = (p) => [p.name, p.pc, p.pc.replace(/\s/g, ""), p.addr, p.phone.replace(/\s/g, ""), p.dob || ""].join(" ").toLowerCase();
+const searchText = (p) => [p.name, p.obId || "", p.pc, p.pc.replace(/\s/g, ""), p.addr, p.phone.replace(/\s/g, ""), p.dob || ""].join(" ").toLowerCase();
 const clinUsers = () => (S.staff || []).filter((u) => u.role === "clinician");
 function patientsDrawer(d) {
   const words = String(d.q || "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -1974,6 +2038,8 @@ function patientForm(p) {
     ${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120"')}
     <div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div>
     ${f("specs", "Glasses", p.specs, 'maxlength="80"')}
+    <div class="row2">${f("ob", "Opticabase ID", p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", "Next exam (from Opticabase)", p.nextExam, 'type="date"')}</div>
+    <div class="row2">${f("last", "Last sight test", p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the optometrist)</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="drawer-f" style="margin:8px -22px -22px"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
   </form>`;
@@ -2073,7 +2139,7 @@ function invoicesDrawer(d) {
       <div class="rp-tiles">${`<div class="rp-tile"><b>${pounds(d.totals.unpaidPence)}</b><span>unpaid</span></div><div class="rp-tile"><b>${pounds(d.totals.paidPence)}</b><span>paid</span></div>`}</div>
       <div class="soon-row">${soon("card", "Take card payment", "check")}${soon("xero", "Sync to Xero", "reset")}${soon("carehome", "Bill a care home", "users")}</div>
       <details class="prices"><summary>Prices per visit type</summary>
-        <div class="price-grid">${Object.entries(META.types).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
+        <div class="price-grid">${Object.entries(TYPES_NOW()).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
         <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised: NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered. No VAT is added: check your VAT treatment with your accountant.</p></details>
       ${d.invoices.length ? `<ul class="invs">${d.invoices.map((i) => { const p = pat(i.patientId); return `<li>
         <div style="min-width:0"><div class="nm"><span class="mono">${esc(i.number)}</span> · ${esc(p ? p.name : "")}</div><div class="meta">${esc(i.items.map((x) => x.desc).join(", "))}</div></div>
@@ -2189,7 +2255,8 @@ async function openPatient(id, apptId) {
 async function switchRole(admin) {
   if (!S || isAdmin() === admin) return;
   closeDrawer();
-  await viewAs(admin ? S.signedInAs.id : UI.lastClin);
+  if (!admin && S.signedInAs.dual && !UI.pickedClin) UI.lastClin = S.signedInAs.id; // a director's own round first
+  await viewAs(admin ? S.signedInAs.id : UI.lastClin, admin);
 }
 
 document.addEventListener("click", async (e) => {
@@ -2308,7 +2375,7 @@ document.addEventListener("click", async (e) => {
       case "lt": UI.lt = el.dataset.v; render(); break;
       case "nd-open": UI.nd = el.dataset.id; render(); { const f = $("#nd-form"); if (f) f.scrollIntoView({ block: "center", behavior: "smooth" }); } break;
       case "nd-close": UI.nd = null; render(); break;
-      case "lead-patient": { const l = (S.leads || []).find((x) => x.id === el.dataset.id); UI.npPre = l ? { name: l.name, phone: l.phone, email: l.email, pc: l.pc, leadId: l.id } : null; go("patients/new"); break; }
+      case "lead-patient": { const l = (S.leads || []).find((x) => x.id === el.dataset.id); UI.npPre = l ? { name: l.name, phone: l.phone, email: l.email, pc: l.pc, dob: l.dob || "", addr: l.addr ? l.addr.replace(/,?\s*[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\s*$/i, "").split(",")[0].trim() : "", leadId: l.id } : null; go("patients/new"); break; }
       case "fb-key": { if (!confirm("Make a new private link? The old one stops working straight away, so update it in Zapier or Make.")) break; UI.pg.conn = await api("POST", "/api/leads/connection/key"); render(); toast("New link made. Paste it into Zapier or Make."); break; }
       case "fb-disconnect": { if (!confirm("Disconnect Facebook? New leads will stop arriving directly until you connect again.")) break; UI.pg.conn = await api("PUT", "/api/leads/connection/meta", { disconnect: true }); render(); toast("Facebook disconnected"); break; }
       case "pmore": UI.plimit = (UI.plimit || PAGE) + PAGE; render(); break;
@@ -2355,6 +2422,14 @@ document.addEventListener("click", async (e) => {
       case "team": go("team"); break;
       case "tm-edit": go(`team/${el.dataset.k}/${el.dataset.id || "new"}`); break;
       case "tm-back": go("team"); break;
+      case "calls-stage": UI.pg.stage = Number(el.dataset.v); render(); break;
+      case "call-rec": {
+        el.disabled = true;
+        await api("POST", `/api/calls/${el.dataset.id}`, { stage: Number(el.dataset.s), outcome: el.dataset.v });
+        UI.pg.data = await api("GET", "/api/calls"); await load(); render();
+        toast(el.dataset.v === "done" ? "Ticked off" : el.dataset.v === "texted" ? "Sent as a text" : "No answer: it stays on the list");
+        break;
+      }
       case "tm-invite": {
         if (el.dataset.reset && !confirm("Reset their sign-in? Their password and authenticator codes stop working now, they're signed out everywhere, and they get a link to set up new ones.")) break;
         el.disabled = true;
@@ -2490,7 +2565,7 @@ document.addEventListener("submit", async (e) => {
       const body = {
         "set-practice": () => ({ practice: v("practice"), phone: v("phone"), email: v("email"), officeHours: v("hoursText"), logo: v("logo") }),
         "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")), bookAheadDays: Number(v("ba")), onlineAheadDays: Number(v("oa")), offerAheadDays: Number(v("fa")), closures: (UI.pg && UI.pg.clo) || S.settings.closures || [] }),
-        "set-visits": () => ({ prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
+        "set-visits": () => ({ clinicTarget: Number(v("tgt")), durations: Object.fromEntries([...e.target.querySelectorAll("[data-dur]")].map((i) => [i.dataset.dur, Number(i.value)])), prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
         "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")), autoRecalls: $("#set-arc").checked, recallAt: Number(v("rat")) }),
       }[e.target.id];
       if (!body) return;
@@ -2515,7 +2590,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "pe-form") {
       const v = (id) => ($("#pe-" + id) || {}).value || "";
       const d = ctx("patient");
-      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts") });
+      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts"), lastTest: v("last"), recallMonths: v("recall"), obId: v("ob"), nextExam: v("next") });
       d.edit = false; d.rec = await api("GET", "/api/patients/" + d.id + "?background=1"); await load(); rerender(d);
       toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
       return;
@@ -2524,7 +2599,7 @@ document.addEventListener("submit", async (e) => {
       const v = (id) => ($("#tm-" + id) || {}).value || "";
       const hours = WD().map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
       const id = e.target.dataset.id || undefined;
-      const r = await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
+      const r = await api("POST", "/api/team/clinicians", { id, office: !!($("#tm-office") || {}).checked, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
       await load();
       if (id) { go("team"); toast("Saved"); }
       else { UI.pg.invite = r.invite; go("team/clin/" + r.id); toast(r.invite.emailed ? `Added. ${first(r.name)} has been emailed an invitation.` : `Added. Send ${first(r.name)} their invitation link.`); }
@@ -2557,6 +2632,10 @@ document.addEventListener("submit", async (e) => {
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.id === "ap-src" || e.target.id === "ap-count") {
+      const body = e.target.id === "ap-src" ? { source: e.target.value } : { reliability: Number(e.target.value) };
+      api("PUT", `/api/appointments/${e.target.dataset.id}/likelihood`, body).then(() => load()).then(() => { toast(e.target.id === "ap-src" ? "Source saved" : "True count saved"); redraw(); }).catch(fail);
+    }
     if (e.target.id === "jump-date" && e.target.value) {
       const d = dayByIso(e.target.value);
       if (d == null) { toast("That date is outside the diary", true); return; }
@@ -2580,7 +2659,7 @@ document.addEventListener("change", async (e) => {
     if (e.target.id === "offer-min") { await api("PUT", "/api/settings", { offerMinutes: Number(e.target.value) }); await load(); toast("Normal reply window: " + e.target.value + " min"); }
     if (e.target.id === "practice-name") { const v = e.target.value.trim(); if (v.length < 2) { e.target.value = S.settings.practice; return; } await api("PUT", "/api/settings", { practice: v }); await load(); toast("Texts now signed " + v); }
     if (e.target.id === "fee") { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); await api("PUT", "/api/settings", { fee: v }); await load(); toast("Fee set to " + money(v) + " per visit"); }
-    if (e.target.id === "me") { UI.lastClin = e.target.value; await viewAs(e.target.value); }
+    if (e.target.id === "me") { UI.lastClin = e.target.value; UI.pickedClin = true; await viewAs(e.target.value); }
     if (e.target.dataset && e.target.dataset.price) { await api("PUT", "/api/settings", { prices: { [e.target.dataset.price]: Number(e.target.value) } }); await load(); toast("Price saved"); }
     if (e.target.id === "qr-as") { UI.qrAs = e.target.value; UI.pair = null; redraw(); }
   } catch (err) { fail(err); }
@@ -2604,7 +2683,7 @@ $("#signout").onclick = async () => {
 };
 $("#reset").onclick = async () => {
   try {
-    if (!isAdmin()) await viewAs(S.signedInAs.id);
+    if (!isAdmin()) await viewAs(S.signedInAs.id, true);
     await api("POST", "/api/admin/reset"); closeDrawer(); UI.pid = null; UI.rec = null; await load(); toast("Demo started again from 10:20");
   } catch (err) { fail(err); }
 };

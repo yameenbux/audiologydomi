@@ -32,7 +32,15 @@ CREATE TABLE IF NOT EXISTS users (
   totp_step INTEGER NOT NULL DEFAULT -1,            -- last code step used, so a code can't be replayed
   failed INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0,
   title TEXT, color TEXT,
-  active INTEGER NOT NULL DEFAULT 1                -- 0 = can't sign in (left the practice); kept for the audit trail
+  active INTEGER NOT NULL DEFAULT 1,               -- 0 = can't sign in (left the practice); kept for the audit trail
+  office INTEGER NOT NULL DEFAULT 0                -- a clinician who also runs the practice (a director): office access too
+);
+CREATE TABLE IF NOT EXISTS confirmations (       -- confirmation calls (CC1-CC3), one row per call made
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id TEXT NOT NULL REFERENCES appointments(id),
+  stage INTEGER NOT NULL CHECK (stage IN (1,2,3)),
+  outcome TEXT NOT NULL CHECK (outcome IN ('done','no-answer','texted')),
+  by_name TEXT NOT NULL, at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS invites (
   id TEXT PRIMARY KEY,                             -- a hash of the token in the link: the link itself is never stored
@@ -51,6 +59,9 @@ CREATE TABLE IF NOT EXISTS patients (
   poa TEXT,                                       -- who holds lasting power of attorney (health and welfare), and how to reach them
   share TEXT CHECK (share IN ('yes','no')),       -- whether the practice may discuss visits with the next of kin or carer; NULL = not asked
   last_test TEXT,                                 -- date of the last sight test, ISO
+  recall_months INTEGER,
+  next_exam TEXT,                                 -- the next exam Opticabase worked out, ISO; when set, the recall line comes from it
+  ob_id TEXT,                                     -- the patient's Opticabase ID, so the two systems can be matched                          -- months to the next sight test, set by the optometrist (12, 6 or 3); NULL = 12
   erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
 );
 CREATE TABLE IF NOT EXISTS notes (
@@ -64,6 +75,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   moved INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, note TEXT, reason TEXT, gap INTEGER NOT NULL DEFAULT 0,
   cancelled_min INTEGER, booked_min INTEGER, filled_from TEXT,
   reminded INTEGER NOT NULL DEFAULT 0,             -- day-before reminder sent
+  source TEXT,                                     -- where the booking came from (domain SOURCES)
+  reliability REAL,                                -- the office's own "true count" for this visit; NULL = the source's
   cancel_token TEXT UNIQUE                         -- secret for the family cancellation link (/cancel/<practice>/<token>)
 );
 CREATE TABLE IF NOT EXISTS invoices (
@@ -118,7 +131,9 @@ CREATE TABLE IF NOT EXISTS leads (
   id TEXT PRIMARY KEY, created_at TEXT NOT NULL, created_min INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','booked','closed')),
   source TEXT NOT NULL DEFAULT 'facebook', campaign TEXT, name TEXT NOT NULL, phone TEXT, email TEXT, pc TEXT,
-  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id), meta_id TEXT
+  answers TEXT NOT NULL DEFAULT '[]', note TEXT, handled_by TEXT, handled_at TEXT, patient_id TEXT REFERENCES patients(id), meta_id TEXT,
+  addr TEXT, dob TEXT,                             -- street address and date of birth, when the ad form asks for them
+  pc_from TEXT                                     -- where the postcode came from: 'form', 'address' (found in it), or NULL (none yet)
 );
 CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY AUTOINCREMENT, to_addr TEXT NOT NULL, to_name TEXT, subject TEXT NOT NULL, body TEXT NOT NULL,
@@ -140,7 +155,23 @@ const USERS = [
   { id: "u-c3", email: "priya@airevalleyeyecare.example", name: "Priya Nair", role: "clinician", clinicianId: "c3", title: "Optometrist", color: "#7A5A8C" },
 ];
 
-const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
+/**
+ * Columns added after a table was first made. A fresh database gets them from SCHEMA; a live practice's Postgres
+ * tables, made with an older SCHEMA, get them added when the practice opens (pgstore.ensure). Each must be
+ * nullable or have a default, so existing rows stay valid.
+ */
+const ADDED_COLUMNS = [
+  ["patients", "recall_months", "BIGINT"],
+  ["patients", "next_exam", "TEXT"],
+  ["patients", "ob_id", "TEXT"],
+  ["appointments", "source", "TEXT"],
+  ["appointments", "reliability", "REAL"],
+  ["users", "office", "BIGINT NOT NULL DEFAULT 0"],
+  ["leads", "addr", "TEXT"],
+  ["leads", "dob", "TEXT"],
+  ["leads", "pc_from", "TEXT"],
+];
+const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
 function openDb(brand = brands.get(), { empty = false } = {}) {
@@ -294,6 +325,12 @@ function seed(db, brand) {
     : [["ld1", "08:12", 492, "new", "Joan Whittle", "07700 900960", "joan.whittle@example.com", "LS16 7AB", [["Who is the eye test for?", "My mum"], ["When did they last have an eye test?", "Over 2 years ago"]]],
        ["ld2", "09:31", 571, "new", "Derek Lord", "07700 900961", "derek.lord@example.com", "LS17 6JN", [["Who is the eye test for?", "Me"], ["When did they last have an eye test?", "I don't know"]]],
        ["ld3", "Yesterday 16:40", -440, "contacted", "Pauline Haworth", "07700 900962", "p.haworth@example.com", "LS15 8PL", [["Who is the eye test for?", "My dad"], ["When did they last have an eye test?", "1 to 2 years ago"]], "Left a voicemail at 9:15. Try again after 2pm."]];
+  // Home Visiting Optics use Opticabase: their sample patients carry an Opticabase ID, as their diary does.
+  if (brand.id === "hvo") db.prepare("SELECT id FROM patients ORDER BY rowid").all().forEach((r, i) => db.prepare("UPDATE patients SET ob_id = ? WHERE id = ?").run(String(25180 + i * 7), r.id));
+  // Where each sample booking came from, and a few the office doesn't trust to be in.
+  const MIX = ["recall", "recall", "facebook", "recall", "old-recall", "referral", "recall", "new", "recall"];
+  db.prepare("SELECT id FROM appointments ORDER BY id").all().forEach((r, i) => db.prepare("UPDATE appointments SET source = ? WHERE id = ?").run(MIX[i % MIX.length], r.id));
+  db.prepare("UPDATE appointments SET reliability = 0.25 WHERE id IN ('a4', 'w2c30', 'w3c11')").run();
   LEADS.forEach(([id, created_at, created_min, status, name, phone, email, pc, answers, note]) => {
     ins("leads", { id, created_at, created_min, status, source: "facebook", campaign: AD, name, phone, email, pc, answers: JSON.stringify(answers), note: note || null, handled_by: note ? "Sarah Lane" : null, handled_at: note ? "09:15" : null });
     const subject = `Thank you for getting in touch with ${brand.practice}`;
@@ -319,18 +356,18 @@ function leadEmail(name, practice, phone, hours, email) {
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
-  user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0 }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, erased: !!r.erased }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded }),
+  user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0, office: r.role === "admin" || !!r.office }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, erased: !!r.erased }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
   pcse: (r) => ({ id: r.id, action: r.action, patientId: r.patient_id, appointmentId: r.appointment_id, day: r.day, start: r.start_min, status: r.status, at: r.created_at, by: r.done_by }),
   referral: (r) => ({ id: r.id, at: r.created_at, status: r.status, fromKind: r.from_kind, fromName: r.from_name, fromPhone: r.from_phone, name: r.name, dob: r.dob, addr: r.addr, pc: r.pc, phone: r.phone, eligibility: r.eligibility, entitlement: J(r.entitlement, []), need: r.need, avail: r.avail, urgent: !!r.urgent, notes: r.notes, patientId: r.patient_id, decidedBy: r.decided_by, declineReason: r.decline_reason }),
-  lead: (r) => ({ id: r.id, at: r.created_at, atMin: r.created_min, status: r.status, source: r.source, campaign: r.campaign, name: r.name, phone: r.phone, email: r.email, pc: r.pc, answers: J(r.answers, []), note: r.note, handledBy: r.handled_by, handledAt: r.handled_at, patientId: r.patient_id }),
+  lead: (r) => ({ id: r.id, at: r.created_at, atMin: r.created_min, status: r.status, source: r.source, campaign: r.campaign, name: r.name, phone: r.phone, email: r.email, pc: r.pc, addr: r.addr || null, dob: r.dob || null, pcFrom: r.pc_from || (r.pc ? "form" : null), answers: J(r.answers, []), note: r.note, handledBy: r.handled_by, handledAt: r.handled_at, patientId: r.patient_id }),
   email: (r) => ({ id: r.id, to: r.to_addr, name: r.to_name, subject: r.subject, body: r.body, kind: r.kind, leadId: r.lead_id, at: r.created_at, providerId: r.provider_id }),
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, openDb, map, SCHEMA, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };
+module.exports = { ADDED_COLUMNS, db, openDb, map, SCHEMA, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };

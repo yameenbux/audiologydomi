@@ -1018,3 +1018,32 @@ button.rm-row:hover { background: var(--subtle) }
 .copy-row { display: flex; gap: 8px }
 .copy-row .input { flex: 1; min-width: 0; font-size: 12.5px }
 .acc-acts { display: flex; gap: 10px; flex-wrap: wrap }
+
+/* Confirmation calls */
+.calls-tabs { margin: 4px 0 10px; flex-wrap: wrap }
+.calls-tabs button span { margin-left: 8px; font-size: 12px; color: var(--muted) }
+.calls-what { margin: 0 0 14px; font-size: 14px }
+.calls { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px }
+.call-row { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(170px, 1fr) minmax(220px, 1.6fr) auto; gap: 14px; align-items: center; background: var(--surface); border-radius: 14px; padding: 14px 16px; box-shadow: inset 0 0 0 1px var(--line) }
+.call-row > div { display: flex; flex-direction: column; gap: 3px; min-width: 0 }
+.call-row .nm { font-weight: 700; color: var(--ink); text-decoration: none }
+.cr-tel { display: inline-flex; gap: 6px; align-items: center; color: var(--forest); font-size: 14px }
+.cr-tel .i { width: 15px; height: 15px }
+.cr-rep { font-size: 12.5px }
+.cr-visit .dot { display: inline-block; width: 9px; height: 9px; border-radius: 99px; margin-right: 6px }
+.cr-visit .badge { align-self: flex-start }
+.cr-say q { font-size: 14px; quotes: "\201C" "\201D" }
+.cr-say .late { font-size: 12.5px }
+.cr-acts { flex-direction: row !important; flex-wrap: wrap; gap: 6px !important; justify-content: flex-end }
+@media (max-width: 1100px) { .call-row { grid-template-columns: 1fr 1fr } .cr-acts { justify-content: flex-start } }
+@media (max-width: 600px) { .call-row { grid-template-columns: 1fr } }
+
+/* True count: how likely a visit is to go ahead, and each clinic's total */
+.tcount-line { display: inline-block; margin-top: 3px; font-size: 11.5px; color: var(--forest); background: color-mix(in srgb, var(--forest) 9%, transparent); padding: 1px 7px; border-radius: 99px }
+.tcount-line.weak { color: var(--apricot-ink, #9a4a12); background: color-mix(in srgb, var(--apricot) 18%, transparent) }
+.blk .tcount { position: absolute; top: 4px; right: 5px; font: 600 10.5px/1 var(--f-mono); padding: 3px 5px; border-radius: 6px; background: color-mix(in srgb, var(--apricot) 25%, var(--surface)); color: var(--ink) }
+.blk .tcount.low { background: var(--apricot); color: #fff }
+.wk-cell .tcount-line { margin-top: 6px }
+.likely { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px }
+.tcount-line { white-space: nowrap }
+.wk-cell .tcount-line { font-size: 10.5px; padding: 1px 6px; align-self: flex-start }

@@ -34,7 +34,7 @@ const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "o
   autoRecalls: true, recallAt: 10 * 60,
   // How far ahead, in days: the office can book (12 months), patients can book online (6 weeks), and a cancelled
   // visit is offered round the waiting list by text (14 days). Further-off gaps stay open for normal booking.
-  bookAheadDays: 365, onlineAheadDays: 42, offerAheadDays: 14,
+  clinicTarget: 10, bookAheadDays: 365, onlineAheadDays: 42, offerAheadDays: 14,
   // Days the practice is shut besides weekends and bank holidays: [{ date: "2026-12-24", reason: "Christmas Eve" }].
   closures: [],
   // Facebook leads. The key goes in the practice's own connector link (Zapier, Make); the Meta details are

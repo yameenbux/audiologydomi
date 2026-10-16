@@ -8,6 +8,7 @@ const crypto = require("node:crypto");
 const sandbox = require("./sandbox");
 const { db, map, TABLES, USERS, emailFor } = require("./db");
 const invites = require("./invites");
+const calls = require("./calls");
 const brands = require("./brands");
 const regions = require("./regions");
 const D = require("./domain");
@@ -22,7 +23,10 @@ const PORT = Number(process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, "..", "public");
 
 /* ---------- Sessions: server-side, referenced by an HttpOnly cookie (see auth.js) ---------- */
-const pub = (u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId });
+const pub = (u) => ({ id: u.id, name: u.name, role: u.role, clinicianId: u.clinicianId, dual: !!u.dual });
+/** A clinician with office access (a director) signs in to the office, and can switch to their own round. */
+const SELF = "self:clinician";
+const asSignedIn = (u) => (u && u.role === "clinician" && u.office ? { ...u, role: "admin", dual: true } : u);
 /** An account in a practice's own database (the office can add and switch off accounts), or null. */
 const account = (sb, id) => { const r = sandbox.run(sb, () => db.prepare("SELECT * FROM users WHERE id = ?").get(String(id || ""))); return r ? map.user(r) : null; };
 /** Who is calling: their session, their demo, the person signed in, and who they're viewing as. */
@@ -30,7 +34,8 @@ function verify(req) {
   const s = auth.getSession(auth.readCookie(req));
   if (!s) return null;
   const sb = sandbox.get(s.sbId);
-  const real = sb && account(sb, s.uid), eff = sb && account(sb, s.actingAs || s.uid);
+  const real = sb && asSignedIn(account(sb, s.uid));
+  const eff = sb && (s.actingAs === SELF ? account(sb, s.uid) : s.actingAs ? account(sb, s.actingAs) : real);
   if (!sb || !real || !real.active) { auth.endSession(s.id, sb ? "account switched off" : "demo expired"); return null; }
   if (!eff || !eff.active) { s.actingAs = null; return verify(req); }
   sb.lastSeen = Date.now();
@@ -106,7 +111,7 @@ function clinicianCanSee(user, patientId) {
 
 // `?brand=` styles the sign-in screen before a demo exists; afterwards the demo's own brand comes with /api/state.
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
-  types: D.TYPES, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
+  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
@@ -217,9 +222,9 @@ route("POST", "/api/auth/view-as", {}, (req, body) => {
   if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Only the office can switch views.");
   const target = account(req.auth.sb, body.userId);
   if (!target || !target.active) throw new svc.HttpError(400, "Unknown user.");
-  req.auth.session.actingAs = target.id === req.auth.real.id ? null : target.id;
+  req.auth.session.actingAs = target.id !== req.auth.real.id ? target.id : body.as === "clinician" && req.auth.real.dual ? SELF : null;
   if (target.id !== req.auth.real.id) svc.audit(req.auth.real.name, "auth.view-as", target.id, `Viewing the app as ${target.name}`);
-  return { user: pub(target) };
+  return { user: pub(target.id === req.auth.real.id && !req.auth.session.actingAs ? req.auth.real : target) };
 });
 
 // Demo only: a single-use link (shown as a QR code) that signs a phone in as a clinician, valid 10 minutes.
@@ -287,6 +292,8 @@ route("GET", "/api/state", {}, (req, body, user) => {
   return {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
     cal: require("./calendar").view(sb), // dates, weekends, bank holidays and booking limits for the diary
+    types: Object.fromEntries(Object.entries(D.TYPES).map(([k, t]) => [k, { ...t }])), // this practice's own visit lengths, read now
+    calls: isAdmin ? (({ calls: c }) => ({ 1: c[1].length, 2: c[2].length, 3: c[3].length }))(calls.list()) : null, // confirmation calls due today, by stage
     metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
 });
@@ -296,6 +303,7 @@ route("GET", "/api/patients/:id", {}, (req, body, user, { id }) => {
   if (!clinicianCanSee(user, id)) throw new svc.HttpError(403, "This patient isn't on your round or in your area.");
   const p = svc.getPatient(id);
   if (!p) throw new svc.HttpError(404, "Patient not found.");
+  p.nhsFrom = svc.nhsFrom(p); // the earliest NHS sight test can be claimed
   if (new URL(req.url, "http://x").searchParams.get("background") !== "1") svc.audit(user.name, "patient.view", id, p.name);
   return { ...p, history: db.prepare("SELECT * FROM notes WHERE patient_id = ? ORDER BY id DESC").all(id).map(map.note) };
 });
@@ -515,7 +523,12 @@ route("GET", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); cons
 route("POST", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); return svc.applyRoute(body.clinicianId, Number(body.day || 0), user); });
 
 // Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
-route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(1, user.name); });
+route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(require("./calendar").openDays(1, 1)[0], user.name); });
+// Where a booking came from, and how likely it is to go ahead (the true count).
+route("PUT", "/api/appointments/:id/likelihood", {}, (req, body, user, { id }) => { needAdmin(user); return svc.setLikelihood(id, body, user); });
+// Confirmation calls (CC1-CC3): today's list, and recording each one.
+route("GET", "/api/calls", {}, (req, body, user) => { needAdmin(user); return calls.list(); });
+route("POST", "/api/calls/:id", {}, (req, body, user, { id }) => { needAdmin(user); return calls.record(id, body.stage, body.outcome, user); });
 
 route("POST", "/api/messages/read", {}, (req, body, user) => {
   if (user.clinicianId) db.prepare("UPDATE messages SET read = 1 WHERE to_clinician_id = ?").run(user.clinicianId);

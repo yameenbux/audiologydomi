@@ -49,6 +49,7 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
 
     if (!canDo(clinician, w.type)) { ok = false; reason = `Needs an optometrist; ${clinician.first} dispenses`; }
     else if (t.pvn && leadMin < PVN_NOTICE_MIN) { ok = false; reason = "NHS test: PCSE needs 48h notice"; }
+    else if (t.pvn && p.nhsFrom && slot.day < p.nhsFrom.day) { ok = false; reason = `NHS test not due until ${p.nhsFrom.label}`; }
     else if (!w.shortNotice && sameDay) { ok = false; reason = "Needs 24h notice"; }
     else if (t.dur > win) { ok = false; reason = `Needs ${t.dur} min, slot is ${win}`; }
     else if (w.avail === "am" && slot.start >= 720) { ok = false; reason = "Mornings only"; }

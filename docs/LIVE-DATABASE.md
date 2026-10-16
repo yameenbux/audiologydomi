@@ -59,6 +59,12 @@ Then restart the app so it loads the change. The office adds clinicians and impo
 4. `fly secrets set DATABASE_URL=... DATABASE_CA_CERT="$(cat prod-ca-2021.crt)"` plus the Twilio secrets.
 5. Consider point-in-time recovery (a paid Supabase add-on); Pro includes daily backups.
 
+## New columns
+
+A practice's Postgres tables are made from `server/db.js` when it first opens. Columns added to a table after that
+are listed in `ADDED_COLUMNS` there, and are added to existing tables (`ADD COLUMN IF NOT EXISTS`) each time a
+practice opens. A new column must be nullable or have a default. New tables need nothing: they're created on open.
+
 ## Staff sign-in
 
 The office adds people on Team & hours. Each new person is emailed a single-use link (7 days) where they choose
