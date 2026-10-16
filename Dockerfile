@@ -1,10 +1,12 @@
 # Container image for UK hosting (Fly.io London, AWS eu-west-2, Azure UK South, Google europe-west2).
-# No packages to install: the app only uses Node's built-ins.
+# The demo needs nothing but Node; a live server (DATABASE_URL set) also uses the Postgres driver, "pg".
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 COPY server ./server
 COPY public ./public
+COPY scripts/live-admin.js ./scripts/live-admin.js
 COPY test ./test
 # A failing test fails the build, so a broken image is never deployed.
 RUN ROUTING_PROVIDER=estimate npm test && rm -rf test

@@ -67,7 +67,10 @@ function tx(fn) {
   const { sends, events } = sb.pending;
   sb.pending = null; sb.txDepth = 0;
   events.forEach((f) => f());
-  sends.forEach((f) => f());
+  // A live practice writes the change to Postgres first; texts only go once it's safely saved.
+  const saved = sb.flush && sb.flush();
+  if (saved) saved.then(() => sends.forEach((f) => f()), () => console.error("texts held back: the change wasn't saved", sb.id));
+  else sends.forEach((f) => f());
   return result;
 }
 
@@ -1322,6 +1325,10 @@ const districts = (v) => {
   return [...new Set(list)];
 };
 /** Working hours Mon–Fri: each [start, end] inside the practice's opening hours, at least an hour, or null for a day off. */
+/** A new account's password. In a demo it's the demo password; in a live practice it's random and unknown, so nobody
+ *  can sign in until the person sets their own (scripts/live-admin.js), with their own two-factor app. */
+const newAccountHash = () => (sandbox.current().live ? auth.hashPassword(crypto.randomBytes(24).toString("base64url")) : auth.DEMO_HASH);
+
 function workingHours(v) {
   if (!Array.isArray(v) || v.length !== DAYS.length) throw new HttpError(400, "Set hours for each day, Monday to Friday.");
   const { dayStart, dayEnd } = settings();
@@ -1374,7 +1381,7 @@ function saveClinician(input, user) {
       if (emailTaken(email, null)) throw new HttpError(409, "Another account already signs in with that email.");
       cid = newId("c");
       run("INSERT INTO clinicians (id, name, first, role, color, area_name, patch, near, base, hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cid, name, first_, role, color, areaName, JSON.stringify(patch), JSON.stringify(near), base, JSON.stringify(hours));
-      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, auth.DEMO_HASH, auth.newSecret(), role, color);
+      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'clinician', ?, ?, ?, ?, ?, ?)", "u-" + cid, name, cid, email, newAccountHash(), auth.newSecret(), role, color);
       audit(user.name, "clinician.add", cid, `${name}, ${role}`);
     }
     bus.emit({ type: "team.updated" });
@@ -1414,7 +1421,7 @@ function saveStaff(input, user) {
     if (existing) { run("UPDATE users SET name = ?, title = ?, email = ? WHERE id = ?", name, title, email, id); audit(user.name, "staff.update", id, name); }
     else {
       id = newId("u-");
-      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'admin', NULL, ?, ?, ?, ?, ?)", id, name, email, auth.DEMO_HASH, auth.newSecret(), title, "#5B6770");
+      run("INSERT INTO users (id, name, role, clinician_id, email, pass_hash, totp_secret, title, color) VALUES (?, ?, 'admin', NULL, ?, ?, ?, ?, ?)", id, name, email, newAccountHash(), auth.newSecret(), title, "#5B6770");
       audit(user.name, "staff.add", id, `${name}, ${title}`);
     }
     bus.emit({ type: "team.updated" });

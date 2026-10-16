@@ -135,11 +135,11 @@ const USERS = [
 const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "appointments", "recalls", "waitlist", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
-function openDb(brand = brands.get()) {
+function openDb(brand = brands.get(), { empty = false } = {}) {
   const d = new DatabaseSync(":memory:");
   d.exec("PRAGMA foreign_keys = ON;");
   d.exec(SCHEMA);
-  seed(d, brand);
+  if (!empty) seed(d, brand); // a live practice starts empty and is loaded from Postgres (server/pgstore.js)
   return d;
 }
 /** A demo user's sign-in email for this brand: sarah@<the brand's demo domain>. */
@@ -325,4 +325,4 @@ const map = {
   note: (r) => ({ id: r.id, label: r.label, body: r.body, by: r.author, at: r.created_at }),
 };
 
-module.exports = { db, openDb, map, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };
+module.exports = { db, openDb, map, SCHEMA, TABLES, USERS, emailFor, DEFAULT_HOURS, leadEmail };

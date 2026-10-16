@@ -13,5 +13,8 @@
     "test": "node --experimental-sqlite --no-warnings --require ./test/setup.js --test test/*.test.js",
     "reset": "rm -f data/domi.sqlite*",
     "site": "node scripts/build-site.js _site"
+  },
+  "dependencies": {
+    "pg": "8.13.1"
   }
 }
