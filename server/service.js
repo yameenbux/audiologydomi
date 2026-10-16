@@ -1366,7 +1366,7 @@ const userOf = (cid) => one("SELECT * FROM users WHERE clinician_id = ?", cid);
 function teamList() {
   const users = all("SELECT * FROM users ORDER BY role, name").map(map.user);
   return {
-    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => ({ ...c, email: (users.find((u) => u.clinicianId === c.id) || {}).email || null })),
+    clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => { const u = users.find((x) => x.clinicianId === c.id) || {}; return { ...c, email: u.email || null, userId: u.id || null }; }),
     staff: users.filter((u) => u.role === "admin"),
     roles: ROLES,
   };
@@ -1380,9 +1380,9 @@ const districts = (v) => {
   return [...new Set(list)];
 };
 /** Working hours Mon–Fri: each [start, end] inside the practice's opening hours, at least an hour, or null for a day off. */
-/** A new account's password. In a demo it's the demo password; in a live practice it's random and unknown, so nobody
- *  can sign in until the person sets their own (scripts/live-admin.js), with their own two-factor app. */
-const newAccountHash = () => (sandbox.current().live ? auth.hashPassword(crypto.randomBytes(24).toString("base64url")) : auth.DEMO_HASH);
+/** A new account's password: random and never known, so nobody can sign in until the person opens their invitation
+ *  (server/invites.js) and chooses their own, with their own authenticator app. */
+const newAccountHash = () => auth.hashPassword(crypto.randomBytes(24).toString("base64url"));
 
 function workingHours(v) {
   if (!Array.isArray(v) || v.length !== 5) throw new HttpError(400, "Set hours for each day, Monday to Friday.");

@@ -24,6 +24,19 @@ async function signIn(email, sandbox) {
   return { token: r.cookie, sandbox, user: r.data.user, status: r.status };
 }
 const office = (sb) => signIn("sarah@airevalleyeyecare.example", sb);
+/** A new person opens their invitation, chooses a password and confirms a code from their (simulated) app. */
+async function acceptInvite(invite, password = "kettle-orange-harbour") {
+  const [, , code, tok] = new URL(invite.url).pathname.split("/");
+  const base = `/api/public/${code}/invite/${tok}`;
+  const set = await call("POST", base + "/password", null, { password });
+  const a = require("../server/auth");
+  const done = await call("POST", base + "/confirm", null, { code: a.hotp(a.unbase32(set.data.secret), a.stepAt()) });
+  assert.strictEqual(done.status, 200, JSON.stringify(done.data));
+  // Then a normal sign-in with the new password and the app's next code.
+  const pw = await call("POST", "/api/auth/password", null, { sandbox: code, email: done.data.email, password });
+  const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: a.hotp(a.unbase32(set.data.secret), a.stepAt() + 1) });
+  return { token: r.cookie, user: r.data.user, status: r.status };
+}
 const state = async (t) => (await call("GET", "/api/state", t)).data;
 const texts = async (t) => (await state(t)).messages;
 
@@ -139,14 +152,16 @@ test("the family cancellation link: initials only, cancels once, starts the refi
   assert.match(reminder.body, /Reply CANCEL or cancel online at http:\/\/127\.0\.0\.1:\d+\/cancel\/[A-Z0-9]{6}\//);
 });
 
-test("the team: add a part-time clinician who can sign in at once; hours shape bookings; leavers are signed out", async () => {
+test("the team: add a part-time clinician, who sets up their own sign-in from an invitation; hours shape bookings; leavers are signed out", async () => {
   const o = await office();
   const hours = [[540, 1020], [540, 780], null, [540, 1020], [540, 1020]];
   const add = await call("POST", "/api/team/clinicians", o.token, { name: "Nadia Khan", role: "Optometrist", email: "nadia@airevalleyeyecare.example", areaName: "Leeds city", patch: "LS6, LS7", near: "LS16", base: "LS6", hours });
   assert.strictEqual(add.status, 200, JSON.stringify(add.data));
   const cid = add.data.id;
   assert.deepStrictEqual(add.data.hours, hours);
-  const nadia = await signIn("nadia@airevalleyeyecare.example", o.sandbox);
+  assert.strictEqual((await signIn("nadia@airevalleyeyecare.example", o.sandbox)).status, 401, "no password until she sets one");
+  assert.match(add.data.invite.url, /\/invite\/[A-Z0-9]+\/[\w-]{40,}$/);
+  const nadia = await acceptInvite(add.data.invite);
   assert.strictEqual(nadia.status, 200); assert.strictEqual(nadia.user.clinicianId, cid);
   const mine = await state(nadia.token);
   assert.strictEqual(mine.clinicians[0].name, "Nadia Khan");
@@ -172,11 +187,11 @@ test("the team: add a part-time clinician who can sign in at once; hours shape b
   assert.strictEqual((await call("POST", "/api/team/clinicians", nadia.token, { name: "A B" })).status, 401);
 });
 
-test("office accounts: add one who can sign in; nobody can switch off themselves or the last office account", async () => {
+test("office accounts: add one, who sets up their sign-in from an invitation; nobody can switch off themselves or the last office account", async () => {
   const o = await office();
   const add = await call("POST", "/api/team/staff", o.token, { name: "Jo Bright", title: "Receptionist", email: "jo@airevalleyeyecare.example" });
   assert.strictEqual(add.status, 200);
-  const jo = await signIn("jo@airevalleyeyecare.example", o.sandbox);
+  const jo = await acceptInvite(add.data.invite);
   assert.strictEqual(jo.user.role, "admin");
   assert.match((await call("POST", `/api/team/staff/${jo.user.id}/active`, jo.token, { active: false })).data.error, /your own account/);
   assert.strictEqual((await call("POST", "/api/team/staff/u-admin/active", jo.token, { active: false })).status, 200, "Jo switches Sarah off");

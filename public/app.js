@@ -354,7 +354,7 @@ function signInView() {
         <div class="field"><label for="email">Email</label><input class="input" id="email" type="email" autocomplete="username" required data-keep value="${esc(A.email || "")}"></div>
         <div class="field"><label for="password">Password</label><input class="input" id="password" type="password" autocomplete="current-password" required data-keep></div>
         <button class="btn block lg" type="submit">Continue${icon("next")}</button>
-        <p class="hint">${icon("shield")}<span>Forgotten your password, or a new phone? Ask your practice manager.</span></p>
+        <p class="hint">${icon("shield")}<span>Forgotten your password, or got a new phone? Ask your practice office to reset your sign-in. You'll get a link to set it up again in two minutes.</span></p>
       </form>
     </section>
   </div>`;
@@ -916,6 +916,7 @@ async function syncPage() {
     UI.pg = { kind: "lead", id: r.id };
   } else if (r.page === "team" || r.page === "person") {
     if (!UI.pg || UI.pg.kind !== "team") UI.pg = { kind: "team", data: null, edit: null };
+    if (r.page === "team") UI.pg.invite = null; // a link is only shown on the page it was made from
     const edit = r.page === "person" ? { kind: r.k, id: r.id === "new" ? null : r.id } : null;
     const changed = JSON.stringify(edit) !== JSON.stringify(UI.pg.edit);
     UI.pg.edit = edit;
@@ -1331,7 +1332,7 @@ function teamPage() {
   if (!t) return `<div class="pg">${pageHead({ eyebrow: esc(S.settings.practice), title: "Team &amp; hours" })}<p class="muted">Loading…</p></div>`;
   const clin = t.clinicians.filter((c) => c.active), off = t.clinicians.filter((c) => !c.active);
   const card = (c) => `<a class="pcard ${c.active ? "" : "off"}" href="#/team/clin/${esc(c.id)}">
-      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}</span></span>${c.active ? "" : `<span class="badge b-plain">Switched off</span>`}</span>
+      <span class="pc-top"><span class="avatar" style="background:${c.color}">${initials(c.name)}</span><span><b>${esc(c.name)}</b><span class="muted">${esc(c.role)}</span></span>${c.active ? signinBadge(c.signin) : `<span class="badge b-plain">Switched off</span>`}</span>
       <span class="pc-area">${icon("pin")}${esc(c.areaName || "No area set")}</span>
       <span class="chips-r">${c.patch.slice(0, 8).map((d) => `<span class="chip">${esc(d)}</span>`).join("")}${c.patch.length > 8 ? `<span class="chip">+${c.patch.length - 8}</span>` : ""}</span>
       <span class="pc-hours">${weekBar(c.hours)}<span class="muted">${esc(hoursText(c.hours))}</span></span></a>`;
@@ -1341,8 +1342,8 @@ function teamPage() {
     <section class="pg-sec"><div class="sec-h"><h2>Clinicians</h2><span class="muted">${clin.length} on the road</span></div><div class="pcards">${clin.map(card).join("")}</div>
       ${off.length ? `<details class="off-list"><summary>${off.length} switched off</summary><div class="pcards">${off.map(card).join("")}</div></details>` : ""}</section>
     <section class="pg-sec"><div class="sec-h"><h2>Office</h2><span class="muted">See every diary and patient</span></div>
-      <div class="card"><ul class="staff">${t.staff.map((u) => `<li class="${u.active ? "" : "off"}"><span class="avatar sm" style="background:${u.color || "#5B6770"}">${initials(u.name)}</span><span class="who"><b>${esc(u.name)}</b><span class="muted">${esc(u.title || "Office")} · ${esc(u.email)}</span></span>${u.active ? "" : `<span class="badge b-plain">Switched off</span>`}<a class="btn secondary sm" href="#/team/staff/${esc(u.id)}">Open</a></li>`).join("")}</ul></div></section>
-    <div class="callout plain">${icon("shield")}<div>Everyone signs in with a password and a code from an authenticator app. Switching someone off signs them out on every device at once; their history stays.</div></div>
+      <div class="card"><ul class="staff">${t.staff.map((u) => `<li class="${u.active ? "" : "off"}"><span class="avatar sm" style="background:${u.color || "#5B6770"}">${initials(u.name)}</span><span class="who"><b>${esc(u.name)}</b><span class="muted">${esc(u.title || "Office")} · ${esc(u.email)}</span></span>${u.active ? signinBadge(u.signin) : `<span class="badge b-plain">Switched off</span>`}<a class="btn secondary sm" href="#/team/staff/${esc(u.id)}">Open</a></li>`).join("")}</ul></div></section>
+    <div class="callout plain">${icon("shield")}<div>Everyone signs in with their own password and a code from an authenticator app. New people get an emailed link to set both up, and nobody else ever knows them. Lost phone or forgotten password? Open their page and reset their sign-in. Switching someone off signs them out on every device at once; their history stays.</div></div>
   </div>`;
 }
 function personPage(t, edit) {
@@ -1383,8 +1384,39 @@ function personPage(t, edit) {
 const DAY_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 /** The next `n` open days from `from`. */
 const openAhead = (from, n) => (S && S.cal ? S.cal.days.filter((x) => x.open && x.day >= from).slice(0, n).map((x) => x.day) : [0, 1, 2, 3, 4]);
-const accessCard = (edit, x, kind) => edit.id ? `<section class="card"><div class="card-h"><h2>Access</h2><p>${x.active ? "Signed in with a password and an authenticator code." : "Switched off: they can't sign in. Their history is kept."}</p></div>
-  <button class="btn ${x.active ? "ghost danger-t" : "secondary"}" type="button" data-act="tm-active" data-k="${kind}" data-id="${esc(edit.id)}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off and sign out everywhere" : "Switch back on"}</button></section>` : "";
+/** Where someone's sign-in stands, as a badge for the team lists. Nothing once it's set up. */
+const signinBadge = (si) => !si || si.state === "ready" ? "" : si.state === "expired" ? `<span class="badge b-warn">Invite expired</span>` : si.state === "reset" ? `<span class="badge b-plain">Reset sent</span>` : `<span class="badge b-plain">Invited</span>`;
+/** "2 hours ago", "in 7 days": invite links run on real time, even in the demo. */
+function relTime(ms) {
+  const d = ms - Date.now(), a = Math.abs(d), u = a < 3600e3 ? [Math.max(1, Math.round(a / 60e3)), "minute"] : a < 864e5 ? [Math.round(a / 3600e3), "hour"] : [Math.round(a / 864e5), "day"];
+  const t = `${u[0]} ${u[1]}${u[0] === 1 ? "" : "s"}`;
+  return d >= 0 ? "in " + t : t + " ago";
+}
+function accessCard(edit, x, kind) {
+  if (!edit.id) return `<section class="card"><div class="card-h"><h2>Sign-in</h2><p>When you save, they're emailed a link to choose their own password and set up an authenticator app on their phone. It takes them about two minutes, and nobody else ever knows either. The link works once and lasts 7 days.</p></div></section>`;
+  const uid = kind === "clin" ? x.userId : x.id, si = x.signin || { state: "ready" }, me = !!S.signedInAs && uid === S.signedInAs.id;
+  const inv = UI.pg && UI.pg.invite && UI.pg.invite.email === x.email ? UI.pg.invite : null;
+  const what = si.kind === "reset" ? "reset link" : "invitation";
+  const status = !x.active ? "Switched off: they can't sign in. Their history is kept."
+    : si.state === "ready" ? "Signs in with their own password and a code from their authenticator app."
+    : si.state === "expired" ? `The ${what} expired ${relTime(si.expiresAt)} before they used it. Send a new link.`
+    : si.state === "reset" ? `Sign-in reset ${relTime(si.sentAt)}: the old password and codes no longer work. The new link expires ${relTime(si.expiresAt)}.`
+    : `Invitation sent ${relTime(si.sentAt)}. They haven't set up their sign-in yet. The link expires ${relTime(si.expiresAt)}.`;
+  const box = inv ? `<div class="invite-box" role="status">
+      <div class="caps">${inv.kind === "invite" ? "Invitation link" : "Reset link"}</div>
+      <p>${inv.emailed ? `Emailed to <b>${esc(inv.email)}</b>. You can also send it yourself.` : `Email isn't set up${META.demo ? " in this demo" : " yet"}, so send ${esc(first(x.name))} this link yourself, by text or WhatsApp.`} It works once, for ${inv.kind === "invite" ? "7 days" : "24 hours"}, and isn't shown again after you leave this page.</p>
+      <div class="copy-row"><input class="input mono" readonly value="${esc(inv.url)}" aria-label="The link" id="invite-url"><button class="btn secondary" type="button" data-act="copy-invite">${icon("copy")}Copy</button></div>
+      ${META.demo ? `<p class="muted" style="margin:10px 0 0;font-size:13px">Demo: open it in a private window to see what ${esc(first(x.name))} sees. <a href="${esc(inv.url)}" target="_blank" rel="noopener">Open the link</a></p>` : ""}
+    </div>` : "";
+  const act = x.active && !me ? (si.state === "ready"
+      ? `<button class="btn secondary" type="button" data-act="tm-invite" data-id="${esc(uid)}" data-reset="1">${icon("reset")}Reset sign-in</button>`
+      : `<button class="btn secondary" type="button" data-act="tm-invite" data-id="${esc(uid)}">${icon("send")}Send a new link</button>`) : "";
+  return `<section class="card"><div class="card-h"><h2>Sign-in</h2><p>${status}</p></div>
+    ${box}
+    ${si.state === "ready" && x.active && !me ? `<p class="set-note" style="margin-top:0">Lost phone or forgotten password? Resetting stops their old password and codes at once, signs them out everywhere, and sends them a link to set up new ones.</p>` : ""}
+    ${me ? `<p class="set-note" style="margin-top:0">This is you. To reset your own sign-in, ask another office account.</p>` : ""}
+    <div class="acc-acts">${act}<button class="btn ${x.active ? "ghost danger-t" : "secondary"}" type="button" data-act="tm-active" data-k="${kind}" data-id="${esc(edit.id)}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off and sign out everywhere" : "Switch back on"}</button></div></section>`;
+}
 
 /* ============ Drawers ============ */
 function openDrawer(d) { UI.drawer = d; redraw(); }
@@ -1999,7 +2031,7 @@ function teamDrawer(d) {
       <ul class="team">${t.clinicians.map((c) => person(c, "clin")).join("")}</ul>
       <div class="panel-h" style="padding:18px 0 8px"><h3 class="caps" style="margin:0">Office</h3><button class="btn sm" type="button" data-act="tm-edit" data-k="staff">${icon("plus")}Add an office account</button></div>
       <ul class="team">${t.staff.map((u) => person(u, "staff")).join("")}</ul>
-      <div class="callout plain" style="margin-top:18px">${icon("shield")}<div>Everyone signs in with a password and a code from an authenticator app. Switching someone off signs them out on every device at once; their history stays.<div class="muted" style="margin-top:4px">In this demo, new accounts use the demo password. In the live system they're emailed an invitation to set their own.</div></div></div>
+      <div class="callout plain" style="margin-top:18px">${icon("shield")}<div>Everyone signs in with a password and a code from an authenticator app. Switching someone off signs them out on every device at once; their history stays.<div class="muted" style="margin-top:4px">New people are emailed a link to set up their own password and authenticator app.</div></div></div>
     </div>`;
 }
 function clinicianForm(t, id) {
@@ -2323,6 +2355,15 @@ document.addEventListener("click", async (e) => {
       case "team": go("team"); break;
       case "tm-edit": go(`team/${el.dataset.k}/${el.dataset.id || "new"}`); break;
       case "tm-back": go("team"); break;
+      case "tm-invite": {
+        if (el.dataset.reset && !confirm("Reset their sign-in? Their password and authenticator codes stop working now, they're signed out everywhere, and they get a link to set up new ones.")) break;
+        el.disabled = true;
+        const r = await api("POST", `/api/team/users/${el.dataset.id}/invite`);
+        const d = ctx("team"); d.invite = r; d.data = await api("GET", "/api/team"); rerender(d);
+        toast(r.kind === "reset" ? "Sign-in reset. Their old password and codes no longer work." : "New link sent. The old one no longer works.");
+        break;
+      }
+      case "copy-invite": { const i = $("#invite-url"); try { await navigator.clipboard.writeText(i.value); toast("Link copied. Send it only to them."); } catch (err) { i.select(); toast("Select the link and copy it", true); } break; }
       case "tm-active": {
         const on = el.dataset.v === "1", url = el.dataset.k === "clin" ? `/api/team/clinicians/${el.dataset.id}/active` : `/api/team/staff/${el.dataset.id}/active`;
         if (!on && !confirm("Switch this account off? They'll be signed out on every device.")) break;
@@ -2483,16 +2524,18 @@ document.addEventListener("submit", async (e) => {
       const v = (id) => ($("#tm-" + id) || {}).value || "";
       const hours = WD().map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
       const id = e.target.dataset.id || undefined;
-      await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
-      await load(); go("team");
-      toast(id ? "Saved" : "Clinician added. They can sign in now.");
+      const r = await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
+      await load();
+      if (id) { go("team"); toast("Saved"); }
+      else { UI.pg.invite = r.invite; go("team/clin/" + r.id); toast(r.invite.emailed ? `Added. ${first(r.name)} has been emailed an invitation.` : `Added. Send ${first(r.name)} their invitation link.`); }
       return;
     }
     if (e.target.id === "tm-staff") {
       const id = e.target.dataset.id || undefined;
-      await api("POST", "/api/team/staff", { id, name: $("#ts-name").value, title: $("#ts-title").value, email: $("#ts-email").value });
-      await load(); go("team");
-      toast(id ? "Saved" : "Office account added. They can sign in now.");
+      const r = await api("POST", "/api/team/staff", { id, name: $("#ts-name").value, title: $("#ts-title").value, email: $("#ts-email").value });
+      await load();
+      if (id) { go("team"); toast("Saved"); }
+      else { UI.pg.invite = r.invite; go("team/staff/" + r.id); toast(r.invite.emailed ? `Added. ${first(r.name)} has been emailed an invitation.` : `Added. Send ${first(r.name)} their invitation link.`); }
       return;
     }
     if (e.target.id === "wl-form") {
@@ -2583,6 +2626,7 @@ $("#reset").onclick = async () => {
     try { const r = await api("POST", "/api/auth/pair/redeem", { token: params.get("pair") }); rememberDemo(r.sandbox); await enter(); return; } catch (e) { fail(e); }
   }
   if (params.get("join")) UI.auth = { step: "password", join: params.get("join") };
+  if (params.get("email")) UI.auth = { ...UI.auth, email: params.get("email").slice(0, 120) }; // from "You're all set" after an invitation
   try {
     if ((await api("GET", "/api/auth/session")).signedIn) {
       await load();

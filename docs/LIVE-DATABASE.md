@@ -45,7 +45,7 @@ practices; running several machines at once would need the data layer rewritten 
 
 ```bash
 node --experimental-sqlite scripts/live-admin.js add-practice HVO "Home Visiting Optics" hvo
-node --experimental-sqlite scripts/live-admin.js add-admin HVO office@example.co.uk "Full Name"   # prints a password and a 2FA link, once
+node --experimental-sqlite scripts/live-admin.js add-admin HVO office@example.co.uk "Full Name"   # emails an invitation and prints the link, once (needs PUBLIC_URL)
 node --experimental-sqlite scripts/live-admin.js list
 ```
 
@@ -59,6 +59,14 @@ Then restart the app so it loads the change. The office adds clinicians and impo
 4. `fly secrets set DATABASE_URL=... DATABASE_CA_CERT="$(cat prod-ca-2021.crt)"` plus the Twilio secrets.
 5. Consider point-in-time recovery (a paid Supabase add-on); Pro includes daily backups.
 
+## Staff sign-in
+
+The office adds people on Team & hours. Each new person is emailed a single-use link (7 days) where they choose
+their own password and set up an authenticator app; nobody else ever knows either. A lost phone or forgotten
+password: open their page and **Reset sign-in**, which stops the old password and codes at once, signs them out
+everywhere and sends a new link (24 hours). Only a hash of each link is stored. Emails go out once `RESEND_API_KEY`
+and `EMAIL_FROM` are set; until then the office copies the link and sends it themselves.
+
 ## The calendar
 
 A visit's `day` counts calendar days from today. A live practice uses the UK date, and at midnight its stored day
@@ -71,6 +79,4 @@ can go. The demo keeps its fixed Monday 12 October 2026.
 
 - **Bank holidays after 2028.** `server/calendar.js` lists England and Wales bank holidays for 2026 to 2028 (from
   gov.uk). Add the next year's each autumn; until then the office can add them as closure days in Settings.
-- **Staff sign-in set-up.** A way for the office to invite staff to set their own password and two-factor app, and to
-  reset them. Today only the first office account is made, by `live-admin.js`.
 - **Sessions that survive a restart.** Sign-ins are held in memory, so a restart signs everyone out.

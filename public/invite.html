@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<!-- The address holds a private token: never send it to another site. -->
+<meta name="referrer" content="no-referrer">
+<title>Set up your sign-in</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<script src="/powered.js"></script>
+<script src="/vendor/qrcode-generator-1.4.4.js"></script>
+<style>
+  body.iv { background: var(--bg); font-size: 17px }
+  .iv-top { padding: 18px 20px; border-bottom: 1px solid var(--line); background: var(--surface) }
+  .iv-top b { display: block; font: 400 26px/1.1 var(--f-display); min-height: 29px }
+  .iv-top small { display: block; color: var(--muted); font-size: 14px; margin-top: 2px }
+  .iv-main { max-width: 560px; margin: 0 auto; padding: 28px 20px 64px }
+  .iv-main h1 { font-size: clamp(32px, 6.5vw, 42px); line-height: 1.06; margin: 6px 0 10px }
+  .iv-lead { color: var(--muted); margin: 0 0 22px }
+  .iv-steps { display: flex; gap: 6px; margin-bottom: 18px }
+  .iv-steps i { height: 6px; flex: 1; border-radius: 99px; background: var(--subtle) }
+  .iv-steps i.on { background: var(--forest) }
+  .iv-card { background: var(--surface); border-radius: 16px; padding: 20px; box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 16px }
+  .iv .field { margin-bottom: 14px }
+  .iv .input { font-size: 17px; padding: 13px 14px; width: 100% }
+  .iv-pw { position: relative }
+  .iv-pw .input { padding-right: 76px }
+  .iv-pw button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 7px 10px; font-size: 13.5px }
+  .iv-rules { list-style: none; padding: 0; margin: 4px 0 0; font-size: 14.5px; color: var(--muted); display: grid; gap: 4px }
+  .iv-rules li::before { content: "○"; display: inline-block; width: 20px; color: var(--muted) }
+  .iv-rules li.ok { color: var(--ink) }
+  .iv-rules li.ok::before { content: "✓"; color: var(--forest); font-weight: 700 }
+  .iv .btn.lg { width: 100%; justify-content: center; margin-top: 8px; font-size: 18px; padding: 15px 20px }
+  .iv-apps { margin: 0 0 14px; padding-left: 20px; font-size: 15.5px }
+  .iv-apps li { margin: 4px 0 }
+  .iv-qr { display: grid; grid-template-columns: 168px 1fr; gap: 18px; align-items: center }
+  .iv-qr .qr { width: 168px; height: 168px; background: #fff; padding: 10px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line) }
+  .iv-qr .qr svg { width: 100%; height: 100% }
+  .iv-key { font: 600 16px/1.5 var(--f-mono); letter-spacing: .04em; word-spacing: .2em; background: var(--subtle); padding: 8px 10px; border-radius: 8px; margin: 6px 0 0 }
+  .iv-otp { font: 600 28px/1 var(--f-mono); letter-spacing: .3em; text-align: center }
+  .iv-done { box-shadow: inset 0 0 0 2px var(--forest) }
+  .iv-note { display: flex; gap: 10px; font-size: 15px; color: var(--muted); margin-top: 16px }
+  .iv-note svg { flex: none; width: 20px; height: 20px; color: var(--forest); margin-top: 2px }
+  .iv-demo { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--apricot, #E9A15B) 14%, var(--surface)); font-size: 14.5px }
+  .iv-demo b { display: block; margin-bottom: 4px }
+  .on-phone-only { display: none }
+  @media (max-width: 560px), (pointer: coarse) {
+    .iv-qr { grid-template-columns: 1fr }
+    .iv-qr .qr { display: none }
+    .on-phone-only { display: block }
+    .on-desktop-only { display: none }
+  }
+</style>
+</head>
+<body class="iv">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</svg>
+<header class="iv-top"><b id="practice"></b><small>Domi sign-in</small></header>
+<main class="iv-main" id="root" aria-live="polite"><p class="iv-lead">Loading…</p></main>
+<script>
+(function () {
+"use strict";
+const [, , code, token] = location.pathname.split("/");
+const base = `/api/public/${encodeURIComponent(code || "")}/invite/${encodeURIComponent(token || "")}`;
+const root = document.getElementById("root");
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const S = { step: 1, info: null, setup: null, done: null };
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json", "X-Domi": "1" }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({ error: "Something went wrong. Try again, or ask your practice office for a new link." }));
+  if (!r.ok) { const e = new Error(d.error || "Something went wrong."); e.status = r.status; throw e; }
+  return d;
+}
+const steps = (n) => `<div class="iv-steps" aria-hidden="true">${[1, 2].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</div>`;
+const err = (m) => m ? `<div class="err" role="alert" style="margin:0 0 14px">${esc(m)}</div>` : "";
+const keyText = (k) => k.replace(/(.{4})/g, "$1 ").trim();
+const RULES = [
+  [(p) => p.length >= 12, "At least 12 characters"],
+  [(p) => !/^(.)\1+$/.test(p) && !/^(password|qwerty|123456)/i.test(p), "Not an easy one to guess"],
+  [(p, q) => p.length > 0 && p === q, "Both boxes match"],
+];
+
+function view(e) {
+  const I = S.info, roleText = I.role === "clinician" ? "your round of home visits, your patients' records and notes" : "every diary, patient and round at the practice";
+  if (S.step === 1) return `${steps(1)}<div class="caps">Step 1 of 2${I.kind === "reset" ? " · Sign-in reset" : ""}</div>
+    <h1>${I.kind === "reset" ? `Set up your sign-in again, ${esc(I.first)}` : `Hello ${esc(I.first)}, let's set up your sign-in`}</h1>
+    <p class="iv-lead">${I.kind === "reset" ? "Your old password and codes no longer work. Choose a new password, then set up your authenticator app again." : `You've been added to ${esc(I.practice)}${I.title ? " as " + esc(I.title.toLowerCase()) : ""}. Domi shows you ${roleText}. This takes about two minutes.`}</p>
+    <form id="f1" class="iv-card" novalidate>
+      <div class="field"><label>Your email</label><div class="input" style="background:var(--subtle)" aria-readonly="true">${esc(I.email)}</div></div>
+      <div class="field"><label for="pw">Choose a password</label><div class="iv-pw"><input class="input" id="pw" type="password" autocomplete="new-password" maxlength="128" required aria-describedby="rules"><button class="btn ghost" type="button" data-show="pw">Show</button></div></div>
+      <div class="field"><label for="pw2">Type it again</label><input class="input" id="pw2" type="password" autocomplete="new-password" maxlength="128" required></div>
+      <ul class="iv-rules" id="rules">${RULES.map((r, i) => `<li data-rule="${i}">${r[1]}</li>`).join("")}</ul>
+      <p class="muted" style="font-size:14px;margin:12px 0 0">Tip: three random words, like <span class="mono">kettle-orange-harbour</span>, are long and easy to remember. Don't use a password you use anywhere else.</p>
+      ${err(e)}<button class="btn lg" type="submit">Continue</button>
+    </form>
+    <p class="iv-note"><svg><use href="#i-shield"/></svg><span>Only you will know this password. The practice office can't see it.</span></p>`;
+  if (S.step === 2) {
+    let qr = "";
+    try { const q = qrcode(0, "M"); q.addData(S.setup.otpauth); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (x) { qr = ""; }
+    return `${steps(2)}<div class="caps">Step 2 of 2</div><h1>Set up your authenticator app</h1>
+    <p class="iv-lead">Each time you sign in, Domi asks for a 6-digit code from an app on your phone, so nobody can get in with your password alone.</p>
+    <div class="iv-card">
+      <b>1. Get a free authenticator app</b>
+      <ul class="iv-apps"><li>Google Authenticator or Microsoft Authenticator (App Store or Google Play)</li><li>Or your password manager, like 1Password</li></ul>
+      <b>2. Add Domi to it</b>
+      <div class="iv-qr" style="margin-top:10px">
+        <div class="qr" role="img" aria-label="QR code to add Domi to your authenticator app">${qr}</div>
+        <div>
+          <p class="on-desktop-only" style="margin:0 0 8px">In the app, tap <b>+</b> and scan this code with your phone.</p>
+          <p class="on-phone-only" style="margin:0 0 10px"><a class="btn secondary" href="${esc(S.setup.otpauth)}"><svg class="i"><use href="#i-phone"/></svg>Add to my authenticator app</a></p>
+          <p class="muted" style="margin:0;font-size:14px">Can't scan? Choose "enter a setup key" in the app and type:</p>
+          <div class="iv-key">${esc(keyText(S.setup.secret))}</div>
+        </div>
+      </div>
+    </div>
+    <form id="f2" class="iv-card" novalidate autocomplete="off">
+      <b>3. Type the code it shows for Domi</b>
+      <div class="field" style="margin-top:10px"><label for="otp" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">6-digit code</label><input class="input iv-otp" id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000"></div>
+      ${S.info.demo ? `<div class="iv-demo"><b>Demo shortcut</b>No phone to hand? The demo can read the code for you.<br><button class="btn secondary sm" type="button" data-demo="1" style="margin-top:8px">Fill in the current code</button></div>` : ""}
+      ${err(e)}<button class="btn lg" type="submit">Finish setting up</button>
+    </form>
+    <button class="linkish" type="button" data-back="1">Choose a different password</button>`;
+  }
+  const signIn = `/?email=${encodeURIComponent(S.done.email)}${S.info.demo ? "&join=" + encodeURIComponent(S.done.practice) : ""}`;
+  document.title = "You're all set · " + I.practice;
+  return `${steps(2)}<div class="iv-card iv-done"><div class="caps">You're all set</div>
+      <h1 style="margin-top:8px">Your sign-in is ready, ${esc(I.first)}</h1>
+      <p style="margin:0 0 6px">Sign in with <b>${esc(S.done.email)}</b>, your new password and a code from your authenticator app.</p>
+      <a class="btn lg" href="${signIn}">Sign in to Domi</a></div>
+    ${S.done.role === "clinician" ? `<p class="iv-note"><svg><use href="#i-phone"/></svg><span>On your phone: open Domi in your browser, then choose <b>Add to Home Screen</b>, so it opens like an app on your rounds, even with poor signal.</span></p>` : ""}
+    <p class="iv-note"><svg><use href="#i-shield"/></svg><span>New phone, or forgotten your password? Ask the practice office to reset your sign-in, and you'll get a new link like this one.</span></p>`;
+}
+function render(e) {
+  root.innerHTML = view(e);
+  const h = root.querySelector("h1"); if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+  checkRules();
+}
+function checkRules() {
+  const p = document.getElementById("pw"), q = document.getElementById("pw2");
+  if (!p) return;
+  RULES.forEach((r, i) => { const li = root.querySelector(`[data-rule="${i}"]`); if (li) li.classList.toggle("ok", !!r[0](p.value, q.value)); });
+}
+root.addEventListener("input", checkRules);
+root.addEventListener("click", async (ev) => {
+  const show = ev.target.closest("[data-show]");
+  if (show) { const i = document.getElementById(show.dataset.show); const hidden = i.type === "password"; i.type = hidden ? "text" : "password"; show.textContent = hidden ? "Hide" : "Show"; return; }
+  if (ev.target.closest("[data-back]")) { S.step = 1; render(); return; }
+  if (ev.target.closest("[data-demo]")) {
+    try { const r = await api("GET", base + "/demo-code"); if (r.code) document.getElementById("otp").value = r.code; } catch (x) { render(x.message); }
+  }
+});
+root.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = ev.target.querySelector("[type=submit]"); btn.disabled = true;
+  try {
+    if (ev.target.id === "f1") {
+      const p = document.getElementById("pw").value, q = document.getElementById("pw2").value;
+      if (p !== q) throw new Error("The two passwords don't match.");
+      S.setup = await api("POST", base + "/password", { password: p });
+      S.step = 2; render();
+      window.scrollTo(0, 0);
+    } else if (ev.target.id === "f2") {
+      S.done = await api("POST", base + "/confirm", { code: document.getElementById("otp").value });
+      S.step = 3; render();
+      window.scrollTo(0, 0);
+    }
+  } catch (x) {
+    if (x.status === 410) { gone(x.message); return; }
+    render(x.message);
+    const f = root.querySelector(ev.target.id === "f2" ? "#otp" : "#pw"); if (f) f.focus();
+  }
+});
+function gone(msg) {
+  root.innerHTML = `<div class="caps">Link not working</div><h1>This link can't be used</h1><p class="iv-lead">${esc(msg)}</p>
+    <p class="iv-note"><svg><use href="#i-shield"/></svg><span>Links work once. An invitation lasts 7 days and a reset 24 hours, and sending a new one stops the old one.</span></p>`;
+}
+api("GET", base).then((info) => {
+  S.info = info;
+  const b = info.brand, top = document.getElementById("practice");
+  if (b && b.theme) document.documentElement.dataset.brand = b.id;
+  if (b && b.logo) { top.innerHTML = `<img src="${esc(b.logo)}" alt="${esc(info.practice)}" referrerpolicy="no-referrer" style="height:48px;width:auto;display:block">`; top.querySelector("img").addEventListener("error", () => { top.textContent = info.practice; }, { once: true }); }
+  else top.textContent = info.practice;
+  if (window.DomiPowered) window.DomiPowered(b);
+  document.title = "Set up your sign-in · " + info.practice;
+  render();
+}).catch((e) => gone(e.message));
+})();
+</script>
+</body>
+</html>

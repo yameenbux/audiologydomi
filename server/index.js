@@ -7,6 +7,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const sandbox = require("./sandbox");
 const { db, map, TABLES, USERS, emailFor } = require("./db");
+const invites = require("./invites");
 const brands = require("./brands");
 const regions = require("./regions");
 const D = require("./domain");
@@ -335,15 +336,38 @@ route("POST", "/api/appointments/:id/cancel-link", {}, (req, body, user, { id })
 // A freed slot: who could take it, and booking the person the office has just rung.
 route("GET", "/api/gaps/:id", {}, (req, body, user, { id }) => { needAdmin(user); return svc.gapCandidates(id); });
 route("POST", "/api/gaps/:id/book", {}, (req, body, user, { id }) => { needAdmin(user); return svc.bookCandidate(id, body.waitlistId, user); });
-route("GET", "/api/team", {}, (req, body, user) => { needAdmin(user); return svc.teamList(); });
-route("POST", "/api/team/clinicians", {}, (req, body, user) => { needAdmin(user); return svc.saveClinician(body, user); });
+// Each person's sign-in: set up, or waiting on an invitation or reset link (server/invites.js).
+route("GET", "/api/team", {}, (req, body, user) => {
+  needAdmin(user);
+  const t = svc.teamList();
+  t.clinicians.forEach((c) => { c.signin = c.userId ? invites.stateOf(c.userId) : null; });
+  t.staff.forEach((u) => { u.signin = invites.stateOf(u.id); });
+  return t;
+});
+// A new person gets an invitation straight away: they choose their own password and authenticator app.
+route("POST", "/api/team/clinicians", {}, (req, body, user) => {
+  needAdmin(user);
+  const c = svc.saveClinician(body, user);
+  if (!body.id) { const u = db.prepare("SELECT id FROM users WHERE clinician_id = ?").get(c.id); c.invite = invites.issue(u.id, req.auth.real, publicBase(req), { isNew: true }); }
+  return c;
+});
+route("POST", "/api/team/users/:id/invite", {}, (req, body, user, { id }) => {
+  if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Office staff only.");
+  if (id === req.auth.real.id) throw new svc.HttpError(409, "You can't reset your own sign-in here. Ask another office account to do it.");
+  return invites.issue(id, req.auth.real, publicBase(req));
+});
 route("POST", "/api/team/clinicians/:id/active", {}, (req, body, user, { id }) => {
   needAdmin(user);
   const r = svc.setClinicianActive(id, body.active === true, user);
   if (!body.active && r.userId) signOutEverywhere(req.auth.sb, r.userId, "account switched off");
   return r;
 });
-route("POST", "/api/team/staff", {}, (req, body, user) => { needAdmin(user); return svc.saveStaff(body, user); });
+route("POST", "/api/team/staff", {}, (req, body, user) => {
+  needAdmin(user);
+  const u = svc.saveStaff(body, user);
+  if (!body.id) u.invite = invites.issue(u.id, req.auth.real, publicBase(req), { isNew: true });
+  return u;
+});
 route("POST", "/api/team/staff/:id/active", {}, (req, body, user, { id }) => {
   if (req.auth.real.role !== "admin") throw new svc.HttpError(403, "Office staff only.");
   const r = svc.setStaffActive(id, body.active === true, req.auth.real);
@@ -370,6 +394,29 @@ const practice = (code) => { const sb = sandbox.get(code); if (!sb) throw new sv
 route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) => {
   const sb = practice(code);
   return sandbox.run(sb, () => ({ practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL, brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() }));
+});
+// A staff invitation or reset link: /invite/<practice code>/<token>. No sign-in; the token is the key.
+const invitePractice = (code) => { const sb = sandbox.get(code); if (!sb || (!auth.DEMO && !sb.live)) throw new svc.HttpError(410, "This link has expired or has already been used. Ask your practice office to send you a new one."); return sb; };
+route("GET", "/api/public/:code/invite/:token", { public: true }, (req, body, user, { code, token }) => {
+  limitPublic(req, "invite", 30);
+  const sb = invitePractice(code);
+  return sandbox.run(sb, () => ({ practice: sb.settings.practice, brand: sandbox.brandView(sb), demo: auth.DEMO, ...invites.describe(token) }));
+});
+route("POST", "/api/public/:code/invite/:token/password", { public: true }, (req, body, user, { code, token }) => {
+  limitPublic(req, "invite", 30);
+  return sandbox.run(invitePractice(code), () => invites.choosePassword(token, body.password));
+});
+route("POST", "/api/public/:code/invite/:token/confirm", { public: true }, (req, body, user, { code, token }) => {
+  limitSignIn(req);
+  const sb = invitePractice(code);
+  // Not signed in here: they sign in as normal next, which proves the new password and app both work (and, in a
+  // demo, doesn't replace the office's own sign-in in the same browser).
+  const u = sandbox.run(sb, () => invites.confirm(token, body.code));
+  return { ok: true, practice: sb.id, email: u.email, role: u.role, name: u.name };
+});
+route("GET", "/api/public/:code/invite/:token/demo-code", { public: true }, (req, body, user, { code, token }) => {
+  if (!auth.DEMO) throw new svc.HttpError(404, "No such endpoint.");
+  return sandbox.run(invitePractice(code), () => invites.demoCode(token) || { code: null, secondsLeft: 30 });
 });
 route("POST", "/api/public/:code/slots", { public: true }, (req, body, user, { code }) => { limitPublic(req, "slots", 60); return sandbox.run(practice(code), () => svc.publicFindSlots(body)); });
 /**
@@ -529,6 +576,7 @@ route("GET", "/api/debug/table/:name", {}, (req, body, user, { name }) => {
   const rows = db.prepare(`SELECT * FROM ${name} ORDER BY rowid DESC LIMIT 50`).all().map((r) => ({ ...r }));
   // Never send secrets to the browser, even to the office: show that they exist, not what they are.
   if (name === "users") rows.forEach((r) => { r.pass_hash = r.pass_hash.split("$").slice(0, 4).join("$") + "$…"; r.totp_secret = "•••• (hidden)"; });
+  if (name === "invites") rows.forEach((r) => { r.id = r.id.slice(0, 6) + "… (a hash of the link)"; if (r.pass_hash) r.pass_hash = "•••• (hidden)"; if (r.totp_secret) r.totp_secret = "•••• (hidden)"; });
   return { name, cols, rows };
 });
 
@@ -553,6 +601,7 @@ function serveStatic(req, res) {
   if (p === "/brand") p = "/brand.html";
   if (p.startsWith("/refer/")) p = "/refer.html";
   if (p.startsWith("/ad-form/")) p = "/ad-form.html"; // the practice's test ad form: /ad-form/<practice code> // the practice's referral form: /refer/<practice code>
+  if (p.startsWith("/invite/")) p = "/invite.html"; // a staff invitation or sign-in reset: /invite/<practice code>/<token>
   if (p.startsWith("/cancel/")) p = "/cancel.html"; // a visit's cancellation link: /cancel/<practice code>/<token>
   if (p === "/book" || p.startsWith("/book/")) p = "/book.html"; // a practice's patient booking page: /book/<practice code>
   const file = path.join(PUBLIC, path.normalize(p));
@@ -568,7 +617,7 @@ function serveStatic(req, res) {
     }
     if (ext === ".html") {
       data = Buffer.from(data.toString("utf8")
-        .replace("<!--ANALYTICS-->", p === "/cancel.html" ? "" : beaconTag)
+        .replace("<!--ANALYTICS-->", p === "/cancel.html" || p === "/invite.html" ? "" : beaconTag) // their addresses hold private tokens
         .split("%%ORIGIN%%").join(publicBase(req).replace(/"/g, ""))
         .split("%%SITE%%").join(SITE));
     }
