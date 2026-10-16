@@ -59,11 +59,18 @@ Then restart the app so it loads the change. The office adds clinicians and impo
 4. `fly secrets set DATABASE_URL=... DATABASE_CA_CERT="$(cat prod-ca-2021.crt)"` plus the Twilio secrets.
 5. Consider point-in-time recovery (a paid Supabase add-on); Pro includes daily backups.
 
+## The calendar
+
+A visit's `day` counts calendar days from today. A live practice uses the UK date, and at midnight its stored day
+numbers move back by the days that have passed (`live.roll`), so yesterday's visits become day -1. Weekends, bank
+holidays and the practice's closure days are closed; PCSE's 48 hours count working days only. Settings > Opening
+hours sets how far ahead the office (default 12 months), patients online (6 weeks) and cancellation offers (2 weeks)
+can go. The demo keeps its fixed Monday 12 October 2026.
+
 ## Still to do before go-live
 
-- **A real calendar.** The diary still works on the demo's fixed week (Monday 12 to Friday 16 October): day numbers,
-  labels and texts. A live practice needs rolling dates, weekends, bank holidays and the PCSE 48-hour rule counted on
-  working days.
+- **Bank holidays after 2028.** `server/calendar.js` lists England and Wales bank holidays for 2026 to 2028 (from
+  gov.uk). Add the next year's each autumn; until then the office can add them as closure days in Settings.
 - **Staff sign-in set-up.** A way for the office to invite staff to set their own password and two-factor app, and to
   reset them. Today only the first office account is made, by `live-admin.js`.
 - **Sessions that survive a restart.** Sign-ins are held in memory, so a restart signs everyone out.

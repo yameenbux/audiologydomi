@@ -73,7 +73,18 @@ const isAdmin = () => !!S && S.user.role === "admin";
 const pat = (id) => S.patients.find((p) => p.id === id) || { id, name: "Patient", pc: "", addr: "", alerts: [], phone: "" };
 const cln = (id) => S.clinicians.find((c) => c.id === id);
 const dayAppts = (c, day = 0) => S.appts.filter((a) => a.clinicianId === c && (a.day || 0) === day && active(a)).sort((x, y) => x.start - y.start);
-const dayName = (d) => (META.days || [])[d] || "";
+/* ---------- The calendar (server/calendar.js): day numbers count from today; weekends and holidays are closed ---------- */
+let calOf = null, calMap = new Map();
+const calDay = (d) => { if (!S || !S.cal) return null; if (calOf !== S.cal) { calOf = S.cal; calMap = new Map(S.cal.days.map((x) => [x.day, x])); } return calMap.get(d) || null; };
+const dayName = (d) => (calDay(d) || {}).label || "";
+const dayLong = (d) => (calDay(d) || {}).long || "";
+const weekdayOf = (d) => { const x = calDay(d); return x ? x.wd : ((d % 7) + 7) % 7; };
+const weekStart = (d) => d - weekdayOf(d);
+/** Monday to Friday, for clinicians' working hours. */
+const WD = () => META.weekdays || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+/** A clinician's hours on a day: set per weekday; null on their day off, a weekend or a day the practice is shut. */
+const hoursFor = (c, d) => { const x = calDay(d); if (x && !x.open) return null; const w = weekdayOf(d); if (w > 4) return null; const h = (c.hours || [])[w]; return h === undefined ? [dayS(), dayE()] : h; };
+const dayByIso = (iso) => { const x = S && S.cal ? S.cal.days.find((y) => y.iso === iso) : null; return x ? x.day : null; };
 const whenLabel = (day, start) => (day === 0 ? "" : dayName(day) + " · ") + hm(start);
 const demoNow = () => S ? S.now + (Date.now() - fetchedAt) / 60000 : 620;
 const money = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
@@ -286,6 +297,7 @@ const isOffice = () => !!S && !!S.signedInAs && S.signedInAs.role === "admin";
 /* ============ Render ============ */
 function render() {
   const signedIn = !!S;
+  { const f = $("#clock .full"); if (f && S && S.cal) f.textContent = dayName(0); }
   $("#clock").hidden = !signedIn; $("#roles").hidden = !signedIn || !isOffice(); $("#actions").hidden = !signedIn;
   $("#reset").hidden = !isOffice() || !!META.live; // a live practice can't be reset
   if (META.live) $("#open-phone").hidden = true;    // phone pairing by QR is a demo shortcut
@@ -374,8 +386,8 @@ function officeView() {
   const left = all.filter((a) => a.status !== "done").length;
   return `<div class="shell">
     <div class="page-head">
-      <div><div class="caps">Monday 12 October</div><h1 style="margin-top:6px">Today across the team</h1>
-        <p>${(() => { const n = onBoard(0).filter((c) => (c.hours || [])[0] !== null).length; return n === 1 ? "One clinician" : (["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"][n] || n) + " clinicians"; })()} on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
+      <div><div class="caps">${esc(dayLong(0))}</div><h1 style="margin-top:6px">Today across the team</h1>
+        <p>${(() => { const n = onBoard(0).filter((c) => hoursFor(c, 0) !== null).length; return n === 1 ? "One clinician" : (["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"][n] || n) + " clinicians"; })()} on the road. Cancel any visit and the best-matched patient from the waiting list is offered the slot straight away.</p>
         </div>
       <div class="quick-stats">
         <button class="btn lg" type="button" data-act="book" style="align-self:center">${icon("plus")}Book a visit</button>
@@ -395,9 +407,9 @@ function officeView() {
     <div class="grid">
       <section class="panel" aria-label="Diaries">
         <div class="panel-h"><h2>Diaries</h2>
-          <div class="seg day-tabs" role="tablist" aria-label="Choose a day">${(META.days || []).map((d, i) => `<button type="button" role="tab" data-act="day" data-v="${i}" aria-pressed="${UI.view === "day" && UI.day === i}">${i === 0 ? "Today" : d.slice(0, 3)}<span class="mono">${S.appts.filter((a) => active(a) && (a.day || 0) === i).length}</span></button>`).join("")}<button type="button" data-act="week" aria-pressed="${UI.view === "week"}">${icon("cal")}Week</button></div>
+          ${dayNav()}
         </div>
-        ${UI.view === "week" ? weekView() : `<div class="panel-h" style="padding-top:0"><span class="sub">${UI.day === 0 ? "Today, " + dayName(0) : dayName(UI.day)}</span>
+        ${UI.view === "week" ? weekView() : `<div class="panel-h" style="padding-top:0"><span class="sub">${UI.day === 0 ? "Today, " + esc(dayLong(0)) : esc(dayLong(UI.day))}${calDay(UI.day) && !calDay(UI.day).open ? ` · <b>Closed: ${esc(calDay(UI.day).why)}</b>` : ""}</span>
           <div class="legend"><span><i class="sw" style="background:var(--surface)"></i>Booked</span><span><i class="sw" style="background:var(--warn-soft)"></i>On the way</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--subtle)"></i>Done</span><span><i class="sw" style="background:var(--apricot-soft)"></i>Moved forward</span><span><i class="sw" style="background:var(--forest-soft)"></i>New booking</span></div>
         </div>
         <div class="board-wrap" data-scroll="board">${board(nowM)}</div>`}
@@ -636,6 +648,26 @@ function smsBubble(m) {
   const who = m.dir === "in" ? `From ${esc(m.name)}` : `To ${esc(m.name)}`;
   return `<div class="sms ${cls}"><div class="who">${who} · <span class="mono">${esc(String(m.at || "").slice(0, 5))}</span></div><div class="bub">${esc(m.body)}</div></div>`;
 }
+/** The diary's week strip: the five weekdays of the week shown, previous and next week, back to today, and a date picker
+ *  that reaches as far ahead as the office can book. Closed days (bank holidays, the practice's own) can't be opened. */
+function dayNav() {
+  if (UI.wk == null) UI.wk = weekStart(UI.day || 0);
+  const minWk = weekStart(-14), maxWk = weekStart(S.cal.bookAheadDays), first = calDay(-14), last = calDay(S.cal.bookAheadDays);
+  const tab = (d) => {
+    const x = calDay(d); if (!x) return "";
+    const lab = d === 0 ? "Today" : x.label.slice(0, x.label.lastIndexOf(" "));
+    if (!x.open) return `<button type="button" disabled title="Closed: ${esc(x.why)}" aria-label="${esc(x.long)}: closed, ${esc(x.why)}">${lab}<span class="mono">–</span></button>`;
+    return `<button type="button" role="tab" data-act="day" data-v="${d}" aria-pressed="${UI.view === "day" && UI.day === d}" aria-label="${esc(x.long)}">${lab}<span class="mono">${S.appts.filter((a) => active(a) && (a.day || 0) === d).length}</span></button>`;
+  };
+  return `<div class="day-nav">
+    <button class="icon-btn sm" type="button" data-act="wk" data-v="-7" ${UI.wk <= minWk ? "disabled" : ""} aria-label="Previous week">${icon("back")}</button>
+    <div class="seg day-tabs" role="tablist" aria-label="Choose a day">${[0, 1, 2, 3, 4].map((i) => tab(UI.wk + i)).join("")}<button type="button" data-act="week" aria-pressed="${UI.view === "week"}">${icon("cal")}Week</button></div>
+    <button class="icon-btn sm" type="button" data-act="wk" data-v="7" ${UI.wk >= maxWk ? "disabled" : ""} aria-label="Next week">${icon("next")}</button>
+    ${UI.wk !== weekStart(0) ? `<button class="btn ghost sm" type="button" data-act="wk-today">Today</button>` : ""}
+    <input class="input date-jump" type="date" id="jump-date" min="${first ? first.iso : ""}" max="${last ? last.iso : ""}" value="${(calDay(UI.day) || {}).iso || ""}" aria-label="Go to a date">
+  </div>`;
+}
+
 /** Clinicians on the diary: everyone working, plus anyone who has left but still has visits that day. */
 const onBoard = (day) => S.clinicians.filter((c) => c.active !== false || S.appts.some((a) => a.clinicianId === c.id && (a.day || 0) === day && active(a)));
 function board(nowM) {
@@ -648,8 +680,8 @@ function board(nowM) {
   const lanes = team.map((c, ci) => {
     const list = dayAppts(c.id, UI.day);
     // Outside their working hours (or a day off) is shaded, so nobody books into it by eye.
-    const h = (c.hours || [])[UI.day] === undefined ? [DS, DE] : c.hours[UI.day];
-    const off = !h ? `<div class="off-hours" style="top:0;height:${H}px"><span>Day off</span></div>`
+    const h = hoursFor(c, UI.day), shut = calDay(UI.day) && !calDay(UI.day).open;
+    const off = !h ? `<div class="off-hours" style="top:0;height:${H}px"><span>${shut ? "Closed" : "Day off"}</span></div>`
       : (h[0] > DS ? `<div class="off-hours" style="top:0;height:${(h[0] - DS) * PX}px"></div>` : "") + (h[1] < DE ? `<div class="off-hours" style="top:${(h[1] - DS) * PX}px;height:${(DE - h[1]) * PX}px"></div>` : "");
     const blocks = list.map((a) => {
       const p = pat(a.patientId), t = T(a.type), top = (a.start - DS) * PX, h = Math.max(t.dur * PX - 4, 36);
@@ -681,9 +713,11 @@ function board(nowM) {
 function weekView() {
   const WORK = dayE() - dayS();
   const cells = S.clinicians.filter((c) => c.active !== false).map((c) => `<div class="wk-row"><div class="col-h" style="border:0;padding:0"><span class="avatar sm" style="background:${c.color}">${initials(c.name)}</span><div><div class="nm">${esc(c.first || c.name)}</div><div class="rl">${esc(c.areaName)}</div></div></div>
-    ${(META.days || []).map((d, i) => {
-      const h = (c.hours || [])[i] === undefined ? [dayS(), dayE()] : c.hours[i];
+    ${[0, 1, 2, 3, 4].map((k) => {
+      const i = UI.wk + k, x = calDay(i), d = x ? x.label : "";
+      const h = hoursFor(c, i);
       const list = dayAppts(c.id, i), mins = list.reduce((t, a) => t + T(a.type).dur + (a.drive || 0), 0), pct = h ? Math.min(100, Math.round(mins / (h[1] - h[0]) * 100)) : 0;
+      if (x && !x.open && !list.length) return `<div class="wk-cell off"><span class="wk-sub">Closed: ${esc(x.why)}</span></div>`;
       if (!h && !list.length) return `<div class="wk-cell off"><span class="wk-sub">Day off</span></div>`;
       const fresh = list.filter((a) => a.moved || a.bookedMin != null).length;
       return `<button class="wk-cell" type="button" data-act="day" data-v="${i}" aria-label="${esc(c.name)}, ${d}: ${list.length} visits">
@@ -691,7 +725,7 @@ function weekView() {
         <span class="wk-bar"><i style="width:${pct}%"></i></span>
         <span class="wk-sub">${pct}% of the day booked${fresh ? ` · ${fresh} new` : ""}</span></button>`;
     }).join("")}</div>`).join("");
-  return `<div class="week" data-scroll="week"><div class="wk-row wk-head"><div></div>${(META.days || []).map((d, i) => `<div class="caps">${i === 0 ? "Today" : d}</div>`).join("")}</div>${cells}</div>`;
+  return `<div class="week" data-scroll="week"><div class="wk-row wk-head"><div></div>${[0, 1, 2, 3, 4].map((k) => { const i = UI.wk + k; return `<div class="caps">${i === 0 ? "Today" : esc(dayName(i))}</div>`; }).join("")}</div>${cells}</div>`;
 }
 
 /* ---------- Clinician ---------- */
@@ -779,7 +813,7 @@ function todayTab(c) {
           ${pvnChip(a) ? `<div class="ad">${pvnChip(a)}</div>` : ""}
         </div></button>`;
   }).join("");
-  return `<div class="ph-head"><div><div class="caps">Mon 12 Oct · <span data-clock>${hm(demoNow())}</span></div><h2 style="margin-top:6px">Morning, ${esc(c.first)}</h2></div>${switcher}</div>
+  return `<div class="ph-head"><div><div class="caps">${esc(dayName(0))} · <span data-clock>${hm(demoNow())}</span></div><h2 style="margin-top:6px">Morning, ${esc(c.first)}</h2></div>${switcher}</div>
     <div style="display:flex;justify-content:space-between;font-size:13px"><span class="muted">${done} of ${list.length} visits done</span><span class="muted">${esc(c.areaName)}</span></div>
     <div class="progress"><i style="width:${list.length ? done / list.length * 100 : 0}%"></i></div>
     ${moved ? `<div class="banner">${icon("bolt")}<div><b>${moved.moved ? "Your diary changed" : "New visit added"}</b>${esc(moved.note)}</div></div>` : ""}
@@ -1139,6 +1173,30 @@ function hoursPreview(s, e) {
   return `<div class="hp" aria-hidden="true"><div class="hp-r hp-main"><span class="hp-n">Practice</span><span class="hp-track"><i style="left:${pc(s)}%;right:${100 - pc(e)}%"></i>${ticks}</span><span class="hp-v"><b>${hm(s)}–${hm(e)}</b></span></div>${clin.map(row).join("")}</div>`;
 }
 
+/** How far ahead each kind of booking can go. */
+function aheadCard(st) {
+  const opt = (sel, list) => list.map(([v, l]) => `<option value="${v}" ${Number(sel) === v ? "selected" : ""}>${l}</option>`).join("");
+  const weeks = (ns) => ns.map((n) => [n * 7, n + (n === 1 ? " week" : " weeks")]), months = (ns) => ns.map((n) => [n === 12 ? 365 : n === 24 ? 730 : Math.round(n * 30.4), n + " months"]);
+  return `<section class="card"><div class="card-h"><h2>How far ahead</h2><p>Bank holidays in England and Wales, weekends and your closure days below are never offered.</p></div>
+    <div class="field"><label for="set-ba">The office can book up to</label><select class="input" id="set-ba">${opt(st.bookAheadDays, weeks([4, 8]).concat(months([3, 6, 9, 12, 18, 24])))}</select><span class="hint after">For recalls and annual sight tests booked at the end of a visit.</span></div>
+    <div class="field"><label for="set-oa">Patients can book online up to</label><select class="input" id="set-oa">${opt(st.onlineAheadDays, weeks([1, 2, 3, 4, 6, 8, 12]).concat(months([6])))}</select><span class="hint after">Kept shorter so online bookings fill the near diary first, and nobody books a slot you might close.</span></div>
+    <div class="field"><label for="set-fa">Offer cancelled gaps to the waiting list up to</label><select class="input" id="set-fa">${opt(st.offerAheadDays, [[3, "3 days"], [7, "1 week"], [14, "2 weeks"], [21, "3 weeks"], [28, "4 weeks"], [42, "6 weeks"]])}</select><span class="hint after">A gap further out is left open for normal booking: there's time for it to fill without texting anyone.</span></div>
+    ${uses(["Book a visit", "Moving a visit", "Online booking", "Refilling cancellations"])}</section>`;
+}
+/** The practice's own closure days, on top of bank holidays. */
+function closuresCard(st) {
+  UI.pg = UI.pg || {};
+  if (!UI.pg.clo) UI.pg.clo = (st.closures || []).map((c) => ({ date: c.date, reason: c.reason || "" }));
+  const today = (calDay(0) || {}).iso || "", list = UI.pg.clo.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const nice = (iso) => { const d = dayByIso(iso); return d != null ? dayLong(d) : iso; };
+  return `<section class="card"><div class="card-h"><h2>Closure days</h2><p>Training days, staff holidays or anything else the practice is shut for. The diary greys them out and nothing can be booked on them.</p></div>
+    ${list.length ? `<ul class="clo-list">${list.map((c) => `<li><span><b>${esc(nice(c.date))}</b>${c.reason ? ` · ${esc(c.reason)}` : ""}${c.date < today ? ` <span class="muted">(past)</span>` : ""}</span><button class="btn ghost sm" type="button" data-act="clo-del" data-v="${esc(c.date)}" aria-label="Remove ${esc(nice(c.date))}">${icon("x")}Remove</button></li>`).join("")}</ul>` : `<p class="muted" style="margin:0 0 12px">No closure days yet. Bank holidays are already closed.</p>`}
+    <div class="row2" style="align-items:end"><div class="field" style="margin:0"><label for="clo-date">Date</label><input class="input" type="date" id="clo-date" min="${today}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}"></div>
+      <div class="field" style="margin:0"><label for="clo-why">Reason</label><input class="input" id="clo-why" maxlength="60" placeholder="e.g. Staff training"></div></div>
+    <button class="btn secondary sm" type="button" data-act="clo-add" style="margin-top:10px">${icon("plus")}Add closure day</button>
+    <p class="set-note">Press Save changes to keep them. A day that already has visits booked can't be closed: move those visits first.</p></section>`;
+}
+
 function settingsPage() {
   const st = S.settings, sec = UI.route.sec || "practice", b = S.brand || {};
   const nav = `<nav class="set-nav" aria-label="Settings sections">${SET_SECS.map((x) => `<a href="#/settings/${x.k}" ${x.k === sec ? 'aria-current="page"' : ""}>${icon(x.icon)}<span><b>${x.label}</b><span>${x.sub}</span></span></a>`).join("")}</nav>`;
@@ -1164,6 +1222,8 @@ function settingsPage() {
         <div id="hp-wrap">${hoursPreview(s, e)}</div>
         <p class="set-note">Each clinician's own days and hours are set on <a href="#/team">Team &amp; hours</a>. If someone works outside new hours, Domi names them so you can change theirs first, and no booked visit is left outside the diary.</p>
         ${uses(["Diary", "Clinicians' hours", "Route planning", "Refilling cancellations", "Online booking"])}</section>
+      ${aheadCard(st)}
+      ${closuresCard(st)}
       ${setFoot()}</form>`;
   } else if (sec === "visits") {
     const types = Object.entries(META.types || {});
@@ -1264,7 +1324,7 @@ function patientFormFields(p) {
 }
 
 /* ---------- Team & hours ---------- */
-const weekBar = (h) => `<span class="wkbar" aria-label="${esc(hoursText(h))}">${(META.days || []).map((d, i) => { const x = h[i]; const span = dayE() - dayS(); return `<span class="wd" title="${esc(d.slice(0, 3))}: ${x ? `${hm(x[0])}–${hm(x[1])}` : "day off"}"><i style="${x ? `left:${((x[0] - dayS()) / span) * 100}%;right:${100 - ((x[1] - dayS()) / span) * 100}%` : "display:none"}"></i><em>${esc(d.slice(0, 1))}</em></span>`; }).join("")}</span>`;
+const weekBar = (h) => `<span class="wkbar" aria-label="${esc(hoursText(h))}">${WD().map((d, i) => { const x = h[i]; const span = dayE() - dayS(); return `<span class="wd" title="${esc(d.slice(0, 3))}: ${x ? `${hm(x[0])}–${hm(x[1])}` : "day off"}"><i style="${x ? `left:${((x[0] - dayS()) / span) * 100}%;right:${100 - ((x[1] - dayS()) / span) * 100}%` : "display:none"}"></i><em>${esc(d.slice(0, 1))}</em></span>`; }).join("")}</span>`;
 function teamPage() {
   const g = UI.pg || {}, t = g.data;
   if (g.edit) return personPage(t, g.edit);
@@ -1300,7 +1360,7 @@ function personPage(t, edit) {
         <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
       </form></div>`;
   }
-  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: (META.days || []).map(() => [dayS(), dayE()]) };
+  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: WD().map(() => [dayS(), dayE()]) };
   const opts = (sel) => quarters().map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
   const f = (k, label, v, extra = "", hint = "") => `<div class="field"><label for="tm-${k}">${label}</label>${hint ? `<span class="hint">${hint}</span>` : ""}<input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
   return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/team", "Team & hours"], ["", c.name || "New clinician"]]), eyebrow: edit.id ? esc(c.role) : "New clinician", title: esc(c.name || "Add a clinician"),
@@ -1314,13 +1374,15 @@ function personPage(t, edit) {
         <div class="row2">${f("patch", "Postcode areas they cover", c.patch.join(", "), 'placeholder="BL1, BL2, BL3"', "Separate with commas.")}${f("near", "Will also go to", c.near.join(", "), 'placeholder="BL4, M8"', "Used when nobody nearer fits.")}</div>
         ${f("base", "Starts the day from (postcode)", c.base, 'placeholder="BL1 5DN"', "Route planning starts and ends here.")}</section>
       <section class="card"><div class="card-h"><h2>Working hours</h2><p>Untick a day for a day off. If booked visits fall outside new hours, Domi names them so they can be moved first.</p></div>
-        <div class="hours lg">${(META.days || []).map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(DAY_LONG[i] || d.slice(0, 3))}</label>
+        <div class="hours lg">${WD().map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(DAY_LONG[i] || d.slice(0, 3))}</label>
           <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : dayS())}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : dayE())}</select></div>`; }).join("")}</div></section>
       ${accessCard(edit, c, "clin")}
       <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
     </form></div>`;
 }
 const DAY_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+/** The next `n` open days from `from`. */
+const openAhead = (from, n) => (S && S.cal ? S.cal.days.filter((x) => x.open && x.day >= from).slice(0, n).map((x) => x.day) : [0, 1, 2, 3, 4]);
 const accessCard = (edit, x, kind) => edit.id ? `<section class="card"><div class="card-h"><h2>Access</h2><p>${x.active ? "Signed in with a password and an authenticator code." : "Switched off: they can't sign in. Their history is kept."}</p></div>
   <button class="btn ${x.active ? "ghost danger-t" : "secondary"}" type="button" data-act="tm-active" data-k="${kind}" data-id="${esc(edit.id)}" data-v="${x.active ? 0 : 1}">${x.active ? "Switch off and sign out everywhere" : "Switch back on"}</button></section>` : "";
 
@@ -1544,7 +1606,7 @@ function plansDrawer(d) {
   return `<div class="drawer-h"><div><div class="caps">Route planning</div><h2 style="margin-top:6px">Plan the rounds</h2></div>${closeX}</div>
     <div class="drawer-b">
       <p class="muted" style="margin:0 0 12px;font-size:13.5px">Domi puts each clinician's visits in the order that drives least, from their home base and back, keeping mornings in the morning and afternoons in the afternoon. Nothing changes until you apply it.</p>
-      <div class="seg imp-filter" role="group" aria-label="Day">${(META.days || []).map((x, i) => `<button type="button" data-act="plans-day" data-v="${i}" aria-pressed="${i === day}">${i === 0 ? "Today" : esc(x.slice(0, 3))}</button>`).join("")}</div>
+      <div class="seg imp-filter" role="group" aria-label="Day">${openAhead(0, 5).map((i) => `<button type="button" data-act="plans-day" data-v="${i}" aria-pressed="${i === day}">${i === 0 ? "Today" : esc(dayName(i).slice(0, dayName(i).lastIndexOf(" ")))}</button>`).join("")}</div>
       ${!list ? `<p class="muted">Planning…</p>` : `${total ? `<div class="callout forest" style="margin-bottom:12px">${icon("car")}<div><b>${mins(total)} less driving ${day === 0 ? "today" : "on " + esc(dayName(day))}</b><div style="margin-top:2px">Across ${list.filter((p) => p.changed).length} clinician${list.filter((p) => p.changed).length === 1 ? "" : "s"}.</div></div></div>` : ""}
         ${list.map((p) => `<div class="plan-row"><span class="avatar sm" style="background:${(cln(p.clinicianId) || {}).color}">${initials(p.clinician)}</span>
           <div style="min-width:0;flex:1"><b>${esc(p.clinician)}</b><div class="muted" style="font-size:12.5px">${p.planned.length + p.fixed.length} visits · ${p.changed ? `${mins(p.savedMin)} less driving, ${p.changed} new time${p.changed === 1 ? "" : "s"}` : p.applied ? "Planned" : "Already a good order"}</div>${p.warnings.length ? `<div class="ir-m">${p.warnings.map((w) => `<span>${esc(w)}</span>`).join("")}</div>` : ""}</div>
@@ -1684,7 +1746,7 @@ function flowDrawer() {
 /* Book a visit: who, what, when they're home -> best slots across every round, ranked by extra driving. */
 function bookInput() {
   const v = (id) => { const e = $("#" + id); return e ? e.value : ""; };
-  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail") };
+  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail"), date: v("bk-from") || undefined };
 }
 /* ---------- Importing patients from a spreadsheet ---------- */
 // The file is read in the browser and sent for checking; nothing is saved until the office presses Import.
@@ -1777,19 +1839,20 @@ function bookDrawer() {
          <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}<span class="src ${x.route === "road" ? "road" : ""}" title="${x.route === "road" ? "Driving times from a road route between the two postcodes" : "No road route available, so this is estimated from the distance"}">${icon(x.route === "road" ? "car" : "pin")}${x.route === "road" ? "Road route" : "Estimated"}</span></div>
          ${B.map && B.map.i === i ? `<div class="slot-map">${routeMap(B.map.data, { height: 280 })}${routeSummary(B.map.data)}</div>` : ""}
          <div class="oa"><button class="btn secondary sm" type="button" data-act="slot-map" data-i="${i}">${icon("pin")}${B.map && B.map.i === i ? "Hide map" : "Map"}</button><button class="btn sm" type="button" data-act="book-slot" data-c="${x.clinicianId}" data-d="${x.day}" data-s="${x.start}">${icon("check")}Book ${x.day === 0 ? "" : esc(dayName(x.day).slice(0, 3)) + " "}${esc(x.label.slice(0, 5))}</button></div></div>`; }).join("")}</div>`
-    : `<div class="callout apricot" style="margin-top:18px">${icon("clock")}<div><b>No gap this week fits without a long detour</b><div style="margin-top:2px">Put ${esc(B.results.patient.name)} on the waiting list and they'll be offered the next cancellation nearby.</div>
+    : `<div class="callout apricot" style="margin-top:18px">${icon("clock")}<div><b>No gap ${B.results.from ? "from " + esc(B.results.fromLabel) + " " : ""}fits without a long detour</b><div style="margin-top:2px">Try a later earliest date above, or:</div><div style="margin-top:2px">Put ${esc(B.results.patient.name)} on the waiting list and they'll be offered the next cancellation nearby.</div>
        <button class="btn sm" style="margin-top:10px" type="button" data-act="book-waitlist">${icon("plus")}Add to waiting list</button></div></div>`)
     : "";
   return `<div class="drawer-h"><div><div class="caps">New home visit</div><h2 style="margin-top:6px">Book a visit</h2></div>${closeX}</div>
-  <form class="drawer-b" id="book-form">
-    <p class="muted" style="margin:0 0 16px;font-size:13.5px">Searches every clinician's round this week for gaps where this visit fits, using road driving times between the full postcodes for the drive in and the drive on to the next patient, and ranks them by the extra driving they add.</p>
+  <form class="drawer-b" id="book-form" novalidate>
+    <p class="muted" style="margin:0 0 16px;font-size:13.5px">Searches every clinician's round over the next working days for gaps where this visit fits, using road driving times between the full postcodes for the drive in and the drive on to the next patient, and ranks them by the extra driving they add.</p>
     <div class="field"><label for="bk-p">Patient</label><select class="input" id="bk-p" data-keep>${opts.map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.name)} · ${esc(p.pc)}${waiting.has(p.id) ? " · on waiting list" : ""}</option>`).join("")}<option value="new" ${sel === "new" ? "selected" : ""}>New patient…</option></select></div>
     <div id="bk-new" ${sel === "new" ? "" : "hidden"}><div class="row2"><div class="field"><label for="bk-name">Name</label><input class="input" id="bk-name" data-keep placeholder="e.g. Ruth Ingham"></div><div class="field"><label for="bk-addr">Address</label><input class="input" id="bk-addr" data-keep placeholder="House and street"></div></div>
       <div class="field">${DomiAreas.picker(S.areas || [], "bk-pc", DomiAreas.read(document, "bk-pc"))}</div>
       <div class="row2"><div class="field"><label for="bk-phone">Mobile</label><input class="input" id="bk-phone" data-keep placeholder="07700 900000" inputmode="tel"></div></div></div>
     <div class="row2"><div class="field"><label for="bk-type">Visit type</label><select class="input" id="bk-type" data-keep>${Object.entries(META.types).map(([k, v]) => `<option value="${k}">${v.name} · ${v.dur} min</option>`).join("")}</select></div>
     <div class="field"><label for="bk-avail">Patient is home</label><select class="input" id="bk-avail" data-keep>${Object.entries(META.avail).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div></div>
-    <button class="btn block lg" type="submit">${icon("pin")}Find the best slots this week</button>
+    <div class="field"><label for="bk-from">Earliest date</label><input class="input" type="date" id="bk-from" data-keep min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${esc((B.results && B.results.from ? (calDay(B.results.from) || {}).iso : "") || "")}"><div class="muted" style="font-size:12.5px;margin-top:4px">Leave as today for the soonest gaps, or pick a later date, up to ${S.cal.bookAheadDays >= 60 ? Math.round(S.cal.bookAheadDays / 30.4) + " months" : S.cal.bookAheadDays + " days"} ahead.</div></div>
+    <button class="btn block lg" type="submit">${icon("pin")}Find the best slots</button>
     ${results}
   </form>`;
 }
@@ -1797,7 +1860,7 @@ function wlDrawer() {
   const busy = new Set(S.waitlist.filter((w) => w.status !== "booked").map((w) => w.patientId).concat(S.appts.filter(active).map((a) => a.patientId)));
   const opts = S.patients.filter((p) => !busy.has(p.id));
   return `<div class="drawer-h"><div><div class="caps">Waiting list</div><h2 style="margin-top:6px">Add a patient</h2></div>${closeX}</div>
-  <form class="drawer-b" id="wl-form">
+  <form class="drawer-b" id="wl-form" novalidate>
     <div class="field"><label for="wl-p">Patient</label><select class="input" id="wl-p" data-keep>${opts.map((p) => `<option value="${p.id}">${esc(p.name)} · ${esc(p.pc)}</option>`).join("")}<option value="new">New patient…</option></select></div>
     <div id="wl-new" ${opts.length ? "hidden" : ""}><div class="row2"><div class="field"><label for="wl-name">Name</label><input class="input" id="wl-name" data-keep placeholder="e.g. Ruth Ingham"></div></div>
       <div class="field">${DomiAreas.picker(S.areas || [], "wl-pc", DomiAreas.read(document, "wl-pc"))}</div>
@@ -1892,10 +1955,11 @@ function moveDrawer(d) {
     ? `<div class="offers">${o.slots.map((x, i) => { const k = cln(x.clinicianId); return `<div class="offer ${i === 0 ? "accepted" : ""}"><div class="oh"><span style="display:flex;gap:10px;align-items:center"><span class="avatar sm" style="background:${k.color}">${initials(k.name)}</span><span><b class="mono">${x.day === 0 ? "Today" : esc(dayName(x.day))} · ${esc(x.label)}</b><div class="muted" style="font-size:12.5px">${esc(k.name)}</div></span></span>${i === 0 ? `<span class="badge b-ok">Best fit</span>` : `<span class="badge b-plain">+${x.extraDrive} min</span>`}</div>
       <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}</div>
       <div class="oa"><button class="btn sm" type="button" data-act="move-to" data-c="${x.clinicianId}" data-d="${x.day}" data-s="${x.start}">${icon("check")}Move to ${x.day === 0 ? "" : esc(dayName(x.day).slice(0, 3)) + " "}${esc(x.label.slice(0, 5))}</button></div></div>`; }).join("")}</div>`
-    : `<div class="callout apricot">${icon("clock")}<div><b>No other time this week fits</b><div style="margin-top:2px">Cancel the visit and add ${esc(first(p.name))} to the waiting list instead.</div></div></div>`;
+    : `<div class="callout apricot">${icon("clock")}<div><b>No other time fits${o.searchFrom ? " from " + esc(o.fromLabel) : ""}</b><div style="margin-top:2px">Cancel the visit and add ${esc(first(p.name))} to the waiting list instead.</div></div></div>`;
   return `<div class="drawer-h"><div><div class="caps">Move a visit</div><h2 style="margin-top:6px">${esc(p.name)}</h2></div>${closeX}</div>
     <div class="drawer-b">
       <p class="muted" style="margin:0 0 14px;font-size:13.5px">Now ${a.day ? esc(dayName(a.day)) : "today"} at ${hm(a.start)} with ${esc(c.name)} (${T(a.type).name.toLowerCase()}). ${p.contact === "Call" ? `${esc(first(p.name))} asked to be phoned, so ring them with the new time.` : `${esc(first(p.name))} gets one text with the new time.`}${T(a.type).pvn ? " The PCSE notification moves with it, and an NHS sight test only goes 48 hours or more ahead." : ""}</p>
+      <form class="row2" id="move-from" style="align-items:end;margin-bottom:14px"><div class="field" style="margin:0"><label for="mv-from">Search from</label><input class="input" type="date" id="mv-from" min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${o && o.searchFrom ? esc((calDay(o.searchFrom) || {}).iso || "") : ""}"></div><button class="btn secondary" type="submit">${icon("search")}Search</button></form>
       ${slots}
     </div>`;
 }
@@ -1921,7 +1985,7 @@ function gapDrawer(d) {
 const dayS = () => (S && S.settings && S.settings.dayStart != null ? S.settings.dayStart : META.dayStart);
 const dayE = () => (S && S.settings && S.settings.dayEnd != null ? S.settings.dayEnd : META.dayEnd);
 const quarters = (from = dayS(), to = dayE()) => { const q = []; for (let m = from; m <= to; m += 15) q.push(m); return q; };
-const hoursText = (h) => (META.days || []).map((d, i) => h[i] ? (h[i][0] === dayS() && h[i][1] === dayE() ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || `Mon–Fri, ${hm(dayS())}–${hm(dayE())}`;
+const hoursText = (h) => WD().map((d, i) => h[i] ? (h[i][0] === dayS() && h[i][1] === dayE() ? null : `${d.slice(0, 3)} ${hm(h[i][0])}–${hm(h[i][1])}`) : `${d.slice(0, 3)} off`).filter(Boolean).join(" · ") || `Mon–Fri, ${hm(dayS())}–${hm(dayE())}`;
 function teamDrawer(d) {
   const t = d.data;
   if (!t) return `<div class="drawer-h"><div><div class="caps">The practice</div><h2 style="margin-top:6px">Team</h2></div>${closeX}</div><div class="drawer-b"><p class="muted">Loading…</p></div>`;
@@ -1939,7 +2003,7 @@ function teamDrawer(d) {
     </div>`;
 }
 function clinicianForm(t, id) {
-  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: (META.days || []).map(() => [dayS(), dayE()]) };
+  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: WD().map(() => [dayS(), dayE()]) };
   const opts = (sel) => quarters().map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
   const f = (k, label, v, extra = "") => `<div class="field"><label for="tm-${k}">${label}</label><input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
   return `<div class="drawer-h"><div><div class="caps">${id ? "Edit clinician" : "New clinician"}</div><h2 style="margin-top:6px">${esc(c.name || "Add a clinician")}</h2></div>${closeX}</div>
@@ -1950,7 +2014,7 @@ function clinicianForm(t, id) {
     <div class="row2">${f("patch", "Postcode areas they cover", c.patch.join(", "), 'placeholder="BL1, BL2, BL3"')}${f("near", "Will also go to", c.near.join(", "), 'placeholder="BL4, M8"')}</div>
     ${f("base", "Starts the day from (postcode)", c.base, 'placeholder="BL1 5DN"')}
     <div class="caps" style="margin:8px 0 8px">Working hours</div>
-    <div class="hours">${(META.days || []).map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(d.slice(0, 3))}</label>
+    <div class="hours">${WD().map((d, i) => { const h = c.hours[i]; return `<div class="hrow"><label class="chk"><input type="checkbox" id="tm-w${i}" ${h ? "checked" : ""}> ${esc(d.slice(0, 3))}</label>
       <select class="input" id="tm-s${i}" aria-label="${esc(d)} start">${opts(h ? h[0] : dayS())}</select><span class="muted">to</span><select class="input" id="tm-e${i}" aria-label="${esc(d)} finish">${opts(h ? h[1] : dayE())}</select></div>`; }).join("")}</div>
     <p class="muted" style="font-size:12.5px;margin:8px 0 0">Untick a day for a day off. Bookings, refills and route planning stay inside these hours. If booked visits fall outside new hours, Domi says which, so they can be moved first.</p>
     <div class="drawer-f" style="margin:16px -22px -22px"><button class="btn ghost" type="button" data-act="tm-back">Back</button><button class="btn" type="submit">${icon("check")}${id ? "Save" : "Add and create their sign-in"}</button></div>
@@ -2287,7 +2351,17 @@ document.addEventListener("click", async (e) => {
         catch (e) { I.err = e.message; }
         I.busy = false; redraw(); break;
       }
-      case "day": UI.view = "day"; UI.day = Number(el.dataset.v); render(); break;
+      case "day": UI.view = "day"; UI.day = Number(el.dataset.v); UI.wk = weekStart(UI.day); render(); break;
+      case "wk": UI.wk = Math.max(weekStart(-14), Math.min(weekStart(S.cal.bookAheadDays), (UI.wk == null ? weekStart(UI.day) : UI.wk) + Number(el.dataset.v))); { const x = calDay(UI.wk); if (UI.view === "day") UI.day = openAhead(Math.max(UI.wk, -14), 1)[0] ?? UI.wk; void x; } render(); break;
+      case "clo-add": {
+        const date = $("#clo-date").value, reason = $("#clo-why").value.trim();
+        if (!date) { toast("Choose a date first", true); break; }
+        const x = calDay(dayByIso(date));
+        if (x && !x.open) { toast(`${x.long} is already closed (${x.why})`, true); break; }
+        UI.pg.clo = (UI.pg.clo || []).filter((c) => c.date !== date).concat([{ date, reason }]); render(); break;
+      }
+      case "clo-del": UI.pg.clo = (UI.pg.clo || []).filter((c) => c.date !== el.dataset.v); render(); break;
+      case "wk-today": UI.wk = weekStart(0); UI.day = 0; render(); break;
       case "week": UI.view = "week"; render(); break;
       case "book-again": UI.book = {}; redraw(); break;
       case "book-slot": {
@@ -2340,6 +2414,12 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
+    if (e.target.id === "move-from") {
+      const d = UI.drawer; if (!d || d.kind !== "move") return;
+      const date = $("#mv-from").value; d.data = null; redraw();
+      d.data = await api("POST", `/api/appointments/${d.id}/move-options`, date ? { date } : {}); if (UI.drawer === d) redraw();
+      return;
+    }
     if (e.target.id === "book-form") {
       const b = bookInput(); UI.book = Object.assign(UI.book || {}, { patientId: b.patientId });
       UI.book.results = await api("POST", "/api/slots", b); UI.book.map = null; redraw();
@@ -2368,12 +2448,13 @@ document.addEventListener("submit", async (e) => {
       const v = (id) => ($("#set-" + id) || {}).value;
       const body = {
         "set-practice": () => ({ practice: v("practice"), phone: v("phone"), email: v("email"), officeHours: v("hoursText"), logo: v("logo") }),
-        "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")) }),
+        "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")), bookAheadDays: Number(v("ba")), onlineAheadDays: Number(v("oa")), offerAheadDays: Number(v("fa")), closures: (UI.pg && UI.pg.clo) || S.settings.closures || [] }),
         "set-visits": () => ({ prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
         "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")), autoRecalls: $("#set-arc").checked, recallAt: Number(v("rat")) }),
       }[e.target.id];
       if (!body) return;
       const r = await api("PUT", "/api/settings", body());
+      if (UI.pg) UI.pg.clo = null;
       await load(); render();
       toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
       return;
@@ -2400,7 +2481,7 @@ document.addEventListener("submit", async (e) => {
     }
     if (e.target.id === "tm-clin") {
       const v = (id) => ($("#tm-" + id) || {}).value || "";
-      const hours = (META.days || []).map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
+      const hours = WD().map((_, i) => ($("#tm-w" + i) || {}).checked ? [Number(v("s" + i)), Number(v("e" + i))] : null);
       const id = e.target.dataset.id || undefined;
       await api("POST", "/api/team/clinicians", { id, name: v("name"), role: v("role"), email: v("email"), color: v("color"), areaName: v("area"), patch: v("patch"), near: v("near"), base: v("base"), hours });
       await load(); go("team");
@@ -2433,6 +2514,11 @@ document.addEventListener("submit", async (e) => {
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.id === "jump-date" && e.target.value) {
+      const d = dayByIso(e.target.value);
+      if (d == null) { toast("That date is outside the diary", true); return; }
+      UI.view = "day"; UI.day = d; UI.wk = weekStart(d); render();
+    }
     if (e.target.id === "imp-file" && e.target.files[0]) {
       const file = e.target.files[0];
       if (file.size > 3e6) { UI.imp.err = "That file is over 3 MB. Split it into smaller files."; redraw(); return; }

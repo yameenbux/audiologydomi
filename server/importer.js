@@ -6,8 +6,9 @@
 
 const MAX_BYTES = 3e6;
 const MAX_ROWS = 5000;
-// The demo's "today" (Monday 12 October 2026), for ages and recall dates.
-const TODAY = Date.UTC(2026, 9, 12);
+// Today (the demo's Monday 12 October 2026, or the UK date for a live practice), for ages and recall dates.
+const cal = require("./calendar");
+const today = () => cal.todayMs();
 const DAY_MS = 864e5;
 
 /** The fields a column can map to, in the order the office sees them. */
@@ -132,7 +133,7 @@ function parseDate(v) {
   if (!m || back.getUTCFullYear() !== y || back.getUTCMonth() !== m - 1 || back.getUTCDate() !== d) return null;
   return { iso: back.toISOString().slice(0, 10), t };
 }
-const yearsAt = (t, now = TODAY) => { const a = new Date(t), b = new Date(now); let n = b.getUTCFullYear() - a.getUTCFullYear(); if (b.getUTCMonth() < a.getUTCMonth() || (b.getUTCMonth() === a.getUTCMonth() && b.getUTCDate() < a.getUTCDate())) n--; return n; };
+const yearsAt = (t, now = today()) => { const a = new Date(t), b = new Date(now); let n = b.getUTCFullYear() - a.getUTCFullYear(); if (b.getUTCMonth() < a.getUTCMonth() || (b.getUTCMonth() === a.getUTCMonth() && b.getUTCDate() < a.getUTCDate())) n--; return n; };
 const fmtDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${d} ${MONTHS[m - 1][0].toUpperCase() + MONTHS[m - 1].slice(1)} ${y}`; };
 
 /** UK numbers to 07700 900112 / 01204 292005. Returns kind "mobile", "landline" or null when it isn't a UK number. */
@@ -190,7 +191,7 @@ function readRow(cells, mapping, { townOf } = {}) {
   if (v.dob) {
     const d = parseDate(v.dob);
     if (!d) warnings.push(`Date of birth "${v.dob}" not recognised`);
-    else if (d.t > TODAY || yearsAt(d.t) > 115) warnings.push(`Date of birth ${fmtDate(d.iso)} looks wrong`);
+    else if (d.t > today() || yearsAt(d.t) > 115) warnings.push(`Date of birth ${fmtDate(d.iso)} looks wrong`);
     else { dob = d.iso; age = yearsAt(d.t); }
   }
   if (age == null && v.age !== undefined && v.age !== "") {
@@ -225,13 +226,13 @@ function readRow(cells, mapping, { townOf } = {}) {
   if (v.lastTest) {
     const d = parseDate(v.lastTest);
     if (!d) warnings.push(`Last sight test "${v.lastTest}" not recognised`);
-    else if (d.t > TODAY) warnings.push(`Last sight test ${fmtDate(d.iso)} is in the future`);
+    else if (d.t > today()) warnings.push(`Last sight test ${fmtDate(d.iso)} is in the future`);
     else {
       lastTest = d.iso;
       // NHS sight tests: yearly from 70, otherwise every two years.
       const years = age != null && age >= 70 ? 1 : 2;
       const due = Date.UTC(new Date(d.t).getUTCFullYear() + years, new Date(d.t).getUTCMonth(), new Date(d.t).getUTCDate());
-      recall = { dueDay: Math.round((due - TODAY) / DAY_MS), reason: years === 1 ? "Yearly NHS sight test (over 70)" : "NHS sight test (every 2 years)" };
+      recall = { dueDay: Math.round((due - today()) / DAY_MS), reason: years === 1 ? "Yearly NHS sight test (over 70)" : "NHS sight test (every 2 years)" };
     }
   }
 
