@@ -201,7 +201,7 @@ test("a director: a clinician with office access gets the office, and can switch
   assert.strictEqual((await call("POST", "/api/auth/view-as", a.token, { userId: a.user.id, as: "office" })).status, 403);
 });
 
-test("Opticabase: its export imports with the ID, the home-visit reason and the next exam; NHS numbers are left out", async () => {
+test("Opticabase: its export imports with the ID, the home-visit reason, the next exam and a valid NHS number", async () => {
   const importer = require("../server/importer");
   const csv = [
     "ID,Title,Last Name,Name,DOB,Address,Post code,Phone,Mobile,E-Mail,NHS Reason,Domi Reason,NHS No,Last Exam,Next Exam,Optometrist",
@@ -214,13 +214,16 @@ test("Opticabase: its export imports with the ID, the home-visit reason and the 
   assert.strictEqual(m.Mobile, "phone", "the mobile is the number to text"); assert.strictEqual(m.Phone, "phone2");
   assert.strictEqual(m["Domi Reason"], "eligibility"); assert.notStrictEqual(m["NHS Reason"], "eligibility");
   assert.strictEqual(m["Last Exam"], "lastTest"); assert.strictEqual(m["Next Exam"], "nextExam");
-  assert.strictEqual(m["NHS No"], null, "NHS numbers aren't imported");
+  assert.strictEqual(m["NHS No"], "nhsNo", "PCSE's notification and the GOS6 claim need it");
   const [joan, frank] = r.rows;
   assert.strictEqual(joan.patient.name, "Joan Whittle");
   assert.strictEqual(joan.patient.obId, "30111");
   assert.strictEqual(joan.patient.phone.replace(/\s/g, ""), "07700900401");
   assert.strictEqual(joan.patient.nextExam, "2026-11-20");
   assert.strictEqual(frank.patient.contact, "Call", "landline only: phoned");
+  assert.strictEqual(joan.patient.nhsNo, "9990001111");
+  assert.strictEqual(frank.patient.nhsNo, null, "a wrong check digit is left out");
+  assert.ok(frank.warnings.some((w) => /NHS number/.test(w)));
 
   // Through the app: imported, then the recall line comes from Opticabase's next exam.
   const o = await office();

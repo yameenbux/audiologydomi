@@ -123,7 +123,7 @@ function parseReply(body) {
 const ROUND5 = (m) => Math.ceil(m / 5) * 5;
 // Points lost per day later. The more urgent the patient, the more a sooner visit is worth against extra driving.
 const DAY_PENALTY = { urgent: 25, soon: 14, routine: 6 };
-function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30, days = 5, prio = "routine" }) {
+function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeMin = 30, days = 5, prio = "routine", pvnApproved = false }) {
   const perDay = DAY_PENALTY[prio] || DAY_PENALTY.routine;
   const dur = TYPES[type].dur;
   const d = district(pc);
@@ -132,7 +132,8 @@ function suggestSlots({ pc, type, avail = "any", clinicians, appts, now, noticeM
   const dayList = Array.isArray(days) ? days : cal.openDays(0, days);
   for (const day of dayList) {
     // An NHS sight test can't start until PCSE has had 48 working hours' notice of it (weekends and bank holidays don't count).
-    const pvnEarliest = TYPES[type].pvn ? cal.earliestWithNotice(day, now, PVN_NOTICE_MIN) : -Infinity;
+    // (Unless the ICB has approved a short-notice visit: then any time is allowed.)
+    const pvnEarliest = TYPES[type].pvn && !pvnApproved ? cal.earliestWithNotice(day, now, PVN_NOTICE_MIN) : -Infinity;
   for (const c of clinicians) {
     if (!canDo(c, type) || c.active === false) continue;
     const hours = hoursOn(c, day);

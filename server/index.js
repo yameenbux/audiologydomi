@@ -9,6 +9,7 @@ const sandbox = require("./sandbox");
 const { db, map, TABLES, USERS, emailFor } = require("./db");
 const invites = require("./invites");
 const calls = require("./calls");
+const pvn = require("./pvn");
 const brands = require("./brands");
 const regions = require("./regions");
 const D = require("./domain");
@@ -282,8 +283,8 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const recalls = isAdmin ? db.prepare("SELECT * FROM recalls ORDER BY due_day").all().map(map.recall) : [];
   const offers = isAdmin ? db.prepare("SELECT * FROM offers WHERE status = 'pending'").all().map((o) => ({ ...o })) : [];
   const pcse = isAdmin ? svc.pcseList() : [];
-  const pvn = svc.pvnStatus(); // each NHS visit's PCSE notification, so the clinician can see it before testing
-  for (const a of appts) if (D.TYPES[a.type] && D.TYPES[a.type].pvn) a.pvn = pvn[a.id] || null;
+  const pvnOf = svc.pvnStatus(); // each NHS visit's PCSE notification, so the clinician can see it before testing
+  for (const a of appts) if (D.TYPES[a.type] && D.TYPES[a.type].pvn) a.pvn = pvnOf[a.id] || null;
   const referrals = isAdmin ? db.prepare("SELECT * FROM referrals ORDER BY status = 'new' DESC, id DESC").all().map(map.referral) : [];
   const leadsState = isAdmin ? { leads: leads.leadList(), leadEmails: leads.leadEmails(), leadStatus: leads.STATUS, leadPreview: leads.preview() } : { leads: [] };
   // Everyone who signs in, for the office's clinician switcher and phone sign-in. No emails or secrets.
@@ -293,6 +294,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
     cal: require("./calendar").view(sb), // dates, weekends, bank holidays and booking limits for the diary
     types: Object.fromEntries(Object.entries(D.TYPES).map(([k, t]) => [k, { ...t }])), // this practice's own visit lengths, read now
+    pvn: isAdmin ? pvn.list().counts : null, // PCSE notifications by status, for the side menu and Needs you today
     calls: isAdmin ? (({ calls: c }) => ({ 1: c[1].length, 2: c[2].length, 3: c[3].length }))(calls.list()) : null, // confirmation calls due today, by stage
     metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
@@ -507,6 +509,10 @@ route("POST", "/api/recalls/:id/text", {}, (req, body, user, { id }) => { needAd
 route("POST", "/api/import/preview", {}, (req, body, user) => { needAdmin(user); return svc.previewImport(body); });
 route("POST", "/api/import/commit", {}, (req, body, user) => { needAdmin(user); return svc.commitImport(body, user); });
 route("POST", "/api/pcse/:id/done", {}, (req, body, user, { id }) => { needAdmin(user); return svc.completePcse(id, user); });
+// PCSE pre-visit notifications: office only (the clinician's phone just shows whether one was lodged).
+route("GET", "/api/pvn", {}, (req, body, user) => { needAdmin(user); return pvn.list(); });
+route("POST", "/api/pvn/lodge", {}, (req, body, user) => { needAdmin(user); return svc.lodgePvn(body, user); });
+route("PUT", "/api/appointments/:id/pvn", {}, (req, body, user, { id }) => { needAdmin(user); return svc.setPvnDetails(id, body, user); });
 route("POST", "/api/recalls/:id/dismiss", {}, (req, body, user, { id }) => { needAdmin(user); return svc.dismissRecall(id, user); });
 
 // A clinician's day as a map: office for anyone, a clinician for their own round. Optional proposed visit.

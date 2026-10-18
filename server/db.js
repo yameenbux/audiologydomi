@@ -61,7 +61,11 @@ CREATE TABLE IF NOT EXISTS patients (
   last_test TEXT,                                 -- date of the last sight test, ISO
   recall_months INTEGER,
   next_exam TEXT,                                 -- the next exam Opticabase worked out, ISO; when set, the recall line comes from it
-  ob_id TEXT,                                     -- the patient's Opticabase ID, so the two systems can be matched                          -- months to the next sight test, set by the optometrist (12, 6 or 3); NULL = 12
+  ob_id TEXT,                                     -- the patient's Opticabase ID, so the two systems can be matched
+  nhs_no TEXT,                                    -- NHS number: PCSE's pre-visit notification and the GOS6 claim need it
+  premises TEXT,                                  -- where they're seen: home, residential, nursing, day (centre), sheltered; NULL = home
+  venue TEXT,                                     -- the care home or day centre's name, so residents seen together are one visit
+  venue_contact TEXT,                             -- who to ask for at the premises (PCSE's form asks for it)
   erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
 );
 CREATE TABLE IF NOT EXISTS notes (
@@ -77,6 +81,9 @@ CREATE TABLE IF NOT EXISTS appointments (
   reminded INTEGER NOT NULL DEFAULT 0,             -- day-before reminder sent
   source TEXT,                                     -- where the booking came from (domain SOURCES)
   reliability REAL,                                -- the office's own "true count" for this visit; NULL = the source's
+  pvn_icb TEXT,                                    -- an NHS sight test inside PCSE's notice period: who at the ICB approved it
+  pvn_early INTEGER NOT NULL DEFAULT 0,            -- booked as an early retest (before the recall line): the PVN needs a reason code
+  ert TEXT,                                        -- that early retest code (PCSE's list: 1, 2, 3.1-3.3, 4.1, 4.2, 5.1-5.3, 6)
   cancel_token TEXT UNIQUE                         -- secret for the family cancellation link (/cancel/<practice>/<token>)
 );
 CREATE TABLE IF NOT EXISTS invoices (
@@ -114,7 +121,8 @@ CREATE TABLE IF NOT EXISTS pcse (
   id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL CHECK (action IN ('lodge','cancel')),
   patient_id TEXT NOT NULL REFERENCES patients(id), appointment_id TEXT NOT NULL REFERENCES appointments(id),
   day INTEGER NOT NULL, start_min INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo','done')),
-  created_at TEXT NOT NULL, done_by TEXT
+  created_at TEXT NOT NULL, done_by TEXT,
+  ref TEXT                                         -- the PVN reference PCSE gave when it was lodged (the GOS6 claim needs it)
 );
 -- Referrals from the practice's website form: patients, family, carers, care homes, GPs. They replace the
 -- documents and inbox the office used to retype from. Nothing is a patient until the office accepts it.
@@ -167,6 +175,14 @@ const ADDED_COLUMNS = [
   ["appointments", "source", "TEXT"],
   ["appointments", "reliability", "REAL"],
   ["users", "office", "BIGINT NOT NULL DEFAULT 0"],
+  ["patients", "nhs_no", "TEXT"],
+  ["patients", "premises", "TEXT"],
+  ["patients", "venue", "TEXT"],
+  ["patients", "venue_contact", "TEXT"],
+  ["appointments", "pvn_icb", "TEXT"],
+  ["appointments", "pvn_early", "BIGINT NOT NULL DEFAULT 0"],
+  ["appointments", "ert", "TEXT"],
+  ["pcse", "ref", "TEXT"],
   ["leads", "addr", "TEXT"],
   ["leads", "dob", "TEXT"],
   ["leads", "pc_from", "TEXT"],
@@ -184,6 +200,16 @@ function openDb(brand = brands.get(), { empty = false } = {}) {
 /** A demo user's sign-in email for this brand: sarah@<the brand's demo domain>. */
 const emailFor = (u, brand = brands.get()) => u.email.replace(/@.*/, "@" + brand.emailDomain);
 
+/** An NHS number with a valid check digit (modulus 11), in the 999 range NHS England sets aside for testing. */
+function testNhsNumber(i) {
+  for (let k = 0; k < 20; k++) {
+    const nine = String(999000000 + i * 131 + k).slice(0, 9).split("").map(Number);
+    const c = 11 - (nine.reduce((t, d, j) => t + d * (10 - j), 0) % 11);
+    if (c === 10) continue;
+    return nine.join("") + (c === 11 ? 0 : c);
+  }
+  return null;
+}
 function seed(db, brand) {
   const region = brand.region;
   const ins = (table, row) => {
@@ -338,8 +364,23 @@ function seed(db, brand) {
   });
   // NHS sight tests already in the diary were notified to PCSE before the demo starts (they're kept off the
   // office's to-do list, which shows only what's left to do and what was done today).
-  for (const a of db.prepare("SELECT * FROM appointments WHERE type = 'sight' AND status IN ('booked','enroute','live','done')").all())
-    ins("pcse", { action: "lodge", patient_id: a.patient_id, appointment_id: a.id, day: a.day, start_min: a.start_min, status: "done", created_at: "", done_by: "Before the demo" });
+  // Three residents of one nursing home, seen together in three weeks: one visit, so it needs 3 weeks' notice. And one
+  // NHS test booked ten weeks out, too early for PCSE yet. Made-up people, like every sample patient.
+  const homePc = pcOf[pools.c1[0]], home = { premises: "nursing", venue: "Moorside Court Nursing Home", venue_contact: "Duty manager, Moorside Court", addr: "2 Moor Lane", pc: homePc };
+  [["p-mc1", "Edith Marsden", "1934-03-09", "2024-11-20"], ["p-mc2", "Walter Briggs", "1931-07-22", null], ["p-mc3", "Mabel Sutcliffe", "1938-12-01", "2025-01-15"]].forEach(([id, name, dob, last], i) => {
+    ins("patients", { id, name, age: 2026 - Number(dob.slice(0, 4)), phone: "07700 900990", contact: "Call", alerts: JSON.stringify(["Ask for the duty manager at reception"]), specs: "Reading glasses", dob, last_test: last, eligibility: "Lives in a nursing home", ...home });
+    ins("appointments", { id: `mc${i + 1}`, clinician_id: "c1", patient_id: id, type: "sight", day: 24, start_min: 600 + i * 60, status: "booked", drive: i ? 0 : 15 });
+  });
+  ins("appointments", { id: "lt1", clinician_id: "c3", patient_id: pools.c3[0], type: "sight", day: 71, start_min: 600, status: "booked", drive: 15 });
+  // NHS sight tests already in the diary were notified before the demo starts, except those three, the one ten weeks
+  // out, and one on Wednesday the office missed: inside its 48 hours, so the PCSE page flags it.
+  const missed = (db.prepare("SELECT id FROM appointments WHERE type = 'sight' AND day = 2 ORDER BY id").get() || {}).id;
+  db.prepare("SELECT * FROM appointments WHERE type = 'sight' AND status IN ('booked','enroute','live','done') ORDER BY id").all().forEach((a, i) => {
+    const todo = a.id === missed || a.day > 14;
+    ins("pcse", { action: "lodge", patient_id: a.patient_id, appointment_id: a.id, day: a.day, start_min: a.start_min, status: todo ? "todo" : "done", created_at: todo ? "09:05" : "", done_by: todo ? null : "Before the demo", ref: todo ? null : `PVN${4410200 + i * 37}` });
+  });
+  // NHS numbers for the sample patients (valid check digits, from the range set aside for testing: 999 000 0000+).
+  db.prepare("SELECT id FROM patients ORDER BY rowid").all().forEach((r, i) => { const n = testNhsNumber(i); if (n) db.prepare("UPDATE patients SET nhs_no = ? WHERE id = ?").run(n, r.id); });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
@@ -357,13 +398,13 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0, office: r.role === "admin" || !!r.office }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, erased: !!r.erased }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, nhsNo: r.nhs_no || null, premises: r.premises || "home", venue: r.venue || null, venueContact: r.venue_contact || null, erased: !!r.erased }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, pvnIcb: r.pvn_icb || null, ert: r.ert || null, pvnEarly: !!r.pvn_early, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),
-  pcse: (r) => ({ id: r.id, action: r.action, patientId: r.patient_id, appointmentId: r.appointment_id, day: r.day, start: r.start_min, status: r.status, at: r.created_at, by: r.done_by }),
+  pcse: (r) => ({ id: r.id, action: r.action, patientId: r.patient_id, appointmentId: r.appointment_id, day: r.day, start: r.start_min, status: r.status, at: r.created_at, by: r.done_by, ref: r.ref || null }),
   referral: (r) => ({ id: r.id, at: r.created_at, status: r.status, fromKind: r.from_kind, fromName: r.from_name, fromPhone: r.from_phone, name: r.name, dob: r.dob, addr: r.addr, pc: r.pc, phone: r.phone, eligibility: r.eligibility, entitlement: J(r.entitlement, []), need: r.need, avail: r.avail, urgent: !!r.urgent, notes: r.notes, patientId: r.patient_id, decidedBy: r.decided_by, declineReason: r.decline_reason }),
   lead: (r) => ({ id: r.id, at: r.created_at, atMin: r.created_min, status: r.status, source: r.source, campaign: r.campaign, name: r.name, phone: r.phone, email: r.email, pc: r.pc, addr: r.addr || null, dob: r.dob || null, pcFrom: r.pc_from || (r.pc ? "form" : null), answers: J(r.answers, []), note: r.note, handledBy: r.handled_by, handledAt: r.handled_at, patientId: r.patient_id }),
   email: (r) => ({ id: r.id, to: r.to_addr, name: r.to_name, subject: r.subject, body: r.body, kind: r.kind, leadId: r.lead_id, at: r.created_at, providerId: r.provider_id }),

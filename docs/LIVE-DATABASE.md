@@ -81,8 +81,20 @@ holidays and the practice's closure days are closed; PCSE's 48 hours count worki
 hours sets how far ahead the office (default 12 months), patients online (6 weeks) and cancellation offers (2 weeks)
 can go. The demo keeps its fixed Monday 12 October 2026.
 
+## PCSE notifications (GOS6 PVNs)
+
+NHS numbers are now stored (`patients.nhs_no`, checked with the modulus 11 check digit, unique per practice) because
+PCSE's pre-visit notification and the GOS6 claim need them; the importer maps an "NHS No" column. That makes
+`patients` special category data plus a national identifier: covered by the DPIA, the export and the erase. Each
+NHS sight test's notice (48 working hours, or 3 weeks for 3 or more at one care home or day centre) is checked on
+every booking and move; inside it, Domi refuses unless the office records the ICB approver's name
+(`appointments.pvn_icb`). PCSE's reference is kept on `pcse.ref`. Lodging is still by hand in PCSE Online until PCSE
+accepts Domi on the Ophthalmic Payments API.
+
 ## Still to do before go-live
 
 - **Bank holidays after 2028.** `server/calendar.js` lists England and Wales bank holidays for 2026 to 2028 (from
   gov.uk). Add the next year's each autumn; until then the office can add them as closure days in Settings.
+- **PCSE's interface specification.** Ask pcse.pmsegos@nhs.net for it (draft email in the scratchpad); the API needs
+  TLS mutual authentication, so a client certificate per practice or for Domi as supplier.
 - **Sessions that survive a restart.** Sign-ins are held in memory, so a restart signs everyone out.

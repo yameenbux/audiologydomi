@@ -35,6 +35,8 @@ const FIELDS = [
   { key: "nextExam", label: "Next exam due" },
   { key: "recallMonths", label: "Recall (months)" },
   { key: "obId", label: "Opticabase ID" },
+  { key: "nhsNo", label: "NHS number" },
+  { key: "premises", label: "Where they're seen" },
   { key: "notes", label: "Notes" },
 ];
 const FIELD_KEYS = new Set(FIELDS.map((f) => f.key));
@@ -62,6 +64,8 @@ const SYNONYMS = {
   nextExam: ["nextexam", "nextexamdate", "nexttest", "nextsighttest", "nextdue", "recalldate", "duedate", "nexteyetest"],
   recallMonths: ["recall", "recallmonths", "recallperiod", "recallinterval"],
   obId: ["id", "obid", "opticabaseid", "opticabase", "patientid", "pxid", "pxno", "patientno", "patientnumber", "ref", "reference"],
+  nhsNo: ["nhsno", "nhsnumber", "nhs", "nhsnum"],
+  premises: ["premises", "premisestype", "residence", "residencetype", "accommodation", "livesin"],
   lastTest: ["examdate", "lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested"],
   notes: ["notes", "comments", "comment", "info", "additionalinfo", "other", "note", "details"],
 };
@@ -70,9 +74,17 @@ const CONTAINS = [
   ["repPhone", /(kin|carer|relative|emergency).*(phone|tel|number|no)/], ["rep", /kin|carer|relative|emergency/],
   ["phone2", /landline|home ?phone|alt/], ["phone", /mobile|phone|tel/], ["pc", /post ?code/], ["dob", /birth|dob/],
   ["nextExam", /next.*(exam|test|due)|recall ?date/], ["lastTest", /last.*(test|exam|visit|seen)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
-  ["first", /first|forename/], ["last", /surname|last ?name/], ["addr", /address/], ["notes", /note|comment/],
+  ["nhsNo", /nhs ?(no|num)/], ["first", /first|forename/], ["last", /surname|last ?name/], ["addr", /address/], ["notes", /note|comment/],
 ];
 
+/** NHS numbers: 10 digits, the last a modulus 11 check digit. */
+function validNhs(v) {
+  if (!/^\d{10}$/.test(v)) return false;
+  const c = 11 - (v.slice(0, 9).split("").reduce((t, d, i) => t + Number(d) * (10 - i), 0) % 11);
+  return c !== 10 && (c === 11 ? 0 : c) === Number(v[9]);
+}
+// PCSE's premises types, by name or initial.
+const PREMISES_IN = { home: "home", h: "home", ownhome: "home", residential: "residential", residentialhome: "residential", r: "residential", carehome: "residential", nursing: "nursing", nursinghome: "nursing", n: "nursing", day: "day", daycentre: "day", daycenter: "day", d: "day", sheltered: "sheltered", shelteredhousing: "sheltered", s: "sheltered" };
 const squash = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /**
@@ -260,13 +272,25 @@ function readRow(cells, mapping, { townOf } = {}) {
       recall = { dueDay: Math.round((d.t - today()) / DAY_MS), reason: "Next exam due (from Opticabase)" };
     }
   }
+  // PCSE's notification and the GOS6 claim need the NHS number: kept only when its check digit is right.
+  let nhsNo = null;
+  if (v.nhsNo) {
+    const n = String(v.nhsNo).replace(/\D/g, "");
+    if (validNhs(n)) nhsNo = n; else warnings.push(`NHS number "${v.nhsNo}" isn't valid, so it was left out`);
+  }
+  let premises = null;
+  if (v.premises) {
+    const k = squash(v.premises);
+    premises = PREMISES_IN[k] || PREMISES_IN[k.slice(0, 1)] || null;
+    if (!premises) warnings.push(`"${v.premises}" isn't home, residential home, nursing home, day centre or sheltered housing`);
+  }
   const alerts = String(v.alerts || "").split(/[;|\n]+/).map((x) => x.trim()).filter(Boolean).slice(0, 8);
   return {
     errors, warnings, recall,
     patient: {
       name, pc: pc.value, addr: addr || "Address to confirm", phone, contact, dob, age, email: email || null,
       eligibility: eligibility || null, rep: rep || null, alerts, specs: String(v.specs || "").trim() || "None on record",
-      lastTest, nextExam, recallMonths, obId, notes: String(v.notes || "").trim().slice(0, 4000) || null,
+      lastTest, nextExam, recallMonths, obId, nhsNo, premises, notes: String(v.notes || "").trim().slice(0, 4000) || null,
     },
   };
 }
