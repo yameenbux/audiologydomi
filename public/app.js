@@ -1011,13 +1011,45 @@ function opticabasePage() {
 }
 
 /* ---------- The pilot: baseline, targets, and what's measured each week ---------- */
+/** One target as a chart: the baseline ("Before Domi") as a grey bar, then each pilot week, with the target dashed. */
+function pilotChart(t, weeks, fmt) {
+  const W = 300, H = 132, top = 18, bottom = 22, left = 4, right = 4, gap = 4;
+  const vals = weeks.map((w) => w[t.key]);
+  const max = Math.max(t.baseline || 0, t.goal || 0, ...vals.filter((v) => v != null)) * 1.15 || 1;
+  const n = 1 + 13; // Before, then all 13 pilot weeks: the chart fills in as the pilot runs
+  const bw = Math.min(26, (W - left - right - gap * (n - 1)) / n), base = H - bottom;
+  const y = (v) => base - (v / max) * (base - top);
+  const x = (i) => left + i * (bw + gap) + (i ? 6 : 0); // a little air between Before and week 1
+  // Bars anchored to the baseline with a rounded data-end (4px) and a square foot.
+  const bar = (i, v, cls, tip) => {
+    if (v == null) return `<rect class="pc-none" x="${x(i)}" y="${base - 2}" width="${bw}" height="2" data-tip="${esc(tip)}: not measured yet"></rect>`;
+    const h = Math.max(base - y(v), 2), r = Math.min(4, bw / 2, h);
+    const X = x(i), Y = base - h;
+    return `<path class="${cls}" d="M${X},${base}V${Y + r}Q${X},${Y} ${X + r},${Y}H${X + bw - r}Q${X + bw},${Y} ${X + bw},${Y + r}V${base}Z" data-tip="${esc(tip)}: ${esc(fmt(v, t.key))}${t.unit === "%" ? "" : " " + esc(t.unit)}"></path>`;
+  };
+  const marks = [bar(0, t.baseline, "pc-before", "Before Domi"),
+    ...weeks.map((w, i) => bar(i + 1, w[t.key], w.inProgress ? "pc-after pc-now" : "pc-after", `Week ${w.week}${w.inProgress ? " so far" : ""}`))].join("");
+  const last = [...weeks].reverse().find((w) => w[t.key] != null);
+  const li = last ? weeks.indexOf(last) + 1 : null;
+  const label = (i, v) => `<text class="pc-val" x="${x(i) + bw / 2}" y="${y(v) - 5}" text-anchor="middle">${esc(fmt(v, t.key))}</text>`;
+  const goal = t.goal != null ? `<line class="pc-goal" x1="${left}" x2="${W - right}" y1="${y(t.goal)}" y2="${y(t.goal)}"></line>` : "";
+  const xl = (i, s) => `<text class="pc-x" x="${x(i) + bw / 2}" y="${H - 6}" text-anchor="middle">${s}</text>`;
+  return `<figure class="pl-chart">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t.label)}: before Domi ${esc(fmt(t.baseline, t.key))}, target ${esc(fmt(t.goal, t.key))}${last ? `, week ${last.week} ${esc(fmt(last[t.key], t.key))}` : ""}">
+      <line class="pc-axis" x1="${left}" x2="${W - right}" y1="${base}" y2="${base}"></line>
+      ${goal}${marks}${label(0, t.baseline)}${last ? label(li, last[t.key]) : ""}
+      ${xl(0, "Before")}${li >= 3 ? xl(li, "Wk " + last.week) : ""}
+    </svg>
+    <figcaption class="pc-key"><span><i class="pc-sw before"></i>Before Domi</span><span><i class="pc-sw after"></i>With Domi, each week</span>${weeks.some((w) => w.inProgress) ? `<span><i class="pc-sw cur"></i>This week so far</span>` : ""}<span><i class="pc-sw goal"></i>Target</span></figcaption>
+  </figure>`;
+}
 function pilotPage() {
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Pilot results",
-    lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Miles, visits and empty slots are worked out by Domi; office hours are what you record each week.",
+    lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Visits, cancelled slots refilled and calls per refill are worked out by Domi. Miles and office hours are what you record each week: miles from the clinicians' mileage claims, the same source as your baseline, so the comparison is fair.",
     actions: d && d.config.start && !g.edit ? `<button class="btn secondary" type="button" data-act="pilot-edit">${icon("gear")}Change baseline or targets</button>` : "" });
   if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
-  const M = d.measures, c = d.config, fmt = (v, k) => v == null ? "–" : `${Number(v).toFixed(M[k].dp)}`;
+  const M = d.measures, c = d.config, fmt = (v, k) => v == null ? "–" : `${Number(v).toFixed(M[k].dp)}${M[k].unit === "%" ? "%" : ""}`;
   if (g.edit) {
     const tgt = (k) => (c.targets.find((t) => t.key === k) || {}).pct || "";
     return `<div class="pg narrow">${head}
@@ -1027,9 +1059,9 @@ function pilotPage() {
           <div class="field"><label for="pl-by">Agreed with</label><input class="input" id="pl-by" maxlength="80" value="${esc(c.agreedBy || "")}" placeholder="Name and role"></div></div></section>
         <section class="card"><div class="card-h"><h2>Baseline and targets</h2><p>The baseline is your own figure from the 4 weeks before go-live. Tick up to four targets and how much better each must be. They decide whether the success fee is due at day 90.</p></div>
           <table class="pl-set"><thead><tr><th>Measure</th><th>Baseline</th><th>Target</th></tr></thead><tbody>
-          ${Object.entries(M).map(([k, m]) => `<tr><td><b>${esc(m.label)}</b><div class="muted">${m.measured ? "Measured by Domi" : "Recorded by the office each week"} · ${m.better === "down" ? "lower is better" : "higher is better"}</div></td>
+          ${Object.entries(M).map(([k, m]) => `<tr><td><b>${esc(m.label)}</b><div class="muted">${m.measured ? "Measured by Domi" : m.entry === "miles" ? "From the week's mileage claims, entered by the office" : "Recorded by the office each week"} · ${m.better === "down" ? "lower is better" : "higher is better"}</div></td>
             <td><input class="input sm" id="pl-b-${k}" inputmode="decimal" value="${esc(c.baseline[k] != null ? c.baseline[k] : "")}" aria-label="Baseline: ${esc(m.label)}"> <span class="muted">${esc(m.unit)}</span></td>
-            <td><label class="chk"><input type="checkbox" id="pl-t-${k}" ${tgt(k) ? "checked" : ""}><span>${m.better === "down" ? "down" : "up"} by</span></label> <input class="input sm" id="pl-p-${k}" inputmode="decimal" style="width:64px" value="${esc(tgt(k))}" aria-label="Target %: ${esc(m.label)}"> %</td></tr>`).join("")}
+            <td><label class="chk"><input type="checkbox" id="pl-t-${k}" ${tgt(k) ? "checked" : ""}><span>${m.level ? "reach" : m.better === "down" ? "down by" : "up by"}</span></label> <input class="input sm" id="pl-p-${k}" inputmode="decimal" style="width:64px" value="${esc(tgt(k))}" aria-label="Target %: ${esc(m.label)}"> %</td></tr>`).join("")}
           </tbody></table></section>
         <div id="pl-err" aria-live="polite"></div>
         <div class="form-f">${c.start ? `<button class="btn ghost" type="button" data-act="pilot-cancel">Cancel</button>` : ""}<button class="btn" type="submit">${icon("check")}Save</button></div>
@@ -1038,16 +1070,20 @@ function pilotPage() {
   const verdict = { "no-targets": ["plain", "No targets set yet"], measuring: ["apricot", `Measuring: ${d.weeksComplete} of 13 weeks complete`], met: ["ok", "On track: every target met"], "not-met": ["crit", "Not met yet"] }[d.status];
   const cards = d.targets.map((t) => `<div class="pl-card ${t.met === true ? "ok" : t.met === false ? "no" : ""}">
       <div class="caps">${esc(t.label)}</div>
+      ${pilotChart(t, d.weeks, fmt)}
       <div class="pl-nums"><span><small>Before</small><b>${fmt(t.baseline, t.key)}</b></span><span class="arrow">→</span><span><small>Now${t.weeks ? ` (${t.weeks} wk avg)` : ""}</small><b>${fmt(t.now, t.key)}</b></span><span><small>Target</small><b>${fmt(t.goal, t.key)}</b></span></div>
-      <div class="pl-foot">${t.met == null ? `<span class="muted">Measured once a full week is done</span>` : `<span class="badge ${t.met ? "b-ok" : "b-crit"}">${t.met ? "Met" : "Not met"}</span>`}${t.change != null ? `<span class="muted">${t.change > 0 ? "+" : ""}${t.change}% vs before · target ${t.better === "down" ? "−" : "+"}${t.pct}%</span>` : ""}</div></div>`).join("");
+      <div class="pl-foot">${t.met == null ? `<span class="muted">Measured once a full week is done</span>` : `<span class="badge ${t.met ? "b-ok" : "b-crit"}">${t.met ? "Met" : "Not met"}</span>`}${t.change != null ? `<span class="muted">${t.change > 0 ? "+" : ""}${t.change}${t.unit === "%" ? " points" : "%"} vs before · target ${t.level ? `${t.pct}%` : `${t.better === "down" ? "−" : "+"}${t.pct}%`}</span>` : ""}</div></div>`).join("");
   const row = (w) => `<tr class="${w.inProgress ? "pl-now" : ""}"><td><b>Week ${w.week}</b><div class="muted">${esc(w.label)}${w.inProgress ? " · so far" : ""}</div></td>
-    <td class="mono">${w.visits}</td><td class="mono">${fmt(w.milesPerVisit, "milesPerVisit")}</td><td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.unfilledPerWeek}</td>
-    <td><input class="input sm mono pl-hours" data-week="${w.week}" inputmode="decimal" value="${w.officeHours != null ? esc(w.officeHours) : ""}" placeholder="–" aria-label="Office hours, week ${w.week}"></td></tr>`;
+    <td class="mono">${w.visits}</td>
+    <td><input class="input sm mono pl-entry" data-week="${w.week}" data-k="miles" inputmode="decimal" value="${w.milesClaimed != null ? esc(w.milesClaimed) : ""}" placeholder="–" aria-label="Miles claimed, week ${w.week}"></td>
+    <td class="mono">${fmt(w.milesPerVisit, "milesPerVisit")}</td>
+    <td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.refillRate != null ? w.refillRate + "%" : "–"}</td><td class="mono">${w.unfilledPerWeek}</td><td class="mono">${fmt(w.callsPerRefill, "callsPerRefill")}</td>
+    <td><input class="input sm mono pl-entry" data-week="${w.week}" data-k="hours" inputmode="decimal" value="${w.officeHours != null ? esc(w.officeHours) : ""}" placeholder="–" aria-label="Office hours, week ${w.week}"></td></tr>`;
   return `<div class="pg">${head}
     <div class="pl-top"><span class="badge b-${verdict[0]}">${esc(verdict[1])}</span><span class="muted">Go-live ${esc(new Date(c.start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }))}${c.agreedBy ? ` · agreed with ${esc(c.agreedBy)}` : ""} · success fee reviewed after week 13</span></div>
     ${cards ? `<div class="pl-cards">${cards}</div>` : `<div class="callout">${icon("bolt")}<div>No targets yet. <button class="linkish" type="button" data-act="pilot-edit">Add the baseline and targets</button></div></div>`}
-    <section class="card" style="margin-top:18px"><div class="card-h"><h2>Week by week</h2><p>Miles come from the road routes of each day's visits. Empty slots are cancellations nobody was booked into. Type the office's hours for each week; they save as you go.</p></div>
-      ${d.weeks.length ? `<div class="pvn-tw"><table class="pvn-t pl-t"><thead><tr><th>Week</th><th>Visits</th><th>Miles / visit</th><th>Cancelled</th><th>Refilled</th><th>Left empty</th><th>Office hours</th></tr></thead><tbody>${d.weeks.map(row).join("")}</tbody></table></div>`
+    <section class="card" style="margin-top:18px"><div class="card-h"><h2>Week by week</h2><p>Type each week's total from the mileage claims, and the office's hours; they save as you go. Miles per visit is the claimed miles over the visits done. Refill rate is the share of cancellations someone else was booked into; a week with no cancellations has none. Calls per refill counts every call logged on the call list (no answer, not interested, booked), so log each one there.</p></div>
+      ${d.weeks.length ? `<div class="pvn-tw"><table class="pvn-t pl-t"><thead><tr><th>Week</th><th>Visits</th><th>Miles claimed</th><th>Miles / visit</th><th>Cancelled</th><th>Refilled</th><th>Refill rate</th><th>Left empty</th><th>Calls / refill</th><th>Office hours</th></tr></thead><tbody>${d.weeks.map(row).join("")}</tbody></table></div>`
         : `<div class="empty"><b>The pilot hasn't started</b>Week 1 begins on the go-live date.</div>`}
     </section></div>`;
 }
@@ -1685,7 +1721,7 @@ function buildMap(el, r) {
   const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.25, attributionControl: true });
   // OpenStreetMap refuses tiles to requests that don't say which site they're for, and Domi's pages send no
   // referrer by default. Tiles alone send the site's origin (never a page address).
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", referrerPolicy: "origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' })
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", referrerPolicy: "origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' + (/openrouteservice/.test((typeof META !== "undefined" && META && META.routing) || "") ? ' · routes &copy; <a href="https://openrouteservice.org" target="_blank" rel="noopener">openrouteservice.org</a> by HeiGIT' : "") })
     .on("tileerror", () => { tileFailures++; }).addTo(map);
   map.attributionControl.setPrefix(false);
   const col = r.clinician.color, base = [r.base.lat, r.base.lon], pts = r.stops.map((s) => [s.lat, s.lon]);
@@ -2845,12 +2881,22 @@ document.addEventListener("submit", async (e) => {
     }
   } catch (err) { fail(err); }
 });
+// Chart tooltips: any mark with data-tip shows it beside the pointer (pilot charts).
+let tipEl = null;
+document.addEventListener("pointerover", (e) => {
+  const m = e.target.closest && e.target.closest("[data-tip]");
+  if (!m) { if (tipEl) tipEl.hidden = true; return; }
+  if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "pc-tip"; tipEl.setAttribute("role", "status"); document.body.appendChild(tipEl); }
+  tipEl.textContent = m.dataset.tip; tipEl.hidden = false;
+});
+document.addEventListener("pointermove", (e) => { if (tipEl && !tipEl.hidden) { tipEl.style.left = Math.min(e.clientX + 12, innerWidth - tipEl.offsetWidth - 8) + "px"; tipEl.style.top = (e.clientY - 34) + "px"; } });
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
-    if (e.target.classList.contains("pl-hours")) {
-      await api("PUT", "/api/pilot/hours", { week: Number(e.target.dataset.week), hours: e.target.value.trim() });
-      UI.pg.data = await api("GET", "/api/pilot"); render(); toast("Office hours saved");
+    if (e.target.classList.contains("pl-entry")) {
+      const k = e.target.dataset.k;
+      await api("PUT", "/api/pilot/week", { week: Number(e.target.dataset.week), [k]: e.target.value.trim() });
+      UI.pg.data = await api("GET", "/api/pilot"); render(); toast(k === "miles" ? "Miles saved" : "Office hours saved");
     }
     if (e.target.dataset.actChange === "pvn-ert") {
       await api("PUT", `/api/appointments/${e.target.dataset.id}/pvn`, { ert: e.target.value || null });

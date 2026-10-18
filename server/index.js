@@ -525,7 +525,7 @@ route("POST", "/api/diary-changes/copied", {}, (req, body, user) => { needAdmin(
 // The pilot: baseline, targets and what's measured each week. Office only.
 route("GET", "/api/pilot", {}, (req, body, user) => { needAdmin(user); return pilot.report(); });
 route("PUT", "/api/pilot", {}, (req, body, user) => { needAdmin(user); return pilot.save(body, user); });
-route("PUT", "/api/pilot/hours", {}, (req, body, user) => { needAdmin(user); return pilot.saveHours(body.week, body.hours, user); });
+route("PUT", "/api/pilot/week", {}, (req, body, user) => { needAdmin(user); return pilot.saveWeek(body.week, { hours: body.hours, miles: body.miles }, user); });
 // PCSE pre-visit notifications: office only (the clinician's phone just shows whether one was lodged).
 route("GET", "/api/pvn", {}, (req, body, user) => { needAdmin(user); return pvn.list(); });
 route("POST", "/api/pvn/lodge", {}, (req, body, user) => { needAdmin(user); return svc.lodgePvn(body, user); });

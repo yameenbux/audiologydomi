@@ -1102,8 +1102,29 @@ button.rm-row:hover { background: var(--subtle) }
 .pl-nums b { font-size: 22px; font-variant-numeric: tabular-nums }
 .pl-nums .arrow { color: var(--muted); font-size: 18px; padding-bottom: 3px }
 .pl-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px }
+/* Pilot charts: before Domi (neutral grey) against each week with Domi (the practice's colour), target dashed */
+.pl-chart { margin: 0; display: grid; gap: 6px }
+.pl-chart svg { width: 100%; height: auto; display: block; overflow: visible }
+.pl-chart .pc-before { fill: color-mix(in srgb, var(--muted) 55%, var(--surface)) }
+.pl-chart .pc-after { fill: var(--forest) }
+.pl-chart .pc-now { fill: color-mix(in srgb, var(--forest) 45%, var(--surface)) }
+.pl-chart .pc-none { fill: var(--line) }
+.pl-chart path, .pl-chart .pc-none { stroke: var(--surface); stroke-width: 2px; paint-order: stroke }
+.pl-chart path:hover, .pl-chart .pc-none:hover { filter: brightness(1.12) }
+.pl-chart .pc-axis { stroke: var(--line); stroke-width: 1 }
+.pl-chart .pc-goal { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; opacity: .55 }
+.pl-chart .pc-val { font: 600 11px var(--f-mono); fill: var(--ink); stroke: var(--surface); stroke-width: 3px; paint-order: stroke }
+.pl-chart .pc-x { font: 500 10.5px var(--f-ui); fill: var(--muted) }
+.pc-key { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--muted) }
+.pc-key span { display: inline-flex; align-items: center; gap: 5px }
+.pc-sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block }
+.pc-sw.before { background: color-mix(in srgb, var(--muted) 55%, var(--surface)) }
+.pc-sw.after { background: var(--forest) }
+.pc-sw.cur { background: color-mix(in srgb, var(--forest) 45%, var(--surface)) }
+.pc-sw.goal { height: 0; width: 14px; border-top: 1.5px dashed color-mix(in srgb, var(--ink) 55%, transparent); border-radius: 0 }
+.pc-tip { position: fixed; z-index: 90; pointer-events: none; background: var(--ink); color: var(--surface); font-size: 12.5px; padding: 5px 9px; border-radius: 8px; box-shadow: var(--shadow); white-space: nowrap }
 .pl-t tr.pl-now td { background: color-mix(in srgb, var(--apricot-soft) 45%, transparent) }
-.pl-t .pl-hours { width: 72px }
+.pl-t .pl-entry { width: 72px }
 .pl-set { width: 100%; border-collapse: collapse; font-size: 14px }
 .pl-set td, .pl-set th { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle }
 .pl-set th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600 }

@@ -337,24 +337,40 @@ test("pilot: the baseline and targets are saved, each week is measured from the 
   assert.strictEqual((await call("PUT", "/api/pilot", o.token, { start: "2026-10-12", baseline: {}, targets: [{ key: "milesPerVisit", pct: 10 }] })).status, 400);
   assert.strictEqual((await call("PUT", "/api/pilot", o.token, { start: "12/10/2026" })).status, 400);
   const r = await call("PUT", "/api/pilot", o.token, { start: "2026-10-12", agreedBy: "Zain, office manager",
-    baseline: { milesPerVisit: 9.5, unfilledPerWeek: 4, officeHours: 12 }, targets: [{ key: "milesPerVisit", pct: 10 }, { key: "officeHours", pct: 25 }] });
+    baseline: { milesPerVisit: 9.5, refillRate: 35, officeHours: 12 }, targets: [{ key: "milesPerVisit", pct: 10 }, { key: "officeHours", pct: 25 }, { key: "refillRate", pct: 80 }] });
   assert.strictEqual(r.status, 200, JSON.stringify(r.data));
   const d = r.data;
   assert.strictEqual(d.weeks.length, 1); assert.ok(d.weeks[0].inProgress, "week 1 is this week");
   assert.ok(d.weeks[0].visits > 0, "today's visits count");
-  assert.ok(d.weeks[0].milesPerVisit > 0, "miles from today's routes");
-  assert.deepStrictEqual(d.targets.map((t) => [t.key, t.goal]), [["milesPerVisit", 8.6], ["officeHours", 9]]);
+  assert.strictEqual(d.weeks[0].milesPerVisit, null, "miles per visit waits for the mileage claims");
+  assert.deepStrictEqual(d.targets.map((t) => [t.key, t.goal]), [["milesPerVisit", 8.6], ["officeHours", 9], ["refillRate", 80]], "refilled is a level to reach, not a % change");
+  assert.strictEqual((await call("PUT", "/api/pilot", o.token, { baseline: { refillRate: 90 }, targets: [{ key: "refillRate", pct: 80 }] })).status, 400, "a target below the baseline");
+  assert.strictEqual((await call("PUT", "/api/pilot", o.token, { baseline: { refillRate: 135 } })).status, 400, "a share can't pass 100%");
   assert.strictEqual(d.status, "measuring", "nothing is judged on a week that isn't finished");
   // A cancellation this week shows as cancelled and left empty until someone is booked in.
   const st = (await call("GET", "/api/state", o.token)).data;
   const a = st.appts.find((x) => x.day === 2 && x.status === "booked");
   await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" });
   const w1 = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
-  assert.strictEqual(w1.cancellations, 1); assert.strictEqual(w1.unfilledPerWeek, 1);
-  // The office records its own hours each week.
-  assert.strictEqual((await call("PUT", "/api/pilot/hours", o.token, { week: 1, hours: "8.5" })).status, 200);
-  assert.strictEqual((await call("PUT", "/api/pilot/hours", o.token, { week: 1, hours: "lots" })).status, 400);
-  assert.strictEqual((await call("GET", "/api/pilot", o.token)).data.weeks[0].officeHours, 8.5);
+  assert.strictEqual(w1.cancellations, 1); assert.strictEqual(w1.unfilledPerWeek, 1); assert.strictEqual(w1.refillRate, 0); assert.strictEqual(w1.callsPerRefill, null);
+  // Filled by phone: the first person didn't pick up, the second said yes. Two calls for one refill.
+  const gap = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  const first = gap.candidates.find((c) => c.ok);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: first.waitlistId, outcome: "no-answer" })).status, 200);
+  const second = (await call("GET", `/api/gaps/${a.id}`, o.token)).data.candidates.find((c) => c.ok && c.waitlistId !== first.waitlistId);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/book`, o.token, { waitlistId: second.waitlistId })).status, 200);
+  const w1b = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
+  assert.deepStrictEqual([w1b.refilled, w1b.refillRate, w1b.unfilledPerWeek, w1b.calls, w1b.callsPerRefill], [1, 100, 0, 2, 2]);
+  // The office records its own hours, and the miles on the week's mileage claims; per visit is claimed miles over visits.
+  assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1, hours: "8.5" })).status, 200);
+  assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1, hours: "lots" })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1 })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1, miles: "240" })).status, 200);
+  const w = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
+  assert.strictEqual(w.officeHours, 8.5, "saving miles leaves the hours alone");
+  assert.strictEqual(w.milesClaimed, 240); assert.strictEqual(w.milesPerVisit, Math.round((240 / w.visits) * 10) / 10);
+  assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1, miles: "" })).status, 200);
+  assert.strictEqual((await call("GET", "/api/pilot", o.token)).data.weeks[0].milesPerVisit, null);
   const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
   assert.strictEqual((await call("GET", "/api/pilot", amira.token)).status, 403);
 });
