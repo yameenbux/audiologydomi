@@ -237,6 +237,7 @@ function onEvent(type, e) {
   if (type === "refill.started") {
     if (e.cancelled && e.cancelled.byText) toast(`${e.cancelled.patient} texted to cancel. Refilling ${hm(e.start)}.`);
     if (e.cancelled && e.cancelled.byLink) toast(`${e.cancelled.patient}'s visit was cancelled online. Refilling ${hm(e.start)}.`);
+    if (e.outcome === "call-list") { openCallList(e.slotId); return; }
     if (!UI.flow || UI.flow.slotId !== e.slotId) { UI.flow = flowFrom(e); openDrawer({ kind: "flow" }); }
     return;
   }
@@ -1361,6 +1362,7 @@ function settingsPage() {
       <section class="card"><div class="card-h"><h2>When a visit is cancelled</h2><p>Domi picks the best-matched patients on the waiting list: urgency, area, how long they've waited and the extra driving.</p></div>
         <div class="choice2" role="radiogroup" aria-label="How cancelled visits are filled">
           <label class="choice"><input type="radio" name="set-mode" value="offer" ${st.mode === "offer" ? "checked" : ""}><span><b>${icon("send")}Text an offer</b><span>Patients reply YES to take it. The best match is asked first; when the visit is close, the top three are asked at once.</span></span></label>
+          <label class="choice"><input type="radio" name="set-mode" value="phone" ${st.mode === "phone" ? "checked" : ""}><span><b>${icon("phone")}Phone a call list</b><span>Nobody is texted. The office gets the waiting list ranked for that slot, best match first, with each number to ring and one click to book.</span></span></label>
           <label class="choice"><input type="radio" name="set-mode" value="instant" ${st.mode === "instant" ? "checked" : ""}><span><b>${icon("bolt")}Book instantly</b><span>The best match is booked straight in and told by text. Fastest, but nobody is asked first.</span></span></label></div>
         <div class="row2" style="margin-top:14px"><div class="field"><label for="set-om">Normal reply window</label><select class="input" id="set-om">${mins.map((m) => `<option value="${m}" ${m === st.offerMinutes ? "selected" : ""}>${m} minutes</option>`).join("")}</select><span class="hint after">Shorter when the visit is close.</span></div>
           ${sf("fee", "Your fee per visit (£)", st.fee, 'type="number" min="0" max="2000" step="1"', "Used to show what refilled cancellations are worth.")}</div>
@@ -2143,18 +2145,35 @@ function moveDrawer(d) {
 }
 
 /* ---------- A free slot: who could take it, and booking whoever the office rings ---------- */
+/** Phone mode: a cancellation opens the slot's call list straight away (unless the office is busy in another drawer). */
+async function openCallList(slotId) {
+  if (UI.drawer && UI.drawer.kind !== "gap" && UI.drawer.kind !== "flow" && UI.drawer.kind !== "appt") { toast("A visit was cancelled: its call list is under Free slots"); return; }
+  const d = { kind: "gap", id: slotId, data: null }; openDrawer(d);
+  d.data = await api("GET", `/api/gaps/${slotId}`).catch(() => null); if (UI.drawer === d) redraw();
+}
 function gapDrawer(d) {
   const g = d.data;
   if (!g) return `<div class="drawer-h"><div><div class="caps">Free slot</div><h2 style="margin-top:6px">Finding who fits…</h2></div>${closeX}</div>`;
-  const ok = g.candidates.filter((x) => x.ok), rest = g.candidates.filter((x) => !x.ok).slice(0, 4);
-  const card = (x) => { const p = pat(x.patientId); return `<div class="offer ${x.byPhone ? "" : ""}"><div class="oh"><span><b>${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span></span>${x.byPhone ? `<span class="badge b-apricot">${icon("phone")}Phone them</span>` : `<span class="badge b-plain">${x.score} pts</span>`}</div>
+  const phoneMode = g.mode === "phone";
+  const ok = g.candidates.filter((x) => x.ok), rest = g.candidates.filter((x) => !x.ok).slice(0, 6);
+  const nhsBlocked = rest.some((x) => /PCSE/.test(x.reason || ""));
+  const card = (x, i) => { const p = pat(x.patientId); const ring = phoneMode || x.byPhone; const tel = String(p.phone || "").replace(/[^\d+]/g, "");
+    return `<div class="offer ${phoneMode && i === 0 ? "accepted" : ""}"><div class="oh"><span><b>${phoneMode ? `${i + 1}. ` : ""}${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span></span>${phoneMode && i === 0 ? `<span class="badge b-ok">Best match: ring first</span>` : x.byPhone && !phoneMode ? `<span class="badge b-apricot">${icon("phone")}Phone them</span>` : `<span class="badge b-plain">${x.score} pts</span>`}</div>
+    ${ring && p.phone ? `<a class="cl-tel" href="tel:${esc(tel)}">${icon("phone")}<span class="mono">${esc(p.phone)}</span>${p.rep ? `<span class="muted">· family: ${esc(p.rep)}</span>` : ""}</a>` : ""}
     <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}</div>
-    <div class="oa">${x.byPhone ? `<a class="btn secondary sm" href="tel:${esc(p.phone.replace(/\s/g, ""))}">${icon("phone")}<span class="mono">${esc(p.phone)}</span></a>` : ""}<button class="btn sm" type="button" data-act="gap-book" data-slot="${g.slotId}" data-w="${x.waitlistId}">${icon("check")}${x.byPhone ? "They said yes: book" : "Book " + esc(first(x.name))}</button></div></div>`; };
-  return `<div class="drawer-h"><div><div class="caps">${esc(g.clinician)} · ${whenLabel(g.day, g.start)}</div><h2 style="margin-top:6px">Fill this slot</h2></div>${closeX}</div>
+    <div class="oa cl-acts">
+      <button class="btn sm" type="button" data-act="gap-book" data-slot="${g.slotId}" data-w="${x.waitlistId}">${icon("check")}${ring ? "They said yes: book" : "Book " + esc(first(x.name))}</button>
+      ${phoneMode ? `<button class="btn ghost sm" type="button" data-act="gap-skip" data-slot="${g.slotId}" data-w="${x.waitlistId}" data-v="no-answer">No answer</button><button class="btn ghost sm" type="button" data-act="gap-skip" data-slot="${g.slotId}" data-w="${x.waitlistId}" data-v="declined">Not interested</button>` : ""}</div></div>`; };
+  const intro = phoneMode
+    ? `${g.window} min free. Ring down the list, best match first. When someone says yes, book them here: ${esc(first(g.clinician))}'s phone updates straight away. No answer or not interested takes them off the list for this slot only.`
+    : `${g.window} min free. Ring anyone below and book them here: they're texted the time (unless they asked for calls), ${esc(first(g.clinician))}'s phone updates, and anyone with an offer out hears it's gone.${g.offeredTo.length ? ` Waiting on a text reply from ${esc(g.offeredTo.join(" and "))}.` : ""}`;
+  return `<div class="drawer-h"><div><div class="caps">${esc(g.clinician)} · ${whenLabel(g.day, g.start)}</div><h2 style="margin-top:6px">${phoneMode ? "Call list for this slot" : "Fill this slot"}</h2></div>${closeX}</div>
     <div class="drawer-b">
-      <p class="muted" style="margin:0 0 14px;font-size:13.5px">${g.window} min free. Ring anyone below and book them here: they're texted the time (unless they asked for calls), ${esc(first(g.clinician))}'s phone updates, and anyone with an offer out hears it's gone.${g.offeredTo.length ? ` Waiting on a text reply from ${esc(g.offeredTo.join(" and "))}.` : ""}</p>
-      ${ok.length ? `<div class="offers">${ok.slice(0, 8).map(card).join("")}</div>` : `<div class="callout apricot">${icon("clock")}<div><b>Nobody on the waiting list fits</b><div style="margin-top:2px">Use Book a visit to put in someone new.</div></div></div>`}
-      ${rest.length ? `<details style="margin-top:16px"><summary class="muted">Who doesn't fit, and why</summary><ul class="mini">${rest.map((x) => `<li><b>${esc(x.name)}</b><div>${esc(x.reason)}</div></li>`).join("")}</ul></details>` : ""}
+      <p class="muted" style="margin:0 0 14px;font-size:13.5px">${intro}</p>
+      ${nhsBlocked ? `<div class="callout" style="margin-bottom:12px">${icon("shield")}<div><b>No NHS sight test in this slot</b><div style="margin-top:2px">It's inside PCSE's notice period, so the list only has visits that don't need a notification: repairs, deliveries, rechecks and private tests.</div></div></div>` : ""}
+      ${ok.length ? `<div class="offers">${ok.slice(0, 8).map(card).join("")}</div>` : `<div class="callout apricot">${icon("clock")}<div><b>${g.rung && g.rung.length ? "Everyone who fits has been rung" : "Nobody on the waiting list fits"}</b><div style="margin-top:2px">Use Book a visit to put in someone new, or leave the time free.</div></div></div>`}
+      ${g.rung && g.rung.length ? `<div class="rung"><span class="caps">Rung for this slot</span>${g.rung.map((r) => `<span>${esc(r.name)}: ${esc(r.outcome)}</span>`).join("")}</div>` : ""}
+      ${rest.length ? `<details style="margin-top:16px" ${phoneMode && !ok.length ? "open" : ""}><summary class="muted">Who can't take it, and why</summary><ul class="mini">${rest.map((x) => `<li><b>${esc(x.name)}</b><div>${esc(x.reason)}</div></li>`).join("")}</ul></details>` : ""}
     </div>`;
 }
 
@@ -2494,6 +2513,12 @@ document.addEventListener("click", async (e) => {
         toast(r.status === "done" ? (r.invoice ? `Recorded as completed. Invoice ${r.invoice.number} raised.` : "Recorded as completed") : r.rebooked ? "Recorded: nobody in. Back on the waiting list." : "Recorded: nobody in"); break;
       }
       case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) redraw(); break; }
+      case "gap-skip": {
+        el.disabled = true;
+        await api("POST", `/api/gaps/${el.dataset.slot}/skip`, { waitlistId: el.dataset.w, outcome: el.dataset.v });
+        const d = UI.drawer; if (d && d.kind === "gap") { d.data = await api("GET", `/api/gaps/${el.dataset.slot}`); redraw(); }
+        toast(el.dataset.v === "no-answer" ? "No answer: next on the list" : "Not interested: next on the list"); break;
+      }
       case "gap-book": {
         el.disabled = true;
         const r = await api("POST", `/api/gaps/${el.dataset.slot}/book`, { waitlistId: el.dataset.w });
@@ -2533,6 +2558,7 @@ document.addEventListener("click", async (e) => {
         el.disabled = true;
         const r = await api("POST", "/api/appointments/" + el.dataset.id + "/cancel", { reason: $("#reason").value });
         if (!isAdmin()) { closeDrawer(); UI.pid = null; UI.rec = null; toast("Visit cancelled. The office system is refilling the slot."); await load(); break; }
+        if (r.outcome === "call-list") { await openCallList(r.slotId); refetch(); break; }
         UI.flow = flowFrom(r); openDrawer({ kind: "flow" }); refetch(); break;
       }
       case "patient-cancel": el.disabled = true; closeDrawer(); await api("POST", "/api/demo/sms", { patientId: el.dataset.id, body: "CANCEL" }); break;

@@ -1083,3 +1083,9 @@ button.rm-row:hover { background: var(--subtle) }
 
 .ir-ch span { background: var(--forest-soft, #E6F0EC) }
 .ir-ch b { font-weight: 600 }
+.rung { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--muted) }
+.rung .caps { width: 100%; }
+.cl-tel { display: inline-flex; gap: 6px; align-items: center; margin: 6px 0 2px; color: var(--forest); font-size: 15px; font-weight: 600; text-decoration: none; flex-wrap: wrap }
+.cl-tel .i { width: 16px; height: 16px }
+.cl-tel .muted { font-weight: 400; font-size: 13px }
+.cl-acts { flex-wrap: wrap; justify-content: flex-start !important }

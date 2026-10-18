@@ -353,6 +353,7 @@ route("POST", "/api/appointments/:id/cancel-link", {}, (req, body, user, { id })
 // A freed slot: who could take it, and booking the person the office has just rung.
 route("GET", "/api/gaps/:id", {}, (req, body, user, { id }) => { needAdmin(user); return svc.gapCandidates(id); });
 route("POST", "/api/gaps/:id/book", {}, (req, body, user, { id }) => { needAdmin(user); return svc.bookCandidate(id, body.waitlistId, user); });
+route("POST", "/api/gaps/:id/skip", {}, (req, body, user, { id }) => { needAdmin(user); return svc.skipCandidate(id, body.waitlistId, body.outcome, user); });
 // Each person's sign-in: set up, or waiting on an invitation or reset link (server/invites.js).
 route("GET", "/api/team", {}, (req, body, user) => {
   needAdmin(user);

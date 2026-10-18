@@ -287,6 +287,48 @@ test("Opticabase every morning: the same export again adds new patients, updates
   assert.strictEqual(after.length, 1); assert.strictEqual(after[0].id, hand.id); assert.strictEqual(after[0].obId, "40004");
 });
 
+test("phone mode: a cancellation gives the office a call list, nobody is texted, and rung patients drop off", async () => {
+  const o = await office();
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { mode: "phone" })).status, 200);
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const offersBefore = st.messages.filter((m) => m.kind === "offer").length;
+  const a = st.appts.find((x) => x.day === 3 && x.status === "booked");
+  const r = (await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" })).data;
+  assert.strictEqual(r.outcome, "call-list");
+  const after = (await call("GET", "/api/state", o.token)).data;
+  assert.strictEqual(after.messages.filter((m) => m.kind === "offer").length, offersBefore, "nobody texted an offer");
+
+  const g = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  assert.strictEqual(g.mode, "phone");
+  const ok = g.candidates.filter((c) => c.ok);
+  assert.ok(ok.length >= 2, "at least two people to ring");
+  // First: no answer. Second: not interested. Both drop off this slot's list and show as rung.
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: ok[0].waitlistId, outcome: "no-answer" })).status, 200);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: ok[1].waitlistId, outcome: "declined" })).status, 200);
+  const g2 = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  assert.ok(!g2.candidates.some((c) => c.waitlistId === ok[0].waitlistId || c.waitlistId === ok[1].waitlistId));
+  assert.deepStrictEqual(g2.rung.map((x) => x.outcome), ["No answer", "Not interested"]);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: ok[0].waitlistId, outcome: "maybe" })).status, 400);
+  // The third says yes.
+  const next = g2.candidates.find((c) => c.ok);
+  const b = await call("POST", `/api/gaps/${a.id}/book`, o.token, { waitlistId: next.waitlistId });
+  assert.strictEqual(b.status, 200, JSON.stringify(b.data));
+  assert.strictEqual(b.data.start, a.start);
+});
+
+test("phone mode: an NHS sight test can't be offered a slot inside PCSE's notice; repairs and deliveries can", async () => {
+  const o = await office();
+  await call("PUT", "/api/settings", o.token, { mode: "phone" });
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const a = st.appts.find((x) => x.day === 1 && x.status === "booked");
+  await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" });
+  const g = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  const nhs = g.candidates.filter((c) => c.type === "sight");
+  assert.ok(nhs.length, "someone on the list is waiting for an NHS sight test");
+  assert.ok(nhs.every((c) => !c.ok && /PCSE/.test(c.reason)), "none of them can take tomorrow's slot");
+  assert.ok(g.candidates.filter((c) => c.ok).every((c) => c.type !== "sight"));
+});
+
 test("Facebook leads: their form's street address and date of birth are kept, and a postcode is found in the address", async () => {
   const leads = require("../server/leads");
   assert.strictEqual(leads.dobOf("1942-04-03"), "1942-04-03");

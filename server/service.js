@@ -277,6 +277,14 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
     return { outcome: "unfilled", why, slotId, clinicianId: slot.clinicianId, day: slot.day, start: slot.start, candidates: [], plan: { mode: "none" } };
   }
   const { clinician, window, candidates } = rank(slot, declinedFor(slotId));
+  // Phone mode: nobody is texted. The office gets the ranked list to ring, straight away.
+  if (settings().mode === "phone") {
+    const callable = candidates.filter((c) => c.ok);
+    const why = callable.length ? `Ring the list: ${callable.length} ${callable.length === 1 ? "person fits" : "people fit"}, best match first` : "Nobody suitable on the waiting list";
+    run("UPDATE appointments SET gap = 1 WHERE id = ?", slotId);
+    audit(actor, "slot.call-list", slotId, `${cal.label(slot.day)} ${hm(slot.start)}: ${callable.length} to ring`);
+    return { outcome: "call-list", why, slotId, clinicianId: slot.clinicianId, clinician: clinician.name, day: slot.day, start: slot.start, window, candidates: candidates.slice(0, 8), plan: { mode: "phone" }, now: sandbox.nowMin() };
+  }
   const eligible = candidates.filter((c) => c.ok && !c.byPhone); // phone-only patients are rung by the office, never texted
   const ringable = candidates.filter((c) => c.ok && c.byPhone);
   const now = sandbox.nowMin();
@@ -1256,7 +1264,7 @@ function saveSettings(input, user) {
     if (!list.length) throw new HttpError(400, "Leave at least one visit patients can book online, or take the booking link off your website.");
     next.online = ONLINE_TYPES.filter((k) => list.includes(k));
   }
-  if (has("mode")) { if (!["offer", "instant"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
+  if (has("mode")) { if (!["offer", "instant", "phone"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
   if (has("offerMinutes")) { const n = Number(input.offerMinutes); if (!(Number.isInteger(n) && n >= 1 && n <= 240)) throw new HttpError(400, "The reply window must be between 1 and 240 minutes."); next.offerMinutes = n; }
   if (has("autoRecalls")) { if (typeof input.autoRecalls !== "boolean") throw new HttpError(400, "Turn automatic recall texts on or off."); next.autoRecalls = input.autoRecalls; }
   // How far ahead bookings can go, in days: the office (up to 2 years), patients online, and gaps offered by text.
@@ -1514,9 +1522,26 @@ const freedSlot = (id) => {
 };
 /** Who on the waiting list could take a freed slot, best first, including people who asked to be phoned. */
 function gapCandidates(id) {
-  const slot = freedSlot(id), { clinician, window, candidates } = rank(slot, []);
+  const slot = freedSlot(id), { clinician, window, candidates } = rank(slot, declinedFor(id));
   const pending = pendingFor(slot.id).map((o) => map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
-  return { slotId: slot.id, clinicianId: clinician.id, clinician: clinician.name, day: slot.day, start: slot.start, type: slot.type, window, candidates, offeredTo: pending.map((pid) => getPatient(pid).name) };
+  // Who the office has already rung for this slot, so nobody is rung twice.
+  const rung = all("SELECT o.status, o.deadline, w.patient_id FROM offers o JOIN waitlist w ON w.id = o.waitlist_id WHERE o.slot_id = ? AND o.status = 'declined' AND o.round = 0 ORDER BY o.id", slot.id)
+    .map((r) => ({ name: getPatient(r.patient_id).name, outcome: r.deadline === "no-answer" ? "No answer" : "Not interested" }));
+  return { slotId: slot.id, clinicianId: clinician.id, clinician: clinician.name, day: slot.day, start: slot.start, type: slot.type, window, candidates, offeredTo: pending.map((pid) => getPatient(pid).name), rung, mode: settings().mode };
+}
+/** The office rang someone on the list: no answer, or they don't want it. They drop off the list for this slot only. */
+function skipCandidate(id, waitlistId, outcome, user) {
+  return tx(() => {
+    const slot = freedSlot(id);
+    if (!["no-answer", "declined"].includes(outcome)) throw new HttpError(400, "Choose no answer or not interested.");
+    const w = one("SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'", String(waitlistId || ""));
+    if (!w) throw new HttpError(409, "They're no longer waiting.");
+    // Kept with the slot's offers (round 0: rung by the office, not texted), so ranking leaves them out next time.
+    run("INSERT INTO offers (slot_id, waitlist_id, status, round, sent_at, expires_at, deadline) VALUES (?, ?, 'declined', 0, ?, ?, ?)", slot.id, w.id, Date.now(), Date.now(), outcome);
+    audit(user.name, "call-list." + outcome, slot.id, `${getPatient(w.patient_id).name}: ${outcome === "no-answer" ? "no answer" : "not interested"} for ${cal.label(slot.day)} ${hm(slot.start)}`);
+    bus.emit({ type: "slot.unfilled", slotId: slot.id });
+    return { ok: true };
+  });
 }
 /** The office rang someone (usually a patient who can't take texts) and they said yes: book them straight in. */
 function bookCandidate(id, waitlistId, user) {
@@ -1711,4 +1736,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
