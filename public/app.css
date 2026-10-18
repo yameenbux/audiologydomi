@@ -1080,3 +1080,6 @@ button.rm-row:hover { background: var(--subtle) }
 .likely { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px }
 .tcount-line { white-space: nowrap }
 .wk-cell .tcount-line { font-size: 10.5px; padding: 1px 6px; align-self: flex-start }
+
+.ir-ch span { background: var(--forest-soft, #E6F0EC) }
+.ir-ch b { font-weight: 600 }

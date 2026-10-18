@@ -1918,14 +1918,17 @@ function importDrawer() {
   const head = (cap, title) => `<div class="drawer-h"><div><div class="caps">${cap}</div><h2 style="margin-top:6px">${title}</h2></div>${closeX}</div>`;
   if (I.done) {
     const d = I.done;
-    return `${head("Import finished", `${d.imported} patient${d.imported === 1 ? "" : "s"} added`)}<div class="drawer-b">
+    return `${head("Import finished", [d.imported && `${d.imported} added`, d.updated && `${d.updated} updated`].filter(Boolean).join(", ") || "Nothing changed")}<div class="drawer-b">
       <ol class="steps">
-        <li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.imported} added to Domi</div><div class="sd">Each record notes it came from the spreadsheet. Search for them under Patients.</div></div></li>
+        ${d.imported ? `<li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.imported} added to Domi</div><div class="sd">Each record notes it came from the import. Search for them under Patients.</div></div></li>` : ""}
+        ${d.updated ? `<li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.updated} brought up to date</div><div class="sd">Only what changed in the file was written, and each record notes what changed.</div></div></li>` : ""}
+        ${d.same ? `<li class="step"><span class="ic">${icon("check")}</span><div><div class="st">${d.same} already up to date</div><div class="sd">Nothing to change.</div></div></li>` : ""}
+        ${d.conflicts ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.conflicts} not matched, left alone</div><div class="sd">Their Opticabase ID belongs to someone with a different date of birth on Domi. Check both records.</div></div></li>` : ""}
         ${d.recalls ? `<li class="step ok"><span class="ic">${icon("cal")}</span><div><div class="st">${d.recalls} due a sight test</div><div class="sd">They're on the recall list and in the refill pool, so a cancellation near them can go to them.</div></div></li>` : ""}
         ${d.duplicates ? `<li class="step"><span class="ic">${icon("copy")}</span><div><div class="st">${d.duplicates} skipped as already on Domi</div><div class="sd">Matched by mobile number, or name with postcode or date of birth.</div></div></li>` : ""}
         ${d.errors ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.errors} skipped with problems</div><div class="sd">Fix them in the spreadsheet and import the file again: anyone already added is skipped next time.</div></div></li>` : ""}
       </ol>
-      <div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Now stop using the spreadsheet</b><div style="margin-top:2px">From here on, add and change patients in Domi only, so there's one up-to-date record. Delete or archive the sheet once you've checked the import.</div></div></div>
+      <div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Using Opticabase as well?</b><div style="margin-top:2px">Import the same Opticabase export again whenever it suits, every morning for instance. Patients are matched by their Opticabase ID: new ones are added, changed addresses and numbers are updated, and nothing is entered twice.</div></div></div>
     </div><div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Import another file</button><button class="btn" type="button" data-act="close">Done</button></div>`;
   }
   if (!I.pv) {
@@ -1935,6 +1938,7 @@ function importDrawer() {
         <li><b>Save your sheet as a CSV file.</b> Google Sheets: <i>File → Download → Comma-separated values</i>. Excel: <i>Save As → CSV UTF-8</i>.</li>
         <li><b>Choose the file below.</b> Domi works out which column is which; you can change any of them.</li>
         <li><b>Check the preview, then import.</b> Problems and possible duplicates are shown first, and skipped.</li>
+        <li><b>From Opticabase? Import it again whenever you like.</b> Patients are matched by their Opticabase ID: new ones are added and changed details updated.</li>
       </ol>
       <label class="imp-drop" for="imp-file">${icon("copy")}<span><b>${I.busy ? "Checking…" : "Choose a CSV file"}</b><small>Up to 5,000 patients, 3 MB</small></span></label>
       <input type="file" id="imp-file" accept=".csv,text/csv" hidden>
@@ -1945,8 +1949,9 @@ function importDrawer() {
   }
   const pv = I.pv, c = pv.counts, f = I.filter || "all";
   const fieldOpts = (cur) => `<option value="">Don't import</option>` + pv.fields.map((x) => `<option value="${x.key}" ${x.key === cur ? "selected" : ""}>${esc(x.label)}</option>`).join("");
-  const shown = pv.rows.filter((r) => f === "all" || (f === "problems" ? r.status === "error" : f === "dup" ? r.status === "duplicate" : r.status === "ready" && r.warnings.length));
-  const badge = (r) => r.status === "error" ? `<span class="badge b-crit">Won't import</span>` : r.status === "duplicate" ? `<span class="badge b-plain">Already on Domi</span>` : r.warnings.length ? `<span class="badge b-warn">Check</span>` : `<span class="badge b-ok">Ready</span>`;
+  const shown = pv.rows.filter((r) => f === "all" || (f === "new" ? r.status === "ready" : f === "update" ? r.status === "update" : f === "same" ? r.status === "same" || r.status === "duplicate" : f === "problems" ? r.status === "error" || r.status === "conflict" : (r.status === "ready" || r.status === "update") && r.warnings.length));
+  const badge = (r) => r.status === "error" ? `<span class="badge b-crit">Won't import</span>` : r.status === "conflict" ? `<span class="badge b-crit">Doesn't match</span>` : r.status === "duplicate" ? `<span class="badge b-plain">Already on Domi</span>` : r.status === "same" ? `<span class="badge b-plain">Up to date</span>` : r.status === "update" ? `<span class="badge b-forest">Update</span>` : r.warnings.length ? `<span class="badge b-warn">Check</span>` : `<span class="badge b-ok">New</span>`;
+  const shownVal = (v) => v == null ? "nothing" : String(v);
   const LIMIT = 150;
   return `${head(`${esc(I.name || "Your file")} · ${c.total} row${c.total === 1 ? "" : "s"}`, "Check before importing")}<div class="drawer-b">
     ${pv.missing.length ? `<div class="err" role="alert" style="margin-bottom:12px">Choose which column holds ${esc(pv.missing.join(" and "))}.</div>` : ""}
@@ -1956,17 +1961,20 @@ function importDrawer() {
       </tbody></table></details>
     <div class="seg imp-filter" role="group" aria-label="Show rows">
       <button type="button" data-act="imp-filter" data-v="all" aria-pressed="${f === "all"}">All ${c.total}</button>
+      <button type="button" data-act="imp-filter" data-v="new" aria-pressed="${f === "new"}">New ${c.ready}</button>
+      <button type="button" data-act="imp-filter" data-v="update" aria-pressed="${f === "update"}">Updates ${c.update || 0}</button>
+      <button type="button" data-act="imp-filter" data-v="same" aria-pressed="${f === "same"}">Already on Domi ${(c.same || 0) + c.duplicate}</button>
       <button type="button" data-act="imp-filter" data-v="warn" aria-pressed="${f === "warn"}">To check ${c.warnings}</button>
-      <button type="button" data-act="imp-filter" data-v="dup" aria-pressed="${f === "dup"}">Duplicates ${c.duplicate}</button>
-      <button type="button" data-act="imp-filter" data-v="problems" aria-pressed="${f === "problems"}">Won't import ${c.error}</button>
+      <button type="button" data-act="imp-filter" data-v="problems" aria-pressed="${f === "problems"}">Won't import ${c.error + (c.conflict || 0)}</button>
     </div>
     <ul class="imp-rows">${shown.slice(0, LIMIT).map((r) => `<li class="${r.status}"><div class="ir-h"><span class="mono muted">Row ${r.line}</span><b>${esc(r.name || "(no name)")}</b><span class="muted">${esc(r.pc || "")}${r.age ? " · " + r.age : ""}</span>${badge(r)}</div>
-      ${r.errors.length || r.warnings.length || r.duplicateOf ? `<div class="ir-m">${r.errors.map((m) => `<span class="e">${esc(m)}</span>`).join("")}${r.duplicateOf ? `<span>Same as ${esc(r.duplicateOf)}</span>` : ""}${r.warnings.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
+      ${r.changes && r.changes.length ? `<div class="ir-m ir-ch">${r.changes.map((x) => `<span><b>${esc(x.label.charAt(0).toUpperCase() + x.label.slice(1))}</b>: ${esc(shownVal(x.from))} → ${esc(x.to)}</span>`).join("")}</div>` : ""}
+      ${r.errors.length || r.warnings.length || r.duplicateOf || r.conflict ? `<div class="ir-m">${r.errors.map((m) => `<span class="e">${esc(m)}</span>`).join("")}${r.duplicateOf ? `<span>Same as ${esc(r.duplicateOf)}</span>` : ""}${r.conflict ? `<span class="e">${esc(r.conflict)}</span>` : ""}${r.warnings.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
       ${r.recallDue != null && r.recallDue <= 14 && r.status === "ready" ? `<div class="ir-m"><span class="ok">Sight test ${r.recallDue < 0 ? `overdue by ${-r.recallDue} days` : r.recallDue === 0 ? "due today" : `due in ${r.recallDue} days`}: will join recalls</span></div>` : ""}</li>`).join("")}
       ${shown.length > LIMIT ? `<li class="muted" style="text-align:center">…and ${shown.length - LIMIT} more</li>` : ""}${!shown.length ? `<li class="muted" style="text-align:center">Nothing here.</li>` : ""}</ul>
     ${I.err ? `<div class="err" role="alert" style="margin-top:12px">${esc(I.err)}</div>` : ""}
   </div>
-  <div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Choose another file</button><button class="btn" type="button" data-act="import-commit" ${!c.ready || pv.missing.length || I.busy ? "disabled" : ""}>${icon("check")}${I.busy ? "Importing…" : `Import ${c.ready} patient${c.ready === 1 ? "" : "s"}`}</button></div>`;
+  <div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Choose another file</button><button class="btn" type="button" data-act="import-commit" ${!(c.ready + (c.update || 0)) || pv.missing.length || I.busy ? "disabled" : ""}>${icon("check")}${I.busy ? "Importing…" : [c.ready && `Add ${c.ready}`, c.update && `update ${c.update}`].filter(Boolean).join(" and ").replace(/^./, (x) => x.toUpperCase()) || "Nothing to import"}</button></div>`;
 }
 async function importPreview(mapping) {
   const I = UI.imp;
@@ -2538,7 +2546,7 @@ document.addEventListener("click", async (e) => {
       case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
       case "import-commit": {
         const I = UI.imp; I.busy = true; I.err = null; redraw();
-        try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast(`${I.done.imported} patients imported`); }
+        try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast([I.done.imported && `${I.done.imported} added`, I.done.updated && `${I.done.updated} updated`].filter(Boolean).join(", ") || "Nothing changed"); }
         catch (e) { I.err = e.message; }
         I.busy = false; redraw(); break;
       }

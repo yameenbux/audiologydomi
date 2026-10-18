@@ -297,9 +297,37 @@ function readRow(cells, mapping, { townOf } = {}) {
 
 const keyOf = (p) => ({ ob: p.obId ? String(p.obId).toLowerCase() : null, phone: p.phone.replace(/\D/g, ""), namePc: `${p.name.toLowerCase()}|${p.pc.replace(/\s/g, "")}`, nameDob: p.dob ? `${p.name.toLowerCase()}|${p.dob}` : null });
 
+// What a later import can change on a patient already on Domi, matched by their Opticabase ID. Empty cells never
+// blank anything: only a value in the file that differs from Domi's counts as a change.
+const UPDATABLE = [["name", "name"], ["dob", "date of birth"], ["addr", "address"], ["pc", "postcode"], ["phone", "phone"], ["email", "email"],
+  ["eligibility", "reason for a home visit"], ["rep", "next of kin"], ["lastTest", "last sight test"], ["nextExam", "next exam"],
+  ["recallMonths", "recall"], ["nhsNo", "NHS number"], ["premises", "where they're seen"]];
+const same = (k, a, b) => {
+  if (k === "phone") return String(a || "").replace(/\D/g, "") === String(b || "").replace(/\D/g, "");
+  return squash(a) === squash(b);
+};
+/** What's different between a patient on Domi and their row in the file, or why the two can't be the same person. */
+function compare(rec, p) {
+  if (rec.dob && p.dob && rec.dob !== p.dob) return { conflict: `Opticabase ID ${p.obId} is ${rec.name} on Domi, born ${rec.dob}, but this row says born ${p.dob}` };
+  const changes = [];
+  for (const [k, label] of UPDATABLE) {
+    const v = p[k];
+    if (v == null || v === "" || (k === "addr" && v === "Address to confirm") || (k === "recallMonths" && !v)) continue;
+    if (!same(k, rec[k], v)) changes.push({ field: k, label, from: rec[k] == null || rec[k] === "" ? null : String(rec[k]), to: String(v) });
+  }
+  return { changes };
+}
+
 /**
  * Check a whole file. `existing` is the patients already on the system, so duplicates are caught before
- * they're created. Rows are returned in file order with a status: "ready", "duplicate" or "error".
+ * they're created. Rows are returned in file order with a status:
+ *  - "ready": new, to be added;
+ *  - "update": already on Domi (by Opticabase ID, or found by phone or name and given its ID now), with changes;
+ *  - "same": already on Domi, nothing changed;
+ *  - "conflict": the Opticabase ID belongs to someone who doesn't match, so nothing is changed;
+ *  - "duplicate": already on Domi with no Opticabase ID to match on, or twice in the file;
+ *  - "error".
+ * Importing the same Opticabase export every morning keeps Domi up to date without double entry.
  */
 function check(csv, mappingIn, existing = [], opts = {}) {
   const text = String(csv || "");
@@ -318,18 +346,32 @@ function check(csv, mappingIn, existing = [], opts = {}) {
   const seen = { ob: new Map(), phone: new Map(), namePc: new Map(), nameDob: new Map() };
   for (const p of existing) {
     const k = keyOf(p);
-    if (k.ob) seen.ob.set(k.ob, { name: p.name, existing: true });
-    if (k.phone.length >= 10) seen.phone.set(k.phone, { name: p.name, existing: true });
-    seen.namePc.set(k.namePc, { name: p.name, existing: true });
-    if (k.nameDob) seen.nameDob.set(k.nameDob, { name: p.name, existing: true });
+    const e = { name: p.name, existing: true, rec: p };
+    if (k.ob) seen.ob.set(k.ob, e);
+    if (k.phone.length >= 10) seen.phone.set(k.phone, e);
+    seen.namePc.set(k.namePc, e);
+    if (k.nameDob) seen.nameDob.set(k.nameDob, e);
   }
   const rows = data.map((cells, i) => {
     const r = readRow(cells, mapping, opts);
-    const out = { line: i + 2, ...r, status: r.errors.length ? "error" : "ready", duplicateOf: null };
+    const out = { line: i + 2, ...r, status: r.errors.length ? "error" : "ready", duplicateOf: null, patientId: null, changes: [] };
     if (!r.errors.length) {
       const k = keyOf(r.patient);
-      const hit = (k.ob && seen.ob.get(k.ob)) || (k.phone.length >= 10 && seen.phone.get(k.phone)) || seen.namePc.get(k.namePc) || (k.nameDob && seen.nameDob.get(k.nameDob));
-      if (hit) { out.status = "duplicate"; out.duplicateOf = hit.existing ? `${hit.name}, already on Domi` : `${hit.name}, row ${hit.line}`; }
+      const byOb = k.ob && seen.ob.get(k.ob);
+      const other = (k.phone.length >= 10 && seen.phone.get(k.phone)) || seen.namePc.get(k.namePc) || (k.nameDob && seen.nameDob.get(k.nameDob));
+      // On Domi already: by its Opticabase ID, or found another way and not yet given an ID.
+      const known = byOb && byOb.existing ? byOb : !byOb && k.ob && other && other.existing && !other.rec.obId ? other : null;
+      if (known) {
+        const c = compare(known.rec, r.patient);
+        out.patientId = known.rec.id;
+        if (c.conflict) { out.status = "conflict"; out.conflict = c.conflict; }
+        else {
+          if (known !== byOb) c.changes.unshift({ field: "obId", label: "Opticabase ID", from: null, to: r.patient.obId });
+          out.changes = c.changes;
+          out.status = c.changes.length ? "update" : "same";
+          if (c.changes.some((x) => x.field === "name")) out.warnings.push(`Name changes from ${known.rec.name}: check it's the same person`);
+        }
+      } else if (byOb || other) { const hit = byOb || other; out.status = "duplicate"; out.duplicateOf = hit.existing ? `${hit.name}, already on Domi` : `${hit.name}, row ${hit.line}`; }
       else {
         const me = { name: r.patient.name, line: out.line };
         if (k.ob) seen.ob.set(k.ob, me);
@@ -345,7 +387,7 @@ function check(csv, mappingIn, existing = [], opts = {}) {
   const samples = headers.map((_, i) => { const r = data.find((x) => x[i]); return r ? r[i].slice(0, 60) : ""; });
   return {
     headers, mapping, missing, rows, samples,
-    counts: { total: rows.length, ready: count("ready"), duplicate: count("duplicate"), error: count("error"), warnings: rows.filter((r) => r.status === "ready" && r.warnings.length).length },
+    counts: { total: rows.length, ready: count("ready"), update: count("update"), same: count("same"), conflict: count("conflict"), duplicate: count("duplicate"), error: count("error"), warnings: rows.filter((r) => (r.status === "ready" || r.status === "update") && r.warnings.length).length },
   };
 }
 

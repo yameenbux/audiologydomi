@@ -238,9 +238,53 @@ test("Opticabase: its export imports with the ID, the home-visit reason, the nex
   assert.strictEqual((rec.patient || rec).nhsFrom.iso, "2026-10-21", "a month before the next exam, plus a day");
   // Importing the same export again finds them by their ID.
   const again = await call("POST", "/api/import/preview", o.token, { csv });
-  assert.ok(again.data.rows.every((x) => x.status === "duplicate"));
+  assert.ok(again.data.rows.every((x) => x.status === "same"), "the same export again: everyone already up to date");
   // The ID is unique within the practice.
   assert.strictEqual((await call("PUT", "/api/patients/p5", o.token, { obId: "30111" })).status, 409);
+});
+
+test("Opticabase every morning: the same export again adds new patients, updates changed ones by ID, and never doubles anyone", async () => {
+  const o = await office();
+  const H = "ID,Title,Last Name,Name,DOB,Address,Post code,Phone,Mobile,E-Mail,Domi Reason,NHS No,Next Exam";
+  const day1 = [H,
+    "40001,Mrs,Whittle,Joan,14/03/1938,12 Weetwood Lane,LS16 5NX,,07700 900401,,Dementia: can't go out alone,9990001111,20/11/2026",
+    "40002,Mr,Ashworth,Frank,02/07/1941,3 Otley Road,LS6 4DH,0113 555 0124,,,After a stroke,,05/10/2026"].join("\n");
+  assert.strictEqual((await call("POST", "/api/import/commit", o.token, { csv: day1 })).data.imported, 2);
+  // Next morning: Joan has moved and has a new mobile; Frank is unchanged; Ivy is new; a row reuses Frank's ID
+  // for someone with a different date of birth; and Joan's row has an empty email, which must not blank anything.
+  const day2 = [H,
+    "40001,Mrs,Whittle,Joan,14/03/1938,4 Moor Grange View,LS16 5JQ,,07700 900499,,Dementia: can't go out alone,9990001111,20/11/2026",
+    "40002,Mr,Ashworth,Frank,02/07/1941,3 Otley Road,LS6 4DH,0113 555 0124,,,After a stroke,,05/10/2026",
+    "40003,Mrs,Pickles,Ivy,09/09/1936,8 Church Lane,LS27 9AB,,07700 900403,,Parkinson's,,",
+    "40002,Mr,Ashworth,Francis,11/11/1950,9 Other Road,LS6 1AA,,07700 900777,,,,"].join("\n");
+  const pv = (await call("POST", "/api/import/preview", o.token, { csv: day2 })).data;
+  assert.deepStrictEqual(pv.rows.map((r) => r.status), ["update", "same", "ready", "conflict"]);
+  assert.deepStrictEqual(pv.rows[0].changes.map((c) => c.field), ["addr", "pc", "phone"]);
+  assert.strictEqual(pv.rows[0].changes[0].to, "4 Moor Grange View");
+  assert.match(pv.rows[3].conflict, /born 1941-07-02/);
+  assert.deepStrictEqual({ ready: pv.counts.ready, update: pv.counts.update, same: pv.counts.same, conflict: pv.counts.conflict }, { ready: 1, update: 1, same: 1, conflict: 1 });
+
+  const done = (await call("POST", "/api/import/commit", o.token, { csv: day2 })).data;
+  assert.deepStrictEqual({ imported: done.imported, updated: done.updated, same: done.same, conflicts: done.conflicts }, { imported: 1, updated: 1, same: 1, conflicts: 1 });
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const joans = st.patients.filter((p) => p.obId === "40001");
+  assert.strictEqual(joans.length, 1, "Joan once, not twice");
+  assert.strictEqual(joans[0].addr, "4 Moor Grange View"); assert.strictEqual(joans[0].pc, "LS16 5JQ");
+  assert.strictEqual(joans[0].phone.replace(/\s/g, ""), "07700900499");
+  assert.strictEqual(joans[0].eligibility, "Dementia: can't go out alone", "an unchanged field stays");
+  assert.strictEqual(st.patients.find((p) => p.obId === "40002").name, "Frank Ashworth", "the mismatched row changed nothing");
+  const rec = (await call("GET", `/api/patients/${joans[0].id}`, o.token)).data;
+  assert.ok(rec.history.some((n) => n.label === "Updated from Opticabase" && /address, postcode, phone/.test(n.body)));
+
+  // A patient added in Domi by hand, without an ID, is found by phone and given their Opticabase ID: not doubled.
+  const hand = (await call("POST", "/api/patients", o.token, { name: "Wilfred Oddie", addr: "22 Kirk Lane", pc: "LS6 4FH", phone: "07700 900404" })).data.patient;
+  const day3 = [H, "40004,Mr,Oddie,Wilfred,,22 Kirk Lane,LS6 4FH,,07700 900404,,,,"].join("\n");
+  const p3 = (await call("POST", "/api/import/preview", o.token, { csv: day3 })).data;
+  assert.strictEqual(p3.rows[0].status, "update");
+  assert.deepStrictEqual(p3.rows[0].changes.map((c) => c.field), ["obId"]);
+  await call("POST", "/api/import/commit", o.token, { csv: day3 });
+  const after = (await call("GET", "/api/state", o.token)).data.patients.filter((p) => p.name === "Wilfred Oddie");
+  assert.strictEqual(after.length, 1); assert.strictEqual(after[0].id, hand.id); assert.strictEqual(after[0].obId, "40004");
 });
 
 test("Facebook leads: their form's street address and date of birth are kept, and a postcode is found in the address", async () => {

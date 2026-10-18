@@ -823,7 +823,12 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
 }
 
 /* ---------- Importing patients from a spreadsheet ---------- */
-const existingPatients = () => all("SELECT name, pc, phone, dob FROM patients");
+/** Patients already on Domi, with what an import compares and can update. Erased records are left out. */
+const existingPatients = () => all("SELECT id, name, pc, phone, dob, addr, email, eligibility, rep, last_test, next_exam, recall_months, ob_id, nhs_no, premises FROM patients WHERE erased = 0")
+  .map((r) => ({ id: r.id, name: r.name, pc: r.pc, phone: r.phone, dob: r.dob, addr: r.addr, email: r.email, eligibility: r.eligibility, rep: r.rep,
+    lastTest: r.last_test, nextExam: r.next_exam, recallMonths: r.recall_months, obId: r.ob_id, nhsNo: r.nhs_no, premises: r.premises }));
+const IMPORT_COLS = { name: "name", dob: "dob", addr: "addr", pc: "pc", phone: "phone", email: "email", eligibility: "eligibility", rep: "rep",
+  lastTest: "last_test", nextExam: "next_exam", recallMonths: "recall_months", nhsNo: "nhs_no", premises: "premises", obId: "ob_id" };
 function checkImport(input) {
   const region = sandbox.current().brand.region;
   try { return importer.check(input.csv, input.mapping, existingPatients(), { townOf: (d) => regions.townOf(region, d) }); }
@@ -835,7 +840,8 @@ function previewImport(input) {
   const r = checkImport(input);
   return { fields: importer.FIELDS, headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
     rows: r.rows.map((x) => ({ line: x.line, status: x.status, name: x.patient.name, pc: x.patient.pc, phone: x.patient.phone, age: x.patient.age,
-      errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null })) };
+      errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null,
+      changes: x.changes, conflict: x.conflict || null })) };
 }
 
 /**
@@ -847,8 +853,20 @@ function commitImport(input, user) {
   return tx(() => {
     const r = checkImport(input);
     if (r.missing.length) throw new HttpError(400, `Choose which column holds ${r.missing.join(" and ")}.`);
-    const ready = r.rows.filter((x) => x.status === "ready");
-    if (!ready.length) throw new HttpError(400, "There's nothing to import: every row has a problem or is already on Domi.");
+    const ready = r.rows.filter((x) => x.status === "ready"), updates = r.rows.filter((x) => x.status === "update");
+    if (!ready.length && !updates.length) throw new HttpError(400, "There's nothing to import: every row is already up to date on Domi, or has a problem.");
+    // Patients already on Domi: only what changed in Opticabase is written, and the record says so.
+    let updated = 0, skipped = 0;
+    for (const row of updates) {
+      const cur = one("SELECT id, erased FROM patients WHERE id = ?", row.patientId);
+      const nhs = row.changes.find((c) => c.field === "nhsNo");
+      if (!cur || cur.erased || (nhs && one("SELECT 1 FROM patients WHERE nhs_no = ? AND id != ?", nhs.to, cur.id))) { skipped++; continue; }
+      for (const c of row.changes) run(`UPDATE patients SET ${IMPORT_COLS[c.field]} = ? WHERE id = ?`, c.field === "recallMonths" ? Number(c.to) : c.to, cur.id);
+      if (row.changes.some((c) => c.field === "dob")) run("UPDATE patients SET age = ? WHERE id = ?", row.patient.age, cur.id);
+      run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", cur.id, "Updated from Opticabase",
+        `Changed by the import: ${row.changes.map((c) => c.label).join(", ")}.`, user.name, sandbox.stamp());
+      updated++;
+    }
     let recalls = 0;
     const seq = one("SELECT COALESCE(MAX(added_seq), 0) AS s FROM waitlist").s;
     for (const row of ready) {
@@ -865,9 +883,9 @@ function commitImport(input, user) {
       }
     }
     // Counts only: patient details never go into the audit log or the event stream.
-    audit(user.name, "patients.import", "patients", `${ready.length} imported, ${r.counts.duplicate} duplicates and ${r.counts.error} with errors skipped, ${recalls} recalls`);
-    bus.emit({ type: "patients.imported", count: ready.length });
-    return { imported: ready.length, duplicates: r.counts.duplicate, errors: r.counts.error, recalls };
+    audit(user.name, "patients.import", "patients", `${ready.length} imported, ${updated} updated, ${r.counts.same} unchanged, ${r.counts.conflict + skipped} not matched, ${r.counts.duplicate} duplicates and ${r.counts.error} with errors skipped, ${recalls} recalls`);
+    bus.emit({ type: "patients.imported", count: ready.length + updated });
+    return { imported: ready.length, updated, same: r.counts.same, conflicts: r.counts.conflict + skipped, duplicates: r.counts.duplicate, errors: r.counts.error, recalls };
   });
 }
 
