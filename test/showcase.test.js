@@ -33,7 +33,7 @@ test("the branded demo: the practice's name, look and towns, 50 invented patient
   const office = await login(HVO, "hvo");
   const s = (await call("GET", "/api/state", office.token)).data;
   assert.strictEqual(s.settings.practice, "Home Visiting Optics");
-  assert.strictEqual(s.patients.length, 50);
+  assert.strictEqual(s.patients.length, 53, "50 in their homes, and 3 residents of one nursing home");
   const districts = new Set(meta.areas.flatMap((a) => a.districts));
   assert.ok(s.patients.every((p) => districts.has(p.pc.split(" ")[0])), "everyone lives in the towns they cover");
   assert.ok(s.patients.every((p) => /^07700 900\d{3}$/.test(p.phone)), "only Ofcom's drama numbers");

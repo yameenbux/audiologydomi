@@ -1038,6 +1038,39 @@ button.rm-row:hover { background: var(--subtle) }
 @media (max-width: 1100px) { .call-row { grid-template-columns: 1fr 1fr } .cr-acts { justify-content: flex-start } }
 @media (max-width: 600px) { .call-row { grid-template-columns: 1fr } }
 
+/* PCSE pre-visit notifications */
+.b-danger { background: var(--crit-soft); color: var(--crit) }
+.calls-tabs button.hot span { color: var(--crit); font-weight: 700 }
+.pvn-how { margin: 0 0 14px; align-items: flex-start; flex-wrap: wrap }
+.pvn-how .soon-chip, .pvn-how [data-act="soon"] { margin-left: 6px }
+.pvn-card { background: var(--surface); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; box-shadow: inset 0 0 0 1px var(--line); display: grid; gap: 12px }
+.pvn-card.breach { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--crit) 55%, var(--line)) }
+.pvn-h { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start }
+.pvn-h > div:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0 }
+.pvn-h b { font-size: 16px }
+.pvn-badges { display: flex; gap: 6px; flex-wrap: wrap }
+.pvn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 16px; margin: 0 }
+.pvn-f dt { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted) }
+.pvn-f dd { margin: 2px 0 0; display: flex; align-items: center; gap: 4px; font-size: 14px; min-width: 0; overflow-wrap: anywhere }
+.pvn-f .late, .pvn-t .late, .pvn-miss { color: var(--warn); font-weight: 600 }
+.pvn-cp { padding: 2px 5px !important; min-height: 0; border-radius: 6px; vertical-align: middle }
+.pvn-cp .i { width: 13px; height: 13px }
+.pvn-tw { overflow-x: auto }
+.pvn-t { width: 100%; border-collapse: collapse; font-size: 13.5px }
+.pvn-t th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap }
+.pvn-t td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap }
+.pvn-t td select { max-width: 230px }
+.pvn-notes { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted) }
+.pvn-miss { margin: 0; font-size: 13px; display: flex; gap: 6px; align-items: center }
+.pvn-acts { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end }
+.pvn-acts form { display: flex; gap: 6px; align-items: center }
+.pvn-acts form .input { width: 190px }
+.pvn-more summary { cursor: pointer; color: var(--muted); font-size: 13.5px; margin-bottom: 8px }
+.pvn-card.notified { gap: 8px; padding: 12px 18px }
+.icb { margin: 0 0 12px; font-size: 13.5px }
+.icb summary { cursor: pointer; color: var(--muted) }
+@media (max-width: 600px) { .pvn-acts { justify-content: flex-start } .pvn-acts form { width: 100% } .pvn-acts form .input { flex: 1; width: auto } }
+
 /* True count: how likely a visit is to go ahead, and each clinic's total */
 .tcount-line { display: inline-block; margin-top: 3px; font-size: 11.5px; color: var(--forest); background: color-mix(in srgb, var(--forest) 9%, transparent); padding: 1px 7px; border-radius: 99px }
 .tcount-line.weak { color: var(--apricot-ink, #9a4a12); background: color-mix(in srgb, var(--apricot) 18%, transparent) }

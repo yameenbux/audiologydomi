@@ -14,6 +14,7 @@ const auth = require("./auth");
 const planner = require("./planner");
 const regions = require("./regions");
 const bus = require("./bus");
+const pvn = require("./pvn");
 
 const settings = () => sandbox.current().settings;
 /** The practice's name, as patients see it: texts are signed by the practice, not by Domi. */
@@ -86,6 +87,53 @@ function setLikelihood(id, input, user) {
     return getAppt(a.id);
   });
 }
+/** NHS numbers are 10 digits; the last is a modulus 11 check digit. */
+function validNhsNumber(v) {
+  if (!/^\d{10}$/.test(v)) return false;
+  const c = 11 - (v.slice(0, 9).split("").reduce((t, d, i) => t + Number(d) * (10 - i), 0) % 11);
+  return c !== 10 && (c === 11 ? 0 : c) === Number(v[9]);
+}
+/** The office lodged a visit's PVN in PCSE Online: record PCSE's reference against each patient on it. */
+function lodgePvn(input, user) {
+  return tx(() => {
+    const ids = Array.isArray(input.apptIds) ? input.apptIds.map(String) : [];
+    const ref = clean(input.ref, 24).replace(/\s+/g, "");
+    if (!ids.length) throw new HttpError(400, "Choose the visit.");
+    if (!/^[A-Za-z0-9-]{3,24}$/.test(ref)) throw new HttpError(400, "Enter the PVN reference PCSE Online gave you.");
+    for (const id of ids) {
+      const a = getAppt(id);
+      if (!a || !TYPES[a.type].pvn) throw new HttpError(404, "That visit isn't an NHS sight test any more.");
+      const t = one("SELECT * FROM pcse WHERE appointment_id = ? AND action = 'lodge' ORDER BY id DESC LIMIT 1", id);
+      if (t) run("UPDATE pcse SET status = 'done', done_by = ?, ref = ? WHERE id = ?", user.name, ref, t.id);
+      else run("INSERT INTO pcse (action, patient_id, appointment_id, day, start_min, status, created_at, done_by, ref) VALUES ('lodge', ?, ?, ?, ?, 'done', ?, ?, ?)", a.patientId, id, a.day, a.start, sandbox.stamp(), user.name, ref);
+      audit(user.name, "pcse.lodged", id, `PVN ${ref} lodged for ${getPatient(a.patientId).name}, ${cal.label(a.day)} ${hm(a.start)}`);
+    }
+    bus.emit({ type: "pcse.updated" });
+    return { ok: true, ref };
+  });
+}
+/** A visit's early retest code, or the ICB's short-notice approval, for its PVN. */
+function setPvnDetails(id, input, user) {
+  return tx(() => {
+    const a = one("SELECT * FROM appointments WHERE id = ?", String(id));
+    if (!a || !TYPES[a.type].pvn) throw new HttpError(404, "That isn't an NHS sight test.");
+    const has = (k) => Object.prototype.hasOwnProperty.call(input, k), parts = [];
+    if (has("ert")) { const v = input.ert ? String(input.ert) : null; if (v && !pvn.ERT[v]) throw new HttpError(400, "Choose one of PCSE's early retest codes."); run("UPDATE appointments SET ert = ? WHERE id = ?", v, a.id); parts.push(v ? `early retest code ${v}` : "no early retest code"); }
+    if (has("icb")) { run("UPDATE appointments SET pvn_icb = ? WHERE id = ?", icbOf(input), a.id); parts.push(icbOf(input) ? `ICB approval: ${icbOf(input)}` : "ICB approval removed"); }
+    audit(user.name, "pcse.details", a.id, parts.join(", "));
+    bus.emit({ type: "pcse.updated" });
+    return { ok: true };
+  });
+}
+/** Who at the ICB approved a short-notice NHS visit, as the office typed it (PCSE's form asks for the name). */
+const icbOf = (input) => { const v = clean(input && input.icb, 80); return v.length >= 3 ? v : null; };
+/** Refuse an NHS sight test PCSE can't be told about in time (48 working hours, or 3 weeks for a third patient at one
+ *  address), unless the office records the ICB's approval for a short-notice visit. */
+function checkPvn(patient, type, day, start, icb, exclude = null) {
+  const problem = pvn.check({ patient, type, day, start, exclude });
+  if (problem && !icb) throw new HttpError(409, problem.message);
+  return problem;
+}
 /** Refuse an NHS sight test before the patient's recall line, unless the office gives an early-retest reason. */
 function checkNhsLine(p, type, day, early) {
   if (!TYPES[type] || !TYPES[type].pvn) return;
@@ -140,7 +188,15 @@ function rank(slot, declined) {
   const waitlist = all("SELECT * FROM waitlist WHERE status = 'waiting'").map(map.wait);
   const patientsById = Object.fromEntries(all("SELECT * FROM patients").map((r) => { const p = map.patient(r); p.nhsFrom = nhsFrom(p); return [r.id, p]; }));
   const leadMin = cal.workMinutesUntil(slot.day, slot.start, sandbox.nowMin()); // PCSE's 48 hours are working hours
-  return { clinician, ...rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0, leadMin }) };
+  const r = rankCandidates({ slot, clinician, dayAppts: dayAppts(slot.clinicianId, slot.day).concat(slot), waitlist, patientsById, declined, sameDay: slot.day === 0, leadMin });
+  // A third NHS sight test at one address that day needs 3 weeks' notice to PCSE: don't offer it inside that.
+  for (const c of r.candidates) {
+    if (!c.ok || !TYPES[c.type].pvn) continue;
+    const problem = pvn.check({ patient: patientsById[c.patientId], type: c.type, day: slot.day, start: slot.start, exclude: slot.id });
+    if (problem) { c.ok = false; c.score = 0; c.reason = `NHS test: PCSE needs ${problem.rule === "3 weeks" ? "3 weeks" : "48 hours"}' notice`; }
+  }
+  r.candidates.sort((a, b) => (b.ok - a.ok) || (b.score - a.score));
+  return { clinician, ...r };
 }
 
 /* ---------- PCSE pre-visit notifications ---------- */
@@ -674,7 +730,7 @@ function bookingPatient(input) {
 }
 
 /** Where a visit could go this week. `exclude`: a visit being moved, so its current time counts as free. */
-function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, max = cal.ahead("bookAheadDays") } = {}) {
+function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, max = cal.ahead("bookAheadDays"), pvnApproved = false } = {}) {
   if (!TYPES[type]) throw new HttpError(400, "Choose a visit type.");
   const clinicians = all("SELECT * FROM clinicians WHERE active = 1 ORDER BY id").map(map.clinician);
   const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.id IS NOT ?`, exclude)
@@ -684,7 +740,7 @@ function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, 
   const f = TYPES[type].pvn && patient.id && !patient.early ? nhsFrom(patient) : null;
   if (f && f.day > from) from = f.day; // not before their recall line
   const days = cal.openDays(from, count, max);
-  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine" });
+  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine", pvnApproved });
 }
 
 /**
@@ -713,7 +769,7 @@ async function findSlots(input) {
   const from = searchFrom(input);
   if (input.early === true) patient.early = true;
   const line = TYPES[input.type] && TYPES[input.type].pvn && !patient.early ? nhsFrom(patient) : null;
-  const slots = slotsFor(patient, input.type, input.avail, { from }).slice(0, 6);
+  const slots = slotsFor(patient, input.type, input.avail, { from, pvnApproved: !!icbOf(input) }).slice(0, 6);
   return { patient: { id: patient.id, name: patient.name, pc: patient.pc }, type: input.type, from, fromLabel: cal.label(from), slots,
     recallLine: line && line.day > from ? { label: line.label, day: line.day, months: line.months } : null };
 }
@@ -728,14 +784,17 @@ async function bookVisit(input, user) {
     const start = Number(input.start), day = bookableDay(Number(input.day || 0));
     checkNhsLine(draft, input.type, day, input.early === true);
     if (input.early === true) draft.early = true;
-    const slot = slotsFor(draft, input.type, input.avail, { from: day, count: 1 }).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
+    const icb = icbOf(input);
+    checkPvn(draft, input.type, day, start, icb);
+    const slot = slotsFor(draft, input.type, input.avail, { from: day, count: 1, pvnApproved: !!icb }).find((x) => x.clinicianId === c.id && x.day === day && x.start === start);
     if (!slot) throw new HttpError(409, "That slot has just gone. Search again for the latest options.");
-    return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office", source: input.source });
+    return placeVisit({ draft, c, type: input.type, day, start, slot, actor: user.name, by: "the office", source: input.source, icb, early: input.early === true });
   });
 }
 
 /** Write a new visit into a round (inside a transaction): patient if new, appointment, next leg, texts, audit, event. */
-function placeVisit({ draft, c, type, day, start, slot, actor, by, source }) {
+function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb = null, early = false }) {
+  const problem = checkPvn(draft, type, day, start, icb); // every route in: office, online booking
   let p = draft;
   if (!draft.id) {
     const id = newId("p");
@@ -747,6 +806,8 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source }) {
   const note = `New visit booked by ${by}: ${p.name} (${lowerName(t.name)}) ${when(day, start)}, ${p.addr}.`;
   run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min, source) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?, ?)",
     id, c.id, p.id, type, day, start, slot.driveIn, note, sandbox.nowMin(), sourceFor(draft.id ? p.id : null, source || (by === "the patient online" ? "new" : null)));
+  if (problem || early) run("UPDATE appointments SET pvn_icb = ?, pvn_early = ? WHERE id = ?", problem ? icb : null, early ? 1 : 0, id);
+  if (problem) audit(actor, "pcse.short-notice", id, `${p.name}: inside PCSE's ${problem.rule} notice, approved by ${icb} (ICB)`);
   // The visit after this one is now reached from the new patient's house.
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
   if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
@@ -792,8 +853,8 @@ function commitImport(input, user) {
     const seq = one("SELECT COALESCE(MAX(added_seq), 0) AS s FROM waitlist").s;
     for (const row of ready) {
       const p = row.patient, id = newId("p");
-      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test, next_exam, recall_months, ob_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest, p.nextExam || null, p.recallMonths || null, p.obId || null);
+      run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, last_test, next_exam, recall_months, ob_id, nhs_no, premises) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id, p.name, p.age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts), p.specs, p.dob, p.email, p.eligibility, p.rep, p.lastTest, p.nextExam || null, p.recallMonths || null, p.obId || null, p.nhsNo || null, p.premises || null);
       run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", id, "Imported", p.notes ? `Imported from spreadsheet. ${p.notes}` : "Imported from spreadsheet.", user.name, sandbox.stamp());
       if (row.recall && row.recall.dueDay <= 14) {
         const rid = newId("r"), wid = newId("w");
@@ -961,7 +1022,7 @@ function redrive(cid, day) {
 }
 
 const PATIENT_LABELS = { name: "name", addr: "address", pc: "postcode", phone: "phone", contact: "how to contact", email: "email", dob: "date of birth",
-  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes", lastTest: "last sight test", recallMonths: "recall", obId: "Opticabase ID", nextExam: "next exam" };
+  eligibility: "reason for a home visit", rep: "next of kin or carer", poa: "power of attorney", share: "consent to talk to family", specs: "glasses", alerts: "visit notes", lastTest: "last sight test", recallMonths: "recall", obId: "Opticabase ID", nextExam: "next exam", nhsNo: "NHS number", premises: "where they're seen", venue: "care home or day centre", venueContact: "contact at the premises" };
 
 /** The checks on a patient's details, shared by adding and editing. Only the fields sent are checked and returned. */
 function patientFields(input, before) {
@@ -1004,6 +1065,19 @@ function patientFields(input, before) {
     if (v && one("SELECT 1 FROM patients WHERE ob_id = ? AND id IS NOT ?", v, before.id || null)) throw new HttpError(409, `Another patient already has Opticabase ID ${v}.`);
     next.obId = v || null;
   }
+  if (has("nhsNo")) {
+    const v = String(input.nhsNo || "").replace(/\D/g, "");
+    if (v && !validNhsNumber(v)) throw new HttpError(400, "That isn't a valid NHS number: it's 10 digits, and the last one is a check digit.");
+    if (v && one("SELECT 1 FROM patients WHERE nhs_no = ? AND id IS NOT ?", v, before.id || null)) throw new HttpError(409, "Another patient already has that NHS number.");
+    next.nhsNo = v || null;
+  }
+  if (has("premises")) {
+    const v = input.premises || "home";
+    if (!pvn.PREMISES[v]) throw new HttpError(400, "Choose where they're seen: home, residential home, nursing home, day centre or sheltered housing.");
+    next.premises = v;
+  }
+  if (has("venue")) next.venue = clean(input.venue, 80) || null;
+  if (has("venueContact")) next.venueContact = clean(input.venueContact, 80) || null;
   if (has("nextExam")) {
     const v = String(input.nextExam || "");
     if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, "Enter the next exam as a date.");
@@ -1036,8 +1110,8 @@ async function createPatient(input, user) {
   return tx(() => {
     const id = newId("p");
     const age = p.dob ? Math.floor((cal.todayMs() - Date.parse(p.dob)) / (365.25 * 864e5)) : null;
-    run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, poa, share) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      id, p.name, age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts || []), p.specs || "None on record", p.dob || null, p.email || null, p.eligibility || null, p.rep || null, p.poa || null, p.share || null);
+    run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, specs, dob, email, eligibility, rep, poa, share, nhs_no, premises, venue, venue_contact) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, p.name, age, p.addr, p.pc, p.phone, p.contact, JSON.stringify(p.alerts || []), p.specs || "None on record", p.dob || null, p.email || null, p.eligibility || null, p.rep || null, p.poa || null, p.share || null, p.nhsNo || null, p.premises || null, p.venue || null, p.venueContact || null);
     const lead = input.leadId ? one("SELECT id FROM leads WHERE id = ? AND patient_id IS NULL", String(input.leadId)) : null;
     if (lead) run("UPDATE leads SET patient_id = ? WHERE id = ?", id, lead.id); // the lead now points to their record
     addNote(id, lead ? "Added by the office from a Facebook lead." : "Added by the office.", user, { silent: true });
@@ -1060,7 +1134,7 @@ async function updatePatient(id, input, user) {
   if (!changed.length) return { patient: before, changed: [] };
   if (next.pc) await travel.prepare([next.pc, ...upcoming(before.id).map((a) => getClinician(a.clinicianId).base)]);
   return tx(() => {
-    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts", lastTest: "last_test", recallMonths: "recall_months", obId: "ob_id", nextExam: "next_exam" };
+    const cols = { name: "name", addr: "addr", pc: "pc", phone: "phone", contact: "contact", email: "email", dob: "dob", eligibility: "eligibility", rep: "rep", poa: "poa", share: "share", specs: "specs", alerts: "alerts", lastTest: "last_test", recallMonths: "recall_months", obId: "ob_id", nextExam: "next_exam", nhsNo: "nhs_no", premises: "premises", venue: "venue", venueContact: "venue_contact" };
     for (const k of changed) run(`UPDATE patients SET ${cols[k]} = ? WHERE id = ?`, k === "alerts" ? JSON.stringify(next[k]) : next[k], before.id);
     if (changed.includes("dob")) run("UPDATE patients SET age = ? WHERE id = ?", next.dob ? Math.floor((cal.todayMs() - Date.parse(next.dob)) / (365.25 * 864e5)) : before.age, before.id);
     const labels = changed.map((k) => PATIENT_LABELS[k]);
@@ -1289,7 +1363,7 @@ async function moveOptions(id, input) {
   const a = movable(id), p = getPatient(a.patientId);
   await warmRoutes({ patientId: p.id });
   const from = searchFrom(input);
-  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id, from })
+  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id, from, pvnApproved: !!icbOf(input) })
     .filter((s) => !(s.clinicianId === a.clinicianId && s.day === a.day && s.start === a.start)).slice(0, 6);
   return { appointmentId: a.id, patient: { id: p.id, name: p.name, pc: p.pc }, type: a.type, from: { clinicianId: a.clinicianId, day: a.day, start: a.start }, searchFrom: from, fromLabel: cal.label(from), slots };
 }
@@ -1303,10 +1377,19 @@ async function moveAppointment(id, input, user) {
     const day = bookableDay(Number(input.day)), start = Number(input.start);
     checkNhsLine(p, a.type, day, input.early === true);
     if (input.early === true) p.early = true;
-    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1 }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
+    // PCSE needs 48 working hours' notice of a change, before both the old date and the new one.
+    const icb = icbOf(input), moving = a.day !== day || a.start_min !== start;
+    let problem = moving ? checkPvn(p, a.type, day, start, icb, a.id) : null;
+    if (moving && t.pvn && cal.workMinutesUntil(a.day, a.start_min, sandbox.nowMin()) < PVN_NOTICE_MIN && one("SELECT 1 FROM pcse WHERE appointment_id = ? AND action = 'lodge' AND status = 'done'", a.id)) {
+      if (!icb) throw new HttpError(409, `PCSE needs 48 hours' notice of a change to a notified NHS visit, before the old date too, and ${cal.label(a.day)} ${hm(a.start_min)} is too soon. Record the ICB's approval to move it.`);
+      problem = problem || { rule: "48 hours" };
+    }
+    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1, pvnApproved: !!icb }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
     if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
     const old = getClinician(a.clinicianId);
     run("UPDATE appointments SET clinician_id = ?, day = ?, start_min = ?, drive = ?, reminded = 0, seen = 0 WHERE id = ?", c.id, day, start, slot.driveIn, a.id);
+    if (moving && t.pvn) run("UPDATE appointments SET pvn_icb = ? WHERE id = ?", problem ? icb : null, a.id);
+    if (problem) audit(user.name, "pcse.short-notice", a.id, `${p.name} moved inside PCSE's ${problem.rule} notice, approved by ${icb} (ICB)`);
     if (a.day !== day || a.start_min !== start) run("DELETE FROM confirmations WHERE appointment_id = ?", a.id); // a new time means calling again
     redrive(old.id, a.day); redrive(c.id, day);
     // PCSE's notification is for a date and time: cancel the old one and lodge the new.
@@ -1610,4 +1693,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

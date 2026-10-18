@@ -505,7 +505,7 @@ function needsYou() {
     { k: "leads", none: "No leads waiting", n: leads.length, what: leads.length === 1 ? "lead to call" : "leads to call", note: leads.length ? `Oldest waiting ${ago(oldest)}` : "Everyone's been called", hot: oldest > 60 },
     { k: "refs", none: "No new referrals", n: refs.length, what: refs.length === 1 ? "referral to look at" : "referrals to look at", note: refs.some((r) => r.urgent) ? "One says their sight has changed" : refs.length ? "From your website form" : "All dealt with", hot: refs.some((r) => r.urgent) },
     { k: "recalls", none: "No recalls due", n: recalls.length, what: recalls.length === 1 ? "recall due" : "recalls due", note: overdue ? `${overdue} overdue` : "Offered cancelled visits nearby", hot: false },
-    { k: "pcse", none: "PCSE is up to date", n: pcse.length, what: pcse.length === 1 ? "PCSE notice to lodge" : "PCSE notices to lodge", note: pcse.length ? "48 hours before each NHS test" : "Nothing to lodge", hot: false },
+    (() => { const v = S.pvn || { breach: 0, todo: 0, cancels: 0 }, n = v.breach + v.todo + v.cancels; return { k: "pcse", go: "pvn", none: "PCSE is up to date", n, what: n === 1 ? "PCSE notice to do" : "PCSE notices to do", note: v.breach ? `${v.breach} inside the notice period` : n ? "Lodge before each deadline" : "Nothing to lodge", hot: v.breach > 0 }; })(),
     (() => { const ns = notSeenToday(), todo = ns.filter((x) => !x.back).length; return { k: "notseen", none: ns.length ? `${ns.length} not seen, all rebooked` : "Every visit went ahead", n: todo, what: todo === 1 ? "visit not seen: rebook" : "visits not seen: rebook", note: todo ? "Marked from the clinician's phone" : ns.length ? "Back on the waiting list" : "Nothing missed today", hot: todo > 0 }; })(),
     (() => { const c = S.calls || { 1: 0, 2: 0, 3: 0 }, n = c[1] + c[2] + c[3]; return { k: "calls", go: "calls", none: "Every call is made", n, what: n === 1 ? "confirmation call" : "confirmation calls", note: n ? [c[3] && `${c[3]} for tomorrow`, c[2] && `${c[2]} this week`, c[1] && `${c[1]} new`].filter(Boolean).join(" · ") : S.settings.reminders ? `${unreminded} reminder text${unreminded === 1 ? "" : "s"} at ${hm(S.settings.reminderAt)}` : "Reminder texts are off", hot: c[3] > 0 }; })(),
   ];
@@ -607,7 +607,7 @@ function pcsePanel() {
   if (!list.length) return "";
   return `<section class="panel" aria-label="PCSE notifications">
     <div class="panel-h"><h2>PCSE notifications</h2><span class="sub">${todo.length ? `${todo.length} to do` : "All done"}</span></div>
-    <p class="panel-note">NHS sight tests at home need a notification to PCSE at least 48 hours before the visit. Domi only offers gaps that leave time for one, and lists what to lodge or cancel.</p>
+    <p class="panel-note">NHS sight tests at home need a notification to PCSE: 48 hours ahead, or 3 weeks for 3 or more at one address. <a href="#/pvn">Open PCSE notices</a> for the deadlines and every field PCSE Online asks for.</p>
     <div class="soon-row" style="padding:0 18px 8px">${soon("pcse-online", "Send to PCSE automatically", "send")}</div>
     <ul class="recalls">${list.map((t) => `<li>
       <div style="min-width:0"><div class="nm">${t.action === "lodge" ? "Lodge" : "Cancel"}: ${esc(t.name)}</div><div class="meta"><span>NHS sight test, ${esc(dayName(t.day))} ${hm(t.start)}</span>${t.action === "lodge" && t.status === "todo" ? `<span class="late">Lodge by ${esc(t.lodgeBy)}</span>` : ""}</div></div>
@@ -893,7 +893,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -923,6 +923,9 @@ async function syncPage() {
   } else if (r.page === "calls") {
     const keep = UI.pg && UI.pg.kind === "calls" ? UI.pg.stage : null;
     UI.pg = { kind: "calls", stage: keep, data: await api("GET", "/api/calls").catch(() => null) };
+  } else if (r.page === "pvn") {
+    const keep = UI.pg && UI.pg.kind === "pvn" ? UI.pg.tab : null;
+    UI.pg = { kind: "pvn", tab: keep, data: await api("GET", "/api/pvn").catch(() => (UI.pg && UI.pg.data) || null) };
   } else if (r.page === "invoices") {
     UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
   } else if (r.page === "import") {
@@ -955,7 +958,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -965,10 +968,68 @@ function sideNav() {
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
+}
+/* ---------- PCSE pre-visit notifications (GOS6 PVNs): an office job, not on the clinician's phone ---------- */
+const PVN_TABS = [["breach", "Breach risk"], ["todo", "To lodge"], ["early", "Too early to lodge"], ["notified", "Notified"], ["cancels", "Cancellations"]];
+const ERT_ORDER = ["1", "2", "3.1", "3.2", "3.3", "4.1", "4.2", "5.1", "5.2", "5.3", "6"];
+const pvnId = (key) => String(key).replace(/[^a-z0-9]/gi, "");
+/** The same fields, in the same order, as PCSE Online's form: pasted into a note or read across field by field. */
+function pvnText(v) {
+  const f = v.form;
+  return [`Date of visit: ${f.dateOfVisit}`, `Approximate time: ${f.approxTime}`, `Postcode: ${f.postcode}`, `Address: ${f.address}`, `Premises type: ${f.premisesType}`, `Contact name: ${f.contactName || "(missing)"}`, f.icbApproval ? `ICB prior approval: ${f.icbApproval}` : null,
+    ...f.patients.map((p, i) => `\nPatient ${i + 1}\nFirst name: ${p.firstName}\nSurname: ${p.surname}\nDate of birth: ${p.dob || "(missing)"}\nNHS number: ${p.nhsNumber ? nhsSpaced(p.nhsNumber) : "(missing)"}\nLast sight test: ${p.lastSightTest || p.firstTest}${p.ertCode ? `\nEarly retest code: ${p.ertCode} (${p.ertText})` : ""}`)].filter((x) => x != null).join("\n");
+}
+function pvnPage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "PCSE notifications",
+    lead: "Every NHS sight test at home needs a pre-visit notification in PCSE Online before it happens: 48 hours ahead for 1 or 2 patients at an address (not counting weekends or bank holidays), 3 weeks ahead for 3 or more at one address, and never more than 8 weeks ahead. Copy each field across, then record the reference PCSE gives you. The GOS6 claim needs it." });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const n = { ...d.counts }, tab = g.tab || PVN_TABS.map(([k]) => k).find((k) => n[k]) || "todo";
+  const tabs = `<div class="seg calls-tabs" role="tablist" aria-label="Which notifications">${PVN_TABS.map(([k, l]) => `<button type="button" role="tab" data-act="pvn-tab" data-v="${k}" aria-pressed="${k === tab}" ${k === "breach" && n.breach ? 'class="hot"' : ""}>${l}<span class="mono">${n[k]}</span></button>`).join("")}</div>`;
+  const copy = (label, v) => v ? `<button class="btn ghost xs pvn-cp" type="button" data-act="pvn-copy" data-v="${esc(v)}" aria-label="Copy ${esc(label)}">${icon("copy")}</button>` : "";
+  const field = (label, v, warn) => `<div class="pvn-f"><dt>${label}</dt><dd>${v ? `<span>${esc(v)}</span>${copy(label, v)}` : `<span class="late">${warn || "Missing"}</span>`}</dd></div>`;
+  const card = (v) => {
+    const f = v.form, id = pvnId(v.key), canLodge = v.status !== "early" && v.status !== "notified";
+    const badge = v.status === "breach" ? `<span class="badge b-danger">Inside the notice period</span>` : v.status === "todo" ? `<span class="badge b-apricot">Lodge by ${esc(v.lodgeBy)}</span>` : v.status === "early" ? `<span class="badge b-plain">Lodge from ${esc(v.lodgeFrom)}</span>` : `<span class="badge b-ok">Notified${v.refs.length ? `: ${esc(v.refs.join(", "))}` : ""}</span>`;
+    const pts = f.patients.map((p) => `<tr>
+        <td>${esc(p.time)}</td><td><a href="#/patients/${esc(p.patientId)}">${esc(p.firstName)}</a> ${copy("first name", p.firstName)}</td><td>${esc(p.surname)} ${copy("surname", p.surname)}</td>
+        <td class="mono">${p.dob ? `${esc(p.dob)} ${copy("date of birth", p.dob)}` : `<span class="late">Missing</span>`}</td>
+        <td class="mono">${p.nhsNumber ? `${esc(nhsSpaced(p.nhsNumber))} ${copy("NHS number", p.nhsNumber)}` : `<a class="late" href="#/patients/${esc(p.patientId)}">Add it</a>`}</td>
+        <td>${p.lastSightTest ? `<span class="mono">${esc(p.lastSightTest)}</span> ${copy("last sight test", p.lastSightTest)}` : `<span class="muted">${esc(p.firstTest)}</span>`}</td>
+        <td>${v.status === "notified" ? (p.ertCode ? `<span class="mono">${esc(p.ertCode)}</span>` : `<span class="muted">None</span>`)
+          : `<select class="input sm" data-act-change="pvn-ert" data-id="${esc(p.apptId)}" aria-label="Early retest code for ${esc(p.firstName)} ${esc(p.surname)}"><option value="">None (not early)</option>${ERT_ORDER.map((c) => `<option value="${c}" ${p.ertCode === c ? "selected" : ""}>${c}: ${esc(d.ert[c])}</option>`).join("")}</select>`}
+          ${p.missing.includes("early retest code") ? `<div class="late" style="font-size:12px">Booked as an early retest: choose the reason</div>` : ""}</td></tr>`).join("");
+    return `<article class="pvn-card ${v.status}" aria-label="${esc(f.dateOfVisit)}, ${esc(f.address)}">
+      <header class="pvn-h"><div><b>${esc(v.dayLabel)} · from ${esc(f.approxTime)}</b><span class="muted">${esc(f.address)}, ${esc(f.postcode)}</span></div>
+        <div class="pvn-badges"><span class="badge b-plain">${esc(f.premisesType)}</span><span class="badge b-forest" title="${esc(v.ruleText)}">${v.size} patient${v.size === 1 ? "" : "s"} · ${esc(v.rule)}' notice</span>${badge}</div></header>
+      ${v.why ? `<div class="callout danger-card" role="alert">${icon("shield")}<div>${esc(v.why)}</div></div>` : ""}
+      ${v.partly ? `<div class="callout apricot">${icon("clock")}<div>Some patients on this visit are notified and some aren't: add the rest to the same notification with Amend PVN in PCSE Online.</div></div>` : ""}
+      ${v.status === "notified" ? `<details class="pvn-more"><summary>What was sent to PCSE</summary>` : ""}<dl class="pvn-grid">${field("Date of visit", f.dateOfVisit)}${field("Approximate time", f.approxTime)}${field("Postcode", f.postcode)}${field("Address", f.address)}${field("Premises type", f.premisesType)}${field("Contact name", f.contactName, "Missing: add who to ask for on the patient's record")}${f.icbApproval ? field("ICB prior approval", f.icbApproval) : ""}</dl>
+      <div class="pvn-tw" data-scroll="pvn-${id}"><table class="pvn-t"><thead><tr><th>Time</th><th>First name</th><th>Surname</th><th>Date of birth</th><th>NHS number</th><th>Last sight test</th><th>Early retest code</th></tr></thead><tbody>${pts}</tbody></table></div>
+      ${v.status === "notified" ? `</details>` : ""}
+      ${f.note.length ? `<ul class="pvn-notes">${f.note.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      ${f.missing.length && v.status !== "notified" ? `<p class="late pvn-miss">${icon("x")} Before you lodge it: ${esc(f.missing.join("; "))}.</p>` : ""}
+      <footer class="pvn-acts">
+        <button class="btn secondary sm" type="button" data-act="pvn-copy" data-v="${esc(pvnText(v))}" data-all="1">${icon("copy")}Copy all the details</button>
+        ${v.status === "notified" ? `<span class="muted">Lodged by ${esc([...new Set(v.lodged.map((m) => m.by).filter(Boolean))].join(", ") || "the office")}</span>` : ""}
+        ${v.status === "breach" ? `<form class="pvn-icb" data-form="pvn-icb" data-ids="${esc(v.lodged.map((m) => m.id).join(","))}"><label for="icb-${id}" class="sr">Who at the ICB approved it</label><input class="input sm" id="icb-${id}" data-keep maxlength="80" placeholder="ICB approver's name" value="${esc(f.icbApproval || "")}"><button class="btn ghost sm" type="submit">Save approval</button></form>` : ""}
+        ${canLodge ? `<form class="pvn-lodge" data-form="pvn-lodge" data-ids="${esc(v.lodged.filter((m) => !m.done).map((m) => m.id).join(","))}"><label for="ref-${id}" class="sr">PVN reference from PCSE Online</label><input class="input sm mono" id="ref-${id}" data-keep maxlength="24" placeholder="PVN reference" required><button class="btn sm" type="submit" ${v.status === "breach" && !f.icbApproval ? 'disabled title="Inside the notice period: record the ICB approval first, or move the visit"' : ""}>${icon("check")}Mark lodged</button></form>`
+          : v.status === "early" ? `<span class="muted">PCSE won't take it more than 8 weeks ahead. It moves to To lodge on ${esc(v.lodgeFrom.replace(/ \d\d:\d\d$/, ""))}.</span>` : ""}
+      </footer></article>`;
+  };
+  const visits = d.visits.filter((v) => v.status === tab);
+  const what = { breach: "NHS sight tests inside their notice period with no notification lodged. Without the ICB's prior approval they can't go ahead as NHS visits: get the approval and lodge now, or move them.", todo: "Inside the 8-week window and still in time. Oldest deadline first.", early: "Booked more than 8 weeks ahead. PCSE rejects notifications that early, so these wait here.", notified: "Lodged, with PCSE's reference for the GOS6 claim.", cancels: "Visits cancelled after their notification was lodged: cancel each one in PCSE Online." }[tab];
+  const body = tab === "cancels"
+    ? (d.cancels.length ? `<ul class="calls">${d.cancels.map((c) => `<li class="call-row pvn-cx"><div><b>${esc(c.name)}</b><span class="muted">NHS sight test, ${esc(c.dayLabel)} ${esc(c.time)}</span></div><div>${c.ref ? `<span>PVN reference <span class="mono">${esc(c.ref)}</span> ${copy("PVN reference", c.ref)}</span>` : `<span class="muted">No reference recorded</span>`}</div><div class="cr-acts"><button class="btn secondary sm" type="button" data-act="pvn-cancel-done" data-id="${c.id}">${icon("check")}Cancelled in PCSE</button></div></li>`).join("")}</ul>`
+      : `<div class="empty"><b>Nothing to cancel</b>Cancelling a notified NHS sight test adds it here.</div>`)
+    : (visits.length ? visits.map(card).join("") : `<div class="empty"><b>${tab === "breach" ? "No visit is at risk" : "Nothing here"}</b>${tab === "breach" ? "Every NHS sight test inside its notice period has been notified." : "NHS sight tests appear here as they're booked."}</div>`);
+  return `<div class="pg">${head}
+    <div class="callout pvn-how">${icon("shield")}<div>Domi refuses an NHS sight test that can't meet its notice period, unless you record who at the ICB approved it. ${soon("pcse-online", "Send to PCSE automatically", "send")}</div></div>
+    ${tabs}<p class="muted calls-what">${esc(what)}</p>${body}</div>`;
 }
 /* ---------- Confirmation calls (CC1-CC3) ---------- */
 function callsPage() {
@@ -1005,6 +1066,7 @@ function callsPage() {
   </div>`;
 }
 /** The page heading every office page shares: where you are, what it's for, and its main actions. */
+const nhsSpaced = (n) => String(n).replace(/^(\d{3})(\d{3})(\d{4})$/, "$1 $2 $3");
 const pageHead = ({ eyebrow, title, lead, actions = "", crumbs = "" }) => `<header class="pg-h">${crumbs}
   <div class="pg-ht"><div><div class="caps">${eyebrow}</div><h1 tabindex="-1">${title}</h1>${lead ? `<p>${lead}</p>` : ""}</div>${actions ? `<div class="pg-acts">${actions}</div>` : ""}</div></header>`;
 const crumbsOf = (items) => `<nav class="pg-crumbs" aria-label="Breadcrumb"><ol>${items.map(([href, label], i) => `<li>${i === items.length - 1 ? `<span aria-current="page">${esc(label)}</span>` : `<a href="${href}">${esc(label)}</a>`}</li>`).join("")}</ol></nav>`;
@@ -1067,7 +1129,7 @@ function patientPage() {
     const a = visits[0];
     body = `<div class="cards2">
       <section class="card"><div class="card-h"><h2>Contact</h2></div><dl class="kv lg">${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${row("How to reach them", p.contact === "Call" ? "Phone, don't text" : "Text messages")}${p.email ? row("Email", esc(p.email)) : ""}${row("Next of kin or carer", esc(p.rep || "None recorded"))}${row("Power of attorney", esc(p.poa || "None recorded"))}${row("May we talk to family?", p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet")}</dl></section>
-      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${p.obId ? row("Opticabase ID", `<span class="mono">${esc(p.obId)}</span>`) : ""}${p.nextExam ? row("Next exam (Opticabase)", esc(new Date(p.nextExam).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))) : ""}${row("Last sight test", p.lastTest ? `${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall` : `<span class="muted">Not recorded</span>`)}${p.nhsFrom ? row("Next NHS sight test", p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now <span class="muted">(from ${esc(p.nhsFrom.label)})</span>`) : ""}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
+      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${p.obId ? row("Opticabase ID", `<span class="mono">${esc(p.obId)}</span>`) : ""}${row("NHS number", p.nhsNo ? `<span class="mono">${esc(nhsSpaced(p.nhsNo))}</span>` : `<span class="late">Not recorded. PCSE's notification and the GOS6 claim need it.</span>`)}${row("Seen at", esc(p.premises && p.premises !== "home" ? `${PREMISES_UI[p.premises]}${p.venue ? `: ${p.venue}` : ""}${p.venueContact ? ` (ask for ${p.venueContact})` : ""}` : "Their own home"))}${p.nextExam ? row("Next exam (Opticabase)", esc(new Date(p.nextExam).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))) : ""}${row("Last sight test", p.lastTest ? `${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall` : `<span class="muted">Not recorded</span>`)}${p.nhsFrom ? row("Next NHS sight test", p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now <span class="muted">(from ${esc(p.nhsFrom.label)})</span>`) : ""}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
       <section class="card"><div class="card-h"><h2>Next visit</h2></div>${a ? `<div class="nv"><b>${a.day ? esc(dayName(a.day)) : "Today"} at ${hm(a.start)}</b><span>${esc(T(a.type).name)} with ${esc((cln(a.clinicianId) || {}).name || "")}</span></div><a class="linkish" href="#/patients/${esc(p.id)}/visits">All visits and actions</a>` : `<p class="muted">Nothing booked.</p><button class="btn secondary sm" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button>`}</section>
       <section class="card"><div class="card-h"><h2>Waiting list${rec ? " and recall" : ""}</h2></div>${waits.length || rec ? `<ul class="mini">${waits.map((w) => `<li><b>${T(w.type).name}</b> · ${esc(META.prio[w.prio].label)} priority${w.note ? `<div>${esc(w.note)}</div>` : ""}</li>`).join("")}${rec ? `<li><b>Recall</b> · ${esc(rec.reason)}</li>` : ""}</ul><p class="muted" style="font-size:13px;margin:10px 0 0">Offered any cancelled visit nearby that fits.</p>` : `<p class="muted">Not waiting for anything.</p>`}</section>
     </div>`;
@@ -1357,11 +1419,17 @@ function newPatientPage() {
       <section class="card"><div class="card-h"><h2>Their visit</h2><p>What the clinician needs to know before they knock.</p></div>
         ${f("elig", "Why they need a home visit", 'maxlength="200" placeholder="e.g. Dementia, or Parkinson\'s"', "The condition itself. The NHS claim needs it, so “housebound” alone isn't enough.")}
         ${f("specs", "Glasses", 'maxlength="80" placeholder="e.g. Varifocals"')}
+        ${nhsFields("np", pre)}
         <div class="field"><label for="np-alerts">Notes for the clinician, one per line</label><textarea class="input" id="np-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door"></textarea></div></section>
       <div id="np-err" aria-live="polite"></div>
       <div class="form-f sticky"><a class="btn ghost" href="#/patients">Cancel</a><button class="btn" type="submit">${icon("check")}Add patient</button></div>
     </form></div>`;
 }
+/** Where they're seen and their NHS number: PCSE's notification groups patients at one care home or day centre into one visit. */
+const PREMISES_UI = { home: "Their own home", residential: "Residential home", nursing: "Nursing home", day: "Day centre", sheltered: "Sheltered housing (each flat is its own address)" };
+const nhsFields = (px, p) => `<div class="row2"><div class="field"><label for="${px}-nhs">NHS number</label><input class="input mono" id="${px}-nhs" value="${esc(p.nhsNo || "")}" inputmode="numeric" maxlength="12" placeholder="10 digits"></div>
+    <div class="field"><label for="${px}-prem">Where they're seen</label><select class="input" id="${px}-prem">${Object.entries(PREMISES_UI).map(([k, l]) => `<option value="${k}" ${(p.premises || "home") === k ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div class="row2"><div class="field"><label for="${px}-venue">Care home or day centre name</label><input class="input" id="${px}-venue" value="${esc(p.venue || "")}" maxlength="80" placeholder="Leave empty for their own home"></div><div class="field"><label for="${px}-vc">Who to ask for there</label><input class="input" id="${px}-vc" value="${esc(p.venueContact || "")}" maxlength="80" placeholder="e.g. the duty manager"></div></div>`;
 function patientFormFields(p) {
   const f = (id, label, v, extra = "") => `<div class="field"><label for="pe-${id}">${label}</label><input class="input" id="pe-${id}" value="${esc(v || "")}" ${extra}></div>`;
   return `<form id="pe-form" class="pg-form">
@@ -1374,6 +1442,7 @@ function patientFormFields(p) {
     ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
     <div class="row2">${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}${f("specs", "Glasses", p.specs, 'maxlength="80"')}</div>
 <div class="row2">${f("ob", "Opticabase ID", p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", "Next exam (from Opticabase)", p.nextExam, 'type="date"')}</div>
+    ${nhsFields("pe", p)}
     <div class="row2">${f("last", "Last sight test", p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the optometrist)</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
     <div class="row2">${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120" placeholder="Leave empty if nobody holds one"')}<div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
@@ -1839,7 +1908,7 @@ function flowDrawer() {
 /* Book a visit: who, what, when they're home -> best slots across every round, ranked by extra driving. */
 function bookInput() {
   const v = (id) => { const e = $("#" + id); return e ? e.value : ""; };
-  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail"), date: v("bk-from") || undefined, source: v("bk-src") || undefined, early: !!($("#bk-early") || {}).checked };
+  return { patientId: v("bk-p"), name: v("bk-name"), pc: DomiAreas.read(document, "bk-pc"), addr: v("bk-addr"), phone: v("bk-phone"), type: v("bk-type"), avail: v("bk-avail"), date: v("bk-from") || undefined, source: v("bk-src") || undefined, early: !!($("#bk-early") || {}).checked, icb: v("bk-icb") || undefined };
 }
 /* ---------- Importing patients from a spreadsheet ---------- */
 // The file is read in the browser and sent for checking; nothing is saved until the office presses Import.
@@ -1948,6 +2017,7 @@ function bookDrawer() {
     ${B.results && B.results.recallLine ? `<div class="callout apricot" style="margin-bottom:12px">${icon("shield")}<div><b>NHS sight test not before ${esc(B.results.recallLine.label)}</b><div style="margin-top:2px">That's their recall line (${B.results.recallLine.months}-month recall, less a month), so these times start from then.</div></div></div>` : ""}
     <div class="field"><label for="bk-src">How they came to us</label><select class="input" id="bk-src" data-keep><option value="">Work it out (recall list, Facebook lead, referral, seen before or new)</option>${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}">${esc(v.label)} · true count ${v.count}</option>`).join("")}</select></div>
     <label class="chk" style="margin:0 0 12px"><input type="checkbox" id="bk-early" data-keep ${B.early ? "checked" : ""}><span>Early retest: their sight has changed <span class="muted">(allows an NHS test before the recall line; the GOS form needs the reason)</span></span></label>
+    <details class="icb" ${B.icb ? "open" : ""}><summary>Short-notice NHS visit approved by the ICB</summary><div class="field" style="margin-top:8px"><label for="bk-icb">Who at the ICB approved it</label><input class="input" id="bk-icb" data-keep maxlength="80" value="${esc(B.icb || "")}" placeholder="Name and role, e.g. Jo Bloggs, primary care contracts"><span class="hint after">PCSE needs 48 hours' notice of an NHS sight test at home (3 weeks for 3 or more at one address). Inside that, only with the ICB's approval: their name goes on the notification. Leave empty otherwise.</span></div></details>
     <button class="btn block lg" type="submit">${icon("pin")}Find the best slots</button>
     ${results}
   </form>`;
@@ -2039,6 +2109,7 @@ function patientForm(p) {
     <div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div>
     ${f("specs", "Glasses", p.specs, 'maxlength="80"')}
     <div class="row2">${f("ob", "Opticabase ID", p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", "Next exam (from Opticabase)", p.nextExam, 'type="date"')}</div>
+    ${nhsFields("pe", p)}
     <div class="row2">${f("last", "Last sight test", p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the optometrist)</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="drawer-f" style="margin:8px -22px -22px"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
@@ -2057,7 +2128,8 @@ function moveDrawer(d) {
   return `<div class="drawer-h"><div><div class="caps">Move a visit</div><h2 style="margin-top:6px">${esc(p.name)}</h2></div>${closeX}</div>
     <div class="drawer-b">
       <p class="muted" style="margin:0 0 14px;font-size:13.5px">Now ${a.day ? esc(dayName(a.day)) : "today"} at ${hm(a.start)} with ${esc(c.name)} (${T(a.type).name.toLowerCase()}). ${p.contact === "Call" ? `${esc(first(p.name))} asked to be phoned, so ring them with the new time.` : `${esc(first(p.name))} gets one text with the new time.`}${T(a.type).pvn ? " The PCSE notification moves with it, and an NHS sight test only goes 48 hours or more ahead." : ""}</p>
-      <form class="row2" id="move-from" style="align-items:end;margin-bottom:14px"><div class="field" style="margin:0"><label for="mv-from">Search from</label><input class="input" type="date" id="mv-from" min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${o && o.searchFrom ? esc((calDay(o.searchFrom) || {}).iso || "") : ""}"></div><button class="btn secondary" type="submit">${icon("search")}Search</button></form>
+      <form class="row2" id="move-from" style="align-items:end;margin-bottom:14px"><div class="field" style="margin:0"><label for="mv-from">Search from</label><input class="input" type="date" id="mv-from" min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${o && o.searchFrom ? esc((calDay(o.searchFrom) || {}).iso || "") : ""}"></div><button class="btn secondary" type="submit">${icon("search")}Search</button>
+        ${T(a.type).pvn ? `<details class="icb" style="grid-column:1/-1" ${d.icb ? "open" : ""}><summary>Short-notice move approved by the ICB</summary><div class="field" style="margin-top:8px"><label for="mv-icb">Who at the ICB approved it</label><input class="input" id="mv-icb" maxlength="80" value="${esc(d.icb || "")}" placeholder="Name and role"><span class="hint after">Only for a move inside PCSE's notice period, or of a visit already notified less than 48 working hours away. Search again after filling it in.</span></div></details>` : ""}</form>
       ${slots}
     </div>`;
 }
@@ -2397,7 +2469,7 @@ document.addEventListener("click", async (e) => {
       case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) redraw(); break; }
       case "move-to": {
         el.disabled = true;
-        const r = await api("POST", `/api/appointments/${UI.drawer.id}/move`, { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s) });
+        const r = await api("POST", `/api/appointments/${UI.drawer.id}/move`, { clinicianId: el.dataset.c, day: Number(el.dataset.d), start: Number(el.dataset.s), icb: UI.drawer.icb || undefined });
         closeDrawer(); UI.view = "day"; UI.day = r.day; await load();
         toast(`${r.patient} moved to ${r.day ? r.dayLabel + " " : "today "}${r.label.slice(0, 5)} with ${first(r.clinician)}${r.texted ? ". They've been texted." : ". Ring them with the new time."}`); break;
       }
@@ -2423,6 +2495,9 @@ document.addEventListener("click", async (e) => {
       case "tm-edit": go(`team/${el.dataset.k}/${el.dataset.id || "new"}`); break;
       case "tm-back": go("team"); break;
       case "calls-stage": UI.pg.stage = Number(el.dataset.v); render(); break;
+      case "pvn-tab": UI.pg.tab = el.dataset.v; render(); break;
+      case "pvn-copy": { const v = el.dataset.v; try { await navigator.clipboard.writeText(v); toast(el.dataset.all ? "Copied: every field for this visit" : "Copied: " + v); } catch (err) { window.prompt("Copy:", v); } break; }
+      case "pvn-cancel-done": el.disabled = true; await api("POST", `/api/pcse/${el.dataset.id}/done`); UI.pg.data = await api("GET", "/api/pvn"); await load(); toast("Ticked off: cancelled in PCSE"); break;
       case "call-rec": {
         el.disabled = true;
         await api("POST", `/api/calls/${el.dataset.id}`, { stage: Number(el.dataset.s), outcome: el.dataset.v });
@@ -2530,10 +2605,17 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
+    if (e.target.dataset.form === "pvn-lodge" || e.target.dataset.form === "pvn-icb") {
+      const ids = e.target.dataset.ids.split(",").filter(Boolean), val = (e.target.querySelector("input").value || "").trim();
+      if (e.target.dataset.form === "pvn-lodge") { await api("POST", "/api/pvn/lodge", { apptIds: ids, ref: val }); toast(`Lodged: PVN ${val}`); }
+      else { for (const id of ids) await api("PUT", `/api/appointments/${id}/pvn`, { icb: val }); toast(val ? `ICB approval saved: ${val}` : "ICB approval removed"); }
+      if (e.target.dataset.form === "pvn-lodge") e.target.querySelector("input").value = "";
+      UI.pg.data = await api("GET", "/api/pvn"); await load(); return;
+    }
     if (e.target.id === "move-from") {
       const d = UI.drawer; if (!d || d.kind !== "move") return;
-      const date = $("#mv-from").value; d.data = null; redraw();
-      d.data = await api("POST", `/api/appointments/${d.id}/move-options`, date ? { date } : {}); if (UI.drawer === d) redraw();
+      const date = $("#mv-from").value; d.icb = (($("#mv-icb") || {}).value || "").trim(); d.data = null; redraw();
+      d.data = await api("POST", `/api/appointments/${d.id}/move-options`, { date: date || undefined, icb: d.icb || undefined }); if (UI.drawer === d) redraw();
       return;
     }
     if (e.target.id === "book-form") {
@@ -2578,7 +2660,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "np-form") {
       const v = (id) => ($("#np-" + id) || {}).value || "", err = $("#np-err");
       try {
-        const r = await api("POST", "/api/patients", { leadId: ((UI.pg || {}).pre || {}).leadId, name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts") });
+        const r = await api("POST", "/api/patients", { leadId: ((UI.pg || {}).pre || {}).leadId, name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "np-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts"), nhsNo: v("nhs"), premises: v("prem"), venue: v("venue"), venueContact: v("vc") });
         UI.pg = null; await load(); go("patients/" + r.patient.id); toast(`${r.patient.name} added. Book their first visit from here.`);
       } catch (x) {
         if (x.offline) throw x;
@@ -2590,7 +2672,7 @@ document.addEventListener("submit", async (e) => {
     if (e.target.id === "pe-form") {
       const v = (id) => ($("#pe-" + id) || {}).value || "";
       const d = ctx("patient");
-      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts"), lastTest: v("last"), recallMonths: v("recall"), obId: v("ob"), nextExam: v("next") });
+      const r = await api("PUT", "/api/patients/" + d.id, { name: v("name"), dob: v("dob"), addr: v("addr"), pc: DomiAreas.read(document, "pe-pc"), phone: v("phone"), contact: v("contact"), email: v("email"), eligibility: v("elig"), rep: v("rep"), poa: v("poa"), share: v("share"), specs: v("specs"), alerts: v("alerts"), lastTest: v("last"), recallMonths: v("recall"), obId: v("ob"), nextExam: v("next"), nhsNo: v("nhs"), premises: v("prem"), venue: v("venue"), venueContact: v("vc") });
       d.edit = false; d.rec = await api("GET", "/api/patients/" + d.id + "?background=1"); await load(); rerender(d);
       toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "Nothing changed");
       return;
@@ -2632,6 +2714,10 @@ document.addEventListener("submit", async (e) => {
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.dataset.actChange === "pvn-ert") {
+      await api("PUT", `/api/appointments/${e.target.dataset.id}/pvn`, { ert: e.target.value || null });
+      UI.pg.data = await api("GET", "/api/pvn"); render(); toast(e.target.value ? `Early retest code ${e.target.value} saved` : "Early retest code removed");
+    }
     if (e.target.id === "ap-src" || e.target.id === "ap-count") {
       const body = e.target.id === "ap-src" ? { source: e.target.value } : { reliability: Number(e.target.value) };
       api("PUT", `/api/appointments/${e.target.dataset.id}/likelihood`, body).then(() => load()).then(() => { toast(e.target.id === "ap-src" ? "Source saved" : "True count saved"); redraw(); }).catch(fail);
