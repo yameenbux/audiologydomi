@@ -894,7 +894,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -924,6 +924,13 @@ async function syncPage() {
   } else if (r.page === "calls") {
     const keep = UI.pg && UI.pg.kind === "calls" ? UI.pg.stage : null;
     UI.pg = { kind: "calls", stage: keep, data: await api("GET", "/api/calls").catch(() => null) };
+  } else if (r.page === "opticabase") {
+    const keep = UI.pg && UI.pg.kind === "opticabase" ? UI.pg : null;
+    UI.pg = { kind: "opticabase", tab: keep ? keep.tab : "todo", data: await api("GET", "/api/diary-changes").catch(() => (keep && keep.data) || null) };
+  } else if (r.page === "pilot") {
+    const keep = UI.pg && UI.pg.kind === "pilot" ? UI.pg : null;
+    UI.pg = { kind: "pilot", edit: keep ? keep.edit : false, data: await api("GET", "/api/pilot").catch(() => (keep && keep.data) || null) };
+    if (UI.pg.data && !UI.pg.data.config.start) UI.pg.edit = true;
   } else if (r.page === "pvn") {
     const keep = UI.pg && UI.pg.kind === "pvn" ? UI.pg.tab : null;
     UI.pg = { kind: "pvn", tab: keep, data: await api("GET", "/api/pvn").catch(() => (UI.pg && UI.pg.data) || null) };
@@ -959,7 +966,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "pilot" ? pilotPage() : p === "opticabase" ? opticabasePage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -969,11 +976,82 @@ function sideNav() {
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
-    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("opticabase", "copy", "Copy to Opticabase", S.diaryTodo || 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
 }
+/* ---------- Diary changes to copy into Opticabase (until the two systems can sync) ---------- */
+const CHANGE_UI = { booked: ["b-ok", "Booked"], moved: ["b-forest", "Moved"], cancelled: ["b-crit", "Cancelled"], "not-seen": ["b-warn", "Not seen"] };
+const ukDate = (iso) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "");
+function diaryCsv(rows) {
+  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const head = ["Changed", "Change", "Opticabase ID", "Patient", "Date of birth", "Postcode", "Visit date", "Visit time", "Clinician", "Visit type", "Was date", "Was time", "Was clinician", "Reason"];
+  return [head, ...rows.map((r) => [r.at, CHANGE_UI[r.change][1], r.obId, r.patient, r.dob, r.pc, r.visitDate, r.visitTime, r.clinician, r.type, r.wasDate, r.wasTime, r.wasClinician, r.reason])].map((x) => x.map(q).join(",")).join("\r\n");
+}
+function opticabasePage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Copy to Opticabase",
+    lead: "Every visit booked, moved, cancelled or not seen in Domi, listed so the office can make the same change in the Opticabase diary. Tick each one off once it's done. Opticabase and Domi can't talk to each other directly yet, so this keeps the two diaries the same.",
+    actions: d && d.todo.length ? `<button class="btn secondary" type="button" data-act="diary-csv">${icon("copy")}Download as a spreadsheet</button>` : "" });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const tab = g.tab || "todo", list = tab === "todo" ? d.todo : d.done;
+  const tabs = `<div class="seg calls-tabs" role="tablist" aria-label="Which changes"><button type="button" role="tab" data-act="diary-tab" data-v="todo" aria-pressed="${tab === "todo"}">To copy<span class="mono">${d.todo.length}</span></button><button type="button" role="tab" data-act="diary-tab" data-v="done" aria-pressed="${tab === "done"}">Copied<span class="mono">${d.done.length}</span></button></div>`;
+  const row = (r) => `<tr>
+    <td><span class="badge ${CHANGE_UI[r.change][0]}">${CHANGE_UI[r.change][1]}</span><div class="muted" style="font-size:12px;margin-top:3px">${esc(r.at.slice(11))}${r.at.slice(0, 10) !== (calDay(0) || {}).iso ? ` · ${esc(ukDate(r.at.slice(0, 10)))}` : ""}</div></td>
+    <td><b>${esc(r.patient || "")}</b><div class="muted mono" style="font-size:12px">${r.obId ? `Opticabase ${esc(r.obId)}` : `<span class="late">No Opticabase ID</span>`}${r.dob ? ` · ${esc(r.dob.split("-").reverse().join("/"))}` : ""}</div></td>
+    <td><b>${esc(ukDate(r.visitDate))} ${esc(r.visitTime)}</b><div class="muted">${esc(r.clinician)} · ${esc(r.type)}</div>${r.change === "moved" ? `<div class="muted" style="font-size:12px">Was ${esc(ukDate(r.wasDate))} ${esc(r.wasTime)}${r.wasClinician !== r.clinician ? ` with ${esc(r.wasClinician)}` : ""}</div>` : ""}</td>
+    <td class="muted" style="font-size:13px">${esc(r.reason || "")}</td>
+    <td>${tab === "todo" ? `<button class="btn secondary sm" type="button" data-act="diary-copied" data-id="${r.id}">${icon("check")}Copied</button>` : `<span class="muted" style="font-size:12.5px">${esc(r.copiedBy || "")}, ${esc(r.copiedAt.slice(11))}</span>`}</td></tr>`;
+  return `<div class="pg">${head}${tabs}
+    ${list.length ? `<section class="card"><div class="pvn-tw"><table class="pvn-t dl-t"><thead><tr><th>Change</th><th>Patient</th><th>Visit</th><th>Why</th><th></th></tr></thead><tbody>${list.map(row).join("")}</tbody></table></div>
+      ${tab === "todo" && list.length > 1 ? `<div class="form-f" style="padding:12px 0 0"><button class="btn" type="button" data-act="diary-copied-all">${icon("check")}All ${list.length} copied</button></div>` : ""}</section>`
+      : `<div class="empty"><b>${tab === "todo" ? "Opticabase is up to date" : "Nothing copied yet"}</b>${tab === "todo" ? "New bookings, moves and cancellations appear here as they happen." : "Changes you tick off appear here."}</div>`}
+  </div>`;
+}
+
+/* ---------- The pilot: baseline, targets, and what's measured each week ---------- */
+function pilotPage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Pilot results",
+    lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Miles, visits and empty slots are worked out by Domi; office hours are what you record each week.",
+    actions: d && d.config.start && !g.edit ? `<button class="btn secondary" type="button" data-act="pilot-edit">${icon("gear")}Change baseline or targets</button>` : "" });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const M = d.measures, c = d.config, fmt = (v, k) => v == null ? "–" : `${Number(v).toFixed(M[k].dp)}`;
+  if (g.edit) {
+    const tgt = (k) => (c.targets.find((t) => t.key === k) || {}).pct || "";
+    return `<div class="pg narrow">${head}
+      <form id="pilot-form" class="pg-form" novalidate data-keep-form>
+        <section class="card"><div class="card-h"><h2>Go-live</h2><p>Week 1 starts on this day. The pilot runs 13 weeks.</p></div>
+          <div class="row2"><div class="field"><label for="pl-start">Go-live date</label><input class="input" type="date" id="pl-start" value="${esc(c.start || "")}"></div>
+          <div class="field"><label for="pl-by">Agreed with</label><input class="input" id="pl-by" maxlength="80" value="${esc(c.agreedBy || "")}" placeholder="Name and role"></div></div></section>
+        <section class="card"><div class="card-h"><h2>Baseline and targets</h2><p>The baseline is your own figure from the 4 weeks before go-live. Tick up to four targets and how much better each must be. They decide whether the success fee is due at day 90.</p></div>
+          <table class="pl-set"><thead><tr><th>Measure</th><th>Baseline</th><th>Target</th></tr></thead><tbody>
+          ${Object.entries(M).map(([k, m]) => `<tr><td><b>${esc(m.label)}</b><div class="muted">${m.measured ? "Measured by Domi" : "Recorded by the office each week"} · ${m.better === "down" ? "lower is better" : "higher is better"}</div></td>
+            <td><input class="input sm" id="pl-b-${k}" inputmode="decimal" value="${esc(c.baseline[k] != null ? c.baseline[k] : "")}" aria-label="Baseline: ${esc(m.label)}"> <span class="muted">${esc(m.unit)}</span></td>
+            <td><label class="chk"><input type="checkbox" id="pl-t-${k}" ${tgt(k) ? "checked" : ""}><span>${m.better === "down" ? "down" : "up"} by</span></label> <input class="input sm" id="pl-p-${k}" inputmode="decimal" style="width:64px" value="${esc(tgt(k))}" aria-label="Target %: ${esc(m.label)}"> %</td></tr>`).join("")}
+          </tbody></table></section>
+        <div id="pl-err" aria-live="polite"></div>
+        <div class="form-f">${c.start ? `<button class="btn ghost" type="button" data-act="pilot-cancel">Cancel</button>` : ""}<button class="btn" type="submit">${icon("check")}Save</button></div>
+      </form></div>`;
+  }
+  const verdict = { "no-targets": ["plain", "No targets set yet"], measuring: ["apricot", `Measuring: ${d.weeksComplete} of 13 weeks complete`], met: ["ok", "On track: every target met"], "not-met": ["crit", "Not met yet"] }[d.status];
+  const cards = d.targets.map((t) => `<div class="pl-card ${t.met === true ? "ok" : t.met === false ? "no" : ""}">
+      <div class="caps">${esc(t.label)}</div>
+      <div class="pl-nums"><span><small>Before</small><b>${fmt(t.baseline, t.key)}</b></span><span class="arrow">→</span><span><small>Now${t.weeks ? ` (${t.weeks} wk avg)` : ""}</small><b>${fmt(t.now, t.key)}</b></span><span><small>Target</small><b>${fmt(t.goal, t.key)}</b></span></div>
+      <div class="pl-foot">${t.met == null ? `<span class="muted">Measured once a full week is done</span>` : `<span class="badge ${t.met ? "b-ok" : "b-crit"}">${t.met ? "Met" : "Not met"}</span>`}${t.change != null ? `<span class="muted">${t.change > 0 ? "+" : ""}${t.change}% vs before · target ${t.better === "down" ? "−" : "+"}${t.pct}%</span>` : ""}</div></div>`).join("");
+  const row = (w) => `<tr class="${w.inProgress ? "now" : ""}"><td><b>Week ${w.week}</b><div class="muted">${esc(w.label)}${w.inProgress ? " · so far" : ""}</div></td>
+    <td class="mono">${w.visits}</td><td class="mono">${fmt(w.milesPerVisit, "milesPerVisit")}</td><td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.unfilledPerWeek}</td>
+    <td><input class="input sm mono pl-hours" data-week="${w.week}" inputmode="decimal" value="${w.officeHours != null ? esc(w.officeHours) : ""}" placeholder="–" aria-label="Office hours, week ${w.week}"></td></tr>`;
+  return `<div class="pg">${head}
+    <div class="pl-top"><span class="badge b-${verdict[0]}">${esc(verdict[1])}</span><span class="muted">Go-live ${esc(new Date(c.start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }))}${c.agreedBy ? ` · agreed with ${esc(c.agreedBy)}` : ""} · success fee reviewed after week 13</span></div>
+    ${cards ? `<div class="pl-cards">${cards}</div>` : `<div class="callout">${icon("bolt")}<div>No targets yet. <button class="linkish" type="button" data-act="pilot-edit">Add the baseline and targets</button></div></div>`}
+    <section class="card" style="margin-top:18px"><div class="card-h"><h2>Week by week</h2><p>Miles come from the road routes of each day's visits. Empty slots are cancellations nobody was booked into. Type the office's hours for each week; they save as you go.</p></div>
+      ${d.weeks.length ? `<div class="pvn-tw"><table class="pvn-t pl-t"><thead><tr><th>Week</th><th>Visits</th><th>Miles / visit</th><th>Cancelled</th><th>Refilled</th><th>Left empty</th><th>Office hours</th></tr></thead><tbody>${d.weeks.map(row).join("")}</tbody></table></div>`
+        : `<div class="empty"><b>The pilot hasn't started</b>Week 1 begins on the go-live date.</div>`}
+    </section></div>`;
+}
+
 /* ---------- PCSE pre-visit notifications (GOS6 PVNs): an office job, not on the clinician's phone ---------- */
 const PVN_TABS = [["breach", "Breach risk"], ["todo", "To lodge"], ["early", "Too early to lodge"], ["notified", "Notified"], ["cancels", "Cancellations"]];
 const ERT_ORDER = ["1", "2", "3.1", "3.2", "3.3", "4.1", "4.2", "5.1", "5.2", "5.3", "6"];
@@ -2529,6 +2607,20 @@ document.addEventListener("click", async (e) => {
       case "tm-back": go("team"); break;
       case "calls-stage": UI.pg.stage = Number(el.dataset.v); render(); break;
       case "pvn-tab": UI.pg.tab = el.dataset.v; render(); break;
+      case "pilot-edit": UI.pg.edit = true; render(); break;
+      case "diary-tab": UI.pg.tab = el.dataset.v; render(); break;
+      case "diary-copied": case "diary-copied-all": {
+        el.disabled = true;
+        const ids = el.dataset.act === "diary-copied" ? [Number(el.dataset.id)] : UI.pg.data.todo.map((r) => r.id);
+        const r = await api("POST", "/api/diary-changes/copied", { ids });
+        UI.pg.data = await api("GET", "/api/diary-changes"); await load(); toast(`${r.copied} ticked off`); break;
+      }
+      case "diary-csv": {
+        const blob = new Blob(["\ufeff" + diaryCsv(UI.pg.data.todo)], { type: "text/csv" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `domi-diary-changes-${(calDay(0) || {}).iso || "today"}.csv`; document.body.appendChild(a); a.click(); a.remove();
+        toast("Downloaded. Tick them off once they're in Opticabase."); break;
+      }
+      case "pilot-cancel": UI.pg.edit = false; render(); break;
       case "pvn-copy": { const v = el.dataset.v; try { await navigator.clipboard.writeText(v); toast(el.dataset.all ? "Copied: every field for this visit" : "Copied: " + v); } catch (err) { window.prompt("Copy:", v); } break; }
       case "pvn-cancel-done": el.disabled = true; await api("POST", `/api/pcse/${el.dataset.id}/done`); UI.pg.data = await api("GET", "/api/pvn"); await load(); toast("Ticked off: cancelled in PCSE"); break;
       case "call-rec": {
@@ -2639,6 +2731,14 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
+    if (e.target.id === "pilot-form") {
+      const v = (id) => ($("#" + id) || {}).value || "";
+      const keys = Object.keys(UI.pg.data.measures), baseline = {}, targets = [];
+      for (const k of keys) { baseline[k] = v("pl-b-" + k); if (($("#pl-t-" + k) || {}).checked) targets.push({ key: k, pct: v("pl-p-" + k) }); }
+      try { UI.pg.data = await api("PUT", "/api/pilot", { start: v("pl-start"), agreedBy: v("pl-by"), baseline, targets }); UI.pg.edit = false; render(); toast("Pilot saved"); }
+      catch (x) { if (x.offline) throw x; $("#pl-err").innerHTML = `<div class="callout danger-card" role="alert">${esc(x.message)}</div>`; }
+      return;
+    }
     if (e.target.dataset.form === "pvn-lodge" || e.target.dataset.form === "pvn-icb") {
       const ids = e.target.dataset.ids.split(",").filter(Boolean), val = (e.target.querySelector("input").value || "").trim();
       if (e.target.dataset.form === "pvn-lodge") { await api("POST", "/api/pvn/lodge", { apptIds: ids, ref: val }); toast(`Lodged: PVN ${val}`); }
@@ -2748,6 +2848,10 @@ document.addEventListener("submit", async (e) => {
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.classList.contains("pl-hours")) {
+      await api("PUT", "/api/pilot/hours", { week: Number(e.target.dataset.week), hours: e.target.value.trim() });
+      UI.pg.data = await api("GET", "/api/pilot"); render(); toast("Office hours saved");
+    }
     if (e.target.dataset.actChange === "pvn-ert") {
       await api("PUT", `/api/appointments/${e.target.dataset.id}/pvn`, { ert: e.target.value || null });
       UI.pg.data = await api("GET", "/api/pvn"); render(); toast(e.target.value ? `Early retest code ${e.target.value} saved` : "Early retest code removed");

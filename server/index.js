@@ -10,6 +10,7 @@ const { db, map, TABLES, USERS, emailFor } = require("./db");
 const invites = require("./invites");
 const calls = require("./calls");
 const pvn = require("./pvn");
+const pilot = require("./pilot");
 const brands = require("./brands");
 const regions = require("./regions");
 const D = require("./domain");
@@ -301,7 +302,8 @@ route("GET", "/api/state", {}, (req, body, user) => {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
     cal: require("./calendar").view(sb), // dates, weekends, bank holidays and booking limits for the diary
     types: Object.fromEntries(Object.entries(D.TYPES).map(([k, t]) => [k, { ...t }])), // this practice's own visit lengths, read now
-    pvn: isAdmin ? pvn.list().counts : null, // PCSE notifications by status, for the side menu and Needs you today
+    pvn: isAdmin ? pvn.list().counts : null,
+    diaryTodo: isAdmin ? db.prepare("SELECT COUNT(*) AS n FROM diary_log WHERE copied_at IS NULL").get().n : 0, // changes still to copy into Opticabase // PCSE notifications by status, for the side menu and Needs you today
     calls: isAdmin ? (({ calls: c }) => ({ 1: c[1].length, 2: c[2].length, 3: c[3].length }))(calls.list()) : null, // confirmation calls due today, by stage
     metrics: isAdmin ? svc.metrics() : null, textUsage: isAdmin ? require("./notify").textUsage() : null, settings: sandbox.publicSettings(sb.settings), brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region),
   };
@@ -517,6 +519,13 @@ route("POST", "/api/recalls/:id/text", {}, (req, body, user, { id }) => { needAd
 route("POST", "/api/import/preview", {}, (req, body, user) => { needAdmin(user); return svc.previewImport(body); });
 route("POST", "/api/import/commit", {}, (req, body, user) => { needAdmin(user); return svc.commitImport(body, user); });
 route("POST", "/api/pcse/:id/done", {}, (req, body, user, { id }) => { needAdmin(user); return svc.completePcse(id, user); });
+// Diary changes to copy into Opticabase, until the two can sync. Office only.
+route("GET", "/api/diary-changes", {}, (req, body, user) => { needAdmin(user); return svc.diaryChanges(); });
+route("POST", "/api/diary-changes/copied", {}, (req, body, user) => { needAdmin(user); return svc.markDiaryCopied(body.ids, user); });
+// The pilot: baseline, targets and what's measured each week. Office only.
+route("GET", "/api/pilot", {}, (req, body, user) => { needAdmin(user); return pilot.report(); });
+route("PUT", "/api/pilot", {}, (req, body, user) => { needAdmin(user); return pilot.save(body, user); });
+route("PUT", "/api/pilot/hours", {}, (req, body, user) => { needAdmin(user); return pilot.saveHours(body.week, body.hours, user); });
 // PCSE pre-visit notifications: office only (the clinician's phone just shows whether one was lodged).
 route("GET", "/api/pvn", {}, (req, body, user) => { needAdmin(user); return pvn.list(); });
 route("POST", "/api/pvn/lodge", {}, (req, body, user) => { needAdmin(user); return svc.lodgePvn(body, user); });

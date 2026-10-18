@@ -235,6 +235,34 @@ function completePcse(id, user) {
   });
 }
 
+/**
+ * Every booking, move, cancellation and not-seen visit, kept for the office to copy into Opticabase's diary while
+ * the two systems can't talk to each other. A snapshot: the dates are real dates, so they never need rolling.
+ */
+function diaryLog(change, a, { was = null, reason = null } = {}) {
+  run("INSERT INTO diary_log (appointment_id, change, at, patient_id, visit_date, visit_time, clinician, type, was_date, was_time, was_clinician, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    a.id, change, `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`, a.patientId, cal.iso(a.day), hm(a.start), getClinician(a.clinicianId).name, TYPES[a.type].name,
+    was ? cal.iso(was.day) : null, was ? hm(was.start) : null, was ? was.clinician : null, reason);
+}
+/** Diary changes still to copy across (oldest first), and the latest ones already copied. */
+function diaryChanges() {
+  const row = (r) => { const p = getPatient(r.patient_id) || {}; return { id: r.id, appointmentId: r.appointment_id, change: r.change, at: r.at, obId: p.obId || null, patient: p.name, dob: p.dob || null, pc: p.pc,
+    visitDate: r.visit_date, visitTime: r.visit_time, clinician: r.clinician, type: r.type, wasDate: r.was_date, wasTime: r.was_time, wasClinician: r.was_clinician, reason: r.reason, copiedAt: r.copied_at, copiedBy: r.copied_by }; };
+  return { todo: all("SELECT * FROM diary_log WHERE copied_at IS NULL ORDER BY id").map(row), done: all("SELECT * FROM diary_log WHERE copied_at IS NOT NULL ORDER BY id DESC LIMIT 50").map(row) };
+}
+/** The office has put these changes into Opticabase: tick them off. */
+function markDiaryCopied(ids, user) {
+  return tx(() => {
+    const list = Array.isArray(ids) ? ids.map(Number).filter(Number.isInteger) : [];
+    if (!list.length) throw new HttpError(400, "Choose the changes you've copied.");
+    const at = `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`;
+    let n = 0;
+    for (const id of list) n += run("UPDATE diary_log SET copied_at = ?, copied_by = ? WHERE id = ? AND copied_at IS NULL", at, user.name, id).changes;
+    audit(user.name, "diary.copied", "diary_log", `${n} diary change${n === 1 ? "" : "s"} copied to Opticabase`);
+    bus.emit({ type: "appointment.updated" });
+    return { copied: n };
+  });
+}
 const declinedFor = (slotId) => all("SELECT waitlist_id FROM offers WHERE slot_id = ? AND status IN ('declined','expired')", slotId).map((r) => r.waitlist_id);
 const pendingFor = (slotId) => all("SELECT * FROM offers WHERE slot_id = ? AND status = 'pending'", slotId);
 
@@ -252,6 +280,7 @@ function cancelAppointment(id, reason, actor, { byText = false, byLink = false }
     run("UPDATE appointments SET status = 'cancelled', reason = ?, cancelled_min = ? WHERE id = ?", reason, sandbox.nowMin(), id);
     audit(actor, "appointment.cancel", id, `${p.name} at ${hm(a.start)}: ${reason}`);
     pcseTask("cancel", a, p); // PCSE must be told an NHS visit won't happen, or the claim won't match
+    diaryLog("cancelled", a, { reason });
     textPatient(p, { kind: "cancellation", body: byText || byLink
       ? `Thanks ${first(p.name)}, we've cancelled your visit ${when(a.day, a.start)}. We'll be in touch to rebook. ${practice()}`
       : `Hi ${first(p.name)}, your visit ${when(a.day, a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${practice()}` });
@@ -343,6 +372,7 @@ function book(slot, waitlistId, offerId, actor, how = offerId ? "offer" : "insta
     id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id, w.source === "recall" ? "recall" : sourceFor(p.id));
   run("UPDATE appointments SET gap = 0 WHERE id = ?", slot.id);
   pcseTask("lodge", getAppt(id), p);
+  diaryLog("booked", getAppt(id), { reason: `Refilled ${old.name}'s cancelled visit` });
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
   run("UPDATE recalls SET status = 'booked' WHERE waitlist_id = ?", waitlistId);
   if (offerId) run("UPDATE offers SET status = 'accepted', booked_appointment_id = ? WHERE id = ?", id, offerId);
@@ -820,6 +850,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
   if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
   pcseTask("lodge", getAppt(id), p);
+  diaryLog("booked", getAppt(id), { reason: by === "the office" ? null : "Booked online by the patient" });
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
   run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
   addNote(p.id, `Booked by ${by} for ${cal.label(day)} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
@@ -1420,6 +1451,7 @@ async function moveAppointment(id, input, user) {
     redrive(old.id, a.day); redrive(c.id, day);
     // PCSE's notification is for a date and time: cancel the old one and lodge the new.
     pcseTask("cancel", a, p); pcseTask("lodge", getAppt(a.id), p);
+    if (moving || old.id !== c.id) diaryLog("moved", getAppt(a.id), { was: { day: a.day, start: a.start, clinician: old.name } });
     const was = `${cal.label(a.day)} ${hm(a.start)}`;
     textPatient(p, { kind: "time-change", body: `Hi ${first(p.name)}, it's ${practice()}. Your home visit has moved to ${when(day, start)} with ${c.first} (was ${cal.phrase(a.day).replace(/^on /, "")} at ${hm(a.start)}). Reply CANCEL if that doesn't suit.` });
     sendSms({ to: "clinician", name: old.name, kind: "diary-change", toClinicianId: old.id, body: old.id === c.id
@@ -1489,6 +1521,7 @@ function notDone(id, input, user) {
     const p = getPatient(a.patientId), c = getClinician(a.clinicianId), note = clean(input.note, 1000);
     run("UPDATE appointments SET status = 'missed', seen = 1, reason = ? WHERE id = ?", reason, a.id);
     pcseTask("cancel", a, p);
+    diaryLog("not-seen", a, { reason });
     addNote(p.id, `${reason} when ${c.first} called at ${hm(a.start)}.${note ? " " + note : ""}`, user, { silent: true });
     let rebooked = null;
     if (input.rebook !== false) {
@@ -1736,4 +1769,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

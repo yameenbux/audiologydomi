@@ -329,6 +329,60 @@ test("phone mode: an NHS sight test can't be offered a slot inside PCSE's notice
   assert.ok(g.candidates.filter((c) => c.ok).every((c) => c.type !== "sight"));
 });
 
+test("pilot: the baseline and targets are saved, each week is measured from the diary, and only the office sees it", async () => {
+  const o = await office();
+  const empty = (await call("GET", "/api/pilot", o.token)).data;
+  assert.strictEqual(empty.config.start, null); assert.deepStrictEqual(empty.weeks, []);
+  // A target needs its baseline first.
+  assert.strictEqual((await call("PUT", "/api/pilot", o.token, { start: "2026-10-12", baseline: {}, targets: [{ key: "milesPerVisit", pct: 10 }] })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/pilot", o.token, { start: "12/10/2026" })).status, 400);
+  const r = await call("PUT", "/api/pilot", o.token, { start: "2026-10-12", agreedBy: "Zain, office manager",
+    baseline: { milesPerVisit: 9.5, unfilledPerWeek: 4, officeHours: 12 }, targets: [{ key: "milesPerVisit", pct: 10 }, { key: "officeHours", pct: 25 }] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+  const d = r.data;
+  assert.strictEqual(d.weeks.length, 1); assert.ok(d.weeks[0].inProgress, "week 1 is this week");
+  assert.ok(d.weeks[0].visits > 0, "today's visits count");
+  assert.ok(d.weeks[0].milesPerVisit > 0, "miles from today's routes");
+  assert.deepStrictEqual(d.targets.map((t) => [t.key, t.goal]), [["milesPerVisit", 8.6], ["officeHours", 9]]);
+  assert.strictEqual(d.status, "measuring", "nothing is judged on a week that isn't finished");
+  // A cancellation this week shows as cancelled and left empty until someone is booked in.
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const a = st.appts.find((x) => x.day === 2 && x.status === "booked");
+  await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" });
+  const w1 = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
+  assert.strictEqual(w1.cancellations, 1); assert.strictEqual(w1.unfilledPerWeek, 1);
+  // The office records its own hours each week.
+  assert.strictEqual((await call("PUT", "/api/pilot/hours", o.token, { week: 1, hours: "8.5" })).status, 200);
+  assert.strictEqual((await call("PUT", "/api/pilot/hours", o.token, { week: 1, hours: "lots" })).status, 400);
+  assert.strictEqual((await call("GET", "/api/pilot", o.token)).data.weeks[0].officeHours, 8.5);
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  assert.strictEqual((await call("GET", "/api/pilot", amira.token)).status, 403);
+});
+
+test("copy to Opticabase: every booking, move and cancellation is listed with the Opticabase ID, then ticked off", async () => {
+  const o = await office();
+  assert.deepStrictEqual((await call("GET", "/api/diary-changes", o.token)).data.todo, [], "a fresh demo has nothing to copy");
+  await call("PUT", "/api/patients/p9", o.token, { obId: "51234" });
+  const slot = (await call("POST", "/api/slots", o.token, { patientId: "p9", type: "repair", avail: "any", date: "2026-10-19" })).data.slots[0];
+  const b = (await call("POST", "/api/bookings", o.token, { patientId: "p9", type: "repair", avail: "any", clinicianId: slot.clinicianId, day: slot.day, start: slot.start })).data;
+  const opts = (await call("POST", `/api/appointments/${b.appointmentId}/move-options`, o.token, {})).data.slots;
+  const to = opts.find((x) => x.day !== slot.day || x.start !== slot.start);
+  assert.strictEqual((await call("POST", `/api/appointments/${b.appointmentId}/move`, o.token, { clinicianId: to.clinicianId, day: to.day, start: to.start })).status, 200);
+  await call("POST", `/api/appointments/${b.appointmentId}/cancel`, o.token, { reason: "Patient asked to rebook" });
+  const d = (await call("GET", "/api/diary-changes", o.token)).data;
+  assert.deepStrictEqual(d.todo.map((x) => x.change), ["booked", "moved", "cancelled"]);
+  assert.ok(d.todo.every((x) => x.obId === "51234"), "each carries the Opticabase ID to find them by");
+  const moved = d.todo[1];
+  assert.strictEqual(moved.wasDate, "2026-10-19"); assert.strictEqual(moved.wasTime, `${String(Math.floor(slot.start / 60)).padStart(2, "0")}:${String(slot.start % 60).padStart(2, "0")}`);
+  assert.strictEqual(d.todo[2].reason, "Patient asked to rebook");
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.diaryTodo, 3);
+  assert.strictEqual((await call("POST", "/api/diary-changes/copied", o.token, { ids: [] })).status, 400);
+  assert.strictEqual((await call("POST", "/api/diary-changes/copied", o.token, { ids: d.todo.map((x) => x.id) })).data.copied, 3);
+  const after = (await call("GET", "/api/diary-changes", o.token)).data;
+  assert.strictEqual(after.todo.length, 0); assert.strictEqual(after.done.length, 3);
+  assert.ok(after.done.every((x) => x.copiedBy));
+});
+
 test("Facebook leads: their form's street address and date of birth are kept, and a postcode is found in the address", async () => {
   const leads = require("../server/leads");
   assert.strictEqual(leads.dobOf("1942-04-03"), "1942-04-03");
