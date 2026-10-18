@@ -343,7 +343,6 @@ test("pilot: the baseline and targets are saved, each week is measured from the 
   assert.strictEqual(d.weeks.length, 1); assert.ok(d.weeks[0].inProgress, "week 1 is this week");
   assert.ok(d.weeks[0].visits > 0, "today's visits count");
   assert.strictEqual(d.weeks[0].milesPerVisit, null, "miles per visit waits for the mileage claims");
-  assert.ok(d.weeks[0].plannedPerVisit > 0, "Domi's planned miles, for reference");
   assert.deepStrictEqual(d.targets.map((t) => [t.key, t.goal]), [["milesPerVisit", 8.6], ["officeHours", 9]]);
   assert.strictEqual(d.status, "measuring", "nothing is judged on a week that isn't finished");
   // A cancellation this week shows as cancelled and left empty until someone is booked in.

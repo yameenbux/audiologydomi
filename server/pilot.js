@@ -12,8 +12,8 @@ const all = (sql, ...a) => db.prepare(sql).all(...a);
 const one = (sql, ...a) => db.prepare(sql).get(...a);
 
 // What can be measured, and which way is better. `measured`: Domi works it out; otherwise the office enters it weekly
-// (`entry` names what it types in). Miles come from the clinicians' mileage claims, the same source as the baseline:
-// Domi's own planned-route miles are shown alongside for reference, never judged against the baseline.
+// (`entry` names what it types in). Miles come from the clinicians' mileage claims, the same source as the baseline,
+// never from Domi's planned routes (those are on Plan routes and the mileage report).
 const MEASURES = {
   milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: false, entry: "miles", dp: 1 },
   unfilledPerWeek: { label: "Cancelled slots left empty, per week", unit: "slots", better: "down", measured: true, dp: 1 },
@@ -94,38 +94,25 @@ function saveWeek(week, input, user) {
   });
 }
 
-/** Domi's planned route miles for one clinician's day, from the same road routing as the mileage report. */
-async function milesFor(clinicianId, day) {
-  const r = await svc.routeFor(clinicianId, day, null, { withPath: false });
-  return { miles: r.totals.miles, visits: r.totals.visits };
-}
-
 /** Week by week since go-live: what Domi measured, what the office entered, and how it compares with the baseline. */
-async function report() {
+function report() {
   const c = config();
   const out = { measures: MEASURES, config: c, weeks: [], targets: [], today: cal.iso(0) };
   if (!c.start) return out;
   const startDay = cal.dayOf(c.start);
-  const clinicians = all("SELECT id FROM clinicians");
   for (let w = 1; w <= WEEKS; w++) {
     const from = startDay + (w - 1) * 7, to = from + 6;
     if (from > 0) break; // not started yet
     const inProgress = to >= 0;
     const lastDay = Math.min(to, 0);
-    let miles = 0, routed = 0;
-    for (let d = from; d <= lastDay; d++) {
-      if (!cal.isOpen(d)) continue;
-      for (const k of clinicians) { const m = await milesFor(k.id, d); miles += m.miles; routed += m.visits; }
-    }
     // Visits that went ahead (not cancelled or missed) on days already reached.
     const visits = one("SELECT COUNT(*) AS n FROM appointments WHERE day BETWEEN ? AND ? AND status NOT IN ('cancelled','missed')", from, lastDay).n;
     const cancelled = all("SELECT id FROM appointments WHERE day BETWEEN ? AND ? AND status = 'cancelled'", from, to);
     const refilled = cancelled.filter((a) => one("SELECT 1 FROM appointments WHERE filled_from = ? AND status != 'cancelled'", a.id)).length;
     out.weeks.push({
       week: w, from: cal.iso(from), to: cal.iso(to), label: `${cal.label(from)} – ${cal.label(to)}`, inProgress,
-      // Per visit from the mileage claims the office entered; Domi's planned miles alongside, for reference only.
-      milesClaimed: c.miles[w] != null ? c.miles[w] : null, milesPerVisit: c.miles[w] != null && visits ? round(c.miles[w] / visits, 1) : null,
-      plannedMiles: round(miles, 1), plannedPerVisit: routed ? round(miles / routed, 1) : null, visits,
+      // Per visit from the mileage claims the office entered.
+      milesClaimed: c.miles[w] != null ? c.miles[w] : null, milesPerVisit: c.miles[w] != null && visits ? round(c.miles[w] / visits, 1) : null, visits,
       cancellations: cancelled.length, refilled, unfilledPerWeek: cancelled.length - refilled,
       officeHours: c.hours[w] != null ? c.hours[w] : null, visitsPerWeek: visits,
     });
