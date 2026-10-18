@@ -8,8 +8,9 @@ COPY server ./server
 COPY public ./public
 COPY scripts/live-admin.js ./scripts/live-admin.js
 COPY test ./test
-# A failing test fails the build, so a broken image is never deployed.
-RUN ROUTING_PROVIDER=estimate npm test && rm -rf test
+# A failing test fails the build, so a broken image is never deployed. The marketing site's tests are left out:
+# the site isn't part of this image (it's built and tested on its own).
+RUN rm test/site.test.js && ROUTING_PROVIDER=estimate npm test && rm -rf test
 ENV NODE_ENV=production PORT=3000
 USER node
 EXPOSE 3000

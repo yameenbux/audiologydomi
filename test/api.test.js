@@ -354,3 +354,9 @@ test("settings feed the rest of Domi: contact details, opening hours, online boo
   const audit = JSON.stringify((await call("GET", "/api/debug/table/audit", office.token)).data);
   assert.ok(audit.includes("Changed phone number, email, logo") && !audit.includes("kirkby.example/logo"), "the log names what changed, not the values");
 });
+
+test("the uptime monitor's health check answers without signing in", async () => {
+  const r = await fetch(base + "/api/health");
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(await r.json(), { ok: true, db: "none" }, "a demo server has no live database to check");
+});

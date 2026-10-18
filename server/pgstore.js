@@ -11,13 +11,27 @@
 // It assumes one server process per practice (one Fly machine), which is how Domi runs.
 const { SCHEMA, TABLES, ADDED_COLUMNS } = require("./db");
 
+/**
+ * The certificate in the standard layout, however it was pasted: a host's secrets box can drop the line breaks, or
+ * the BEGIN and END lines. Several certificates stay several.
+ */
+function pemOf(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const blocks = t.includes("-----BEGIN CERTIFICATE-----") ? t.split("-----BEGIN CERTIFICATE-----").slice(1) : [t];
+  return blocks.map((b) => {
+    const body = b.replace(/-----END CERTIFICATE-----[\s\S]*$/, "").replace(/[^A-Za-z0-9+/=]/g, "");
+    return `-----BEGIN CERTIFICATE-----\n${body.match(/.{1,64}/g).join("\n")}\n-----END CERTIFICATE-----\n`;
+  }).join("");
+}
+
 let Pool = null;
 const pgPool = (url) => {
   Pool = Pool || require("pg").Pool; // only needed when a live database is configured: the demo has no packages
   // Encrypted and checked against Supabase's certificate (DATABASE_CA_CERT: the "SSL certificate" from the project's
   // database settings, as text). Only a database on this machine, used by the tests, skips encryption.
   const local = /@(localhost|127\.0\.0\.1)[:/]|host=\/|@\/|%2F/.test(url);
-  const ca = process.env.DATABASE_CA_CERT;
+  const ca = pemOf(process.env.DATABASE_CA_CERT);
   if (!local && !ca) throw new Error("DATABASE_CA_CERT is needed to check the database's certificate");
   return new Pool({ connectionString: url, max: 5, ssl: local ? false : { ca, rejectUnauthorized: true } });
 };
@@ -146,9 +160,24 @@ CREATE TABLE IF NOT EXISTS domi.practices (
   code TEXT PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL DEFAULT 'domi',
   settings JSONB NOT NULL DEFAULT '{}'::jsonb, state JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), active BOOLEAN NOT NULL DEFAULT true
-);`;
+);
+-- Who's signed in, so a restart doesn't sign everyone out. id is a hash of the cookie's token, never the token.
+CREATE TABLE IF NOT EXISTS domi.sessions (
+  id TEXT PRIMARY KEY, practice TEXT NOT NULL REFERENCES domi.practices(code) ON DELETE CASCADE, uid TEXT NOT NULL,
+  acting_as TEXT, kind TEXT NOT NULL, created BIGINT NOT NULL, last_seen BIGINT NOT NULL, ua TEXT
+);
+ALTER TABLE domi.sessions ENABLE ROW LEVEL SECURITY;`;
 
 async function ensureControl(pool) { await pool.query(CONTROL); }
+async function saveSession(pool, s) {
+  await pool.query(`INSERT INTO domi.sessions (id, practice, uid, acting_as, kind, created, last_seen, ua) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (id) DO UPDATE SET acting_as = EXCLUDED.acting_as, last_seen = EXCLUDED.last_seen`, [s.id, s.sbId, s.uid, s.actingAs, s.kind, s.created, s.lastSeen, s.ua]);
+}
+const removeSession = (pool, id) => pool.query("DELETE FROM domi.sessions WHERE id = $1", [id]);
+async function loadSessions(pool, codes) {
+  const { rows } = await pool.query("SELECT * FROM domi.sessions WHERE practice = ANY($1)", [codes]);
+  return rows.map((r) => ({ id: r.id, sbId: r.practice, uid: r.uid, actingAs: r.acting_as, kind: r.kind, created: Number(r.created), lastSeen: Number(r.last_seen), ua: r.ua || "" }));
+}
 async function listPractices(pool) {
   const { rows } = await pool.query("SELECT code, name, brand, settings, state FROM domi.practices WHERE active ORDER BY created_at");
   return rows;
@@ -157,4 +186,4 @@ async function addPractice(pool, { code, name, brand = "domi", settings }) {
   await pool.query("INSERT INTO domi.practices (code, name, brand, settings) VALUES ($1, $2, $3, $4::jsonb)", [code, name, brand, JSON.stringify(settings || {})]);
 }
 
-module.exports = { Store, pgPool, pgDDL, schemaFor, ensureControl, listPractices, addPractice };
+module.exports = { Store, pemOf, pgPool, pgDDL, schemaFor, ensureControl, listPractices, addPractice, saveSession, removeSession, loadSessions };
