@@ -93,6 +93,7 @@ test("a live practice's changes are saved to Postgres and come back after a rest
 test("sign-ins to a live practice survive a restart; the database never holds the token", opts, async () => {
   const auth = require("../server/auth");
   await live.start(URL_);
+  assert.ok((await live.health()).ms >= 0, "the health check reaches the database");
   const s = auth.createSession({ sbId: "TEST1", uid: "u-test", kind: "password", ua: "Test browser" });
   const demo = auth.createSession({ sbId: sandbox.create().id, uid: "u-admin", kind: "password", ua: "x" });
   await live.sessionsSaved();

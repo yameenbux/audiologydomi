@@ -91,6 +91,30 @@ every booking and move; inside it, Domi refuses unless the office records the IC
 (`appointments.pvn_icb`). PCSE's reference is kept on `pcse.ref`. Lodging is still by hand in PCSE Online until PCSE
 accepts Domi on the Ophthalmic Payments API.
 
+## Monitoring
+
+UptimeRobot checks `https://domi-live.fly.dev/api/health` every 5 minutes and emails the owner when it fails. The
+check answers 200 only while the app is up **and** the live database answers (503 otherwise), and says nothing
+else. Fly's own health check (`/api/meta`) restarts the machine if the app stops answering.
+
+## Backups and the restore test
+
+- **Supabase (Pro plan)** takes a daily backup of the whole database and keeps 7 days. Restoring one from the
+  dashboard replaces the live database, so it's for a real disaster, not for practice.
+- **The restore test** (`scripts/restore-test.sh`) proves the data can be got back out and loaded elsewhere. It
+  runs on a throwaway Fly machine (`postgres:17-alpine`) with the app's secrets: dumps the `domi` and `p_*` schemas
+  over a verified TLS connection, restores them into an empty Postgres on that machine, and compares every table's
+  row count. It prints counts and timings only, and the dump is deleted with the machine.
+
+  ```bash
+  fly machine run postgres:17-alpine -a domi-live --region lhr --rm --restart no --vm-memory 512 \
+    --file-local /tmp/restore-test.sh=scripts/restore-test.sh --entrypoint "sh /tmp/restore-test.sh"
+  fly logs -a domi-live --no-tail | grep RESTORE
+  ```
+
+  First run, 18 October 2026: 19 tables, identical counts; dump 36 KB in 1 second (an almost empty practice). Run it
+  again once there's a realistic amount of test data, and every quarter after go-live.
+
 ## Still to do before go-live
 
 - **Bank holidays after 2028.** `server/calendar.js` lists England and Wales bank holidays for 2026 to 2028 (from

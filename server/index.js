@@ -111,6 +111,12 @@ function clinicianCanSee(user, patientId) {
 }
 
 // `?brand=` styles the sign-in screen before a demo exists; afterwards the demo's own brand comes with /api/state.
+// For the uptime monitor: 200 while the app and its database answer, 503 when the database doesn't. No details.
+route("GET", "/api/health", { public: true }, async () => {
+  let db;
+  try { db = await require("./live").health(); } catch (e) { throw new svc.HttpError(503, "The database isn't answering."); }
+  return { ok: true, db: db ? "ok" : "none", ms: db ? db.ms : undefined };
+});
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
   types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],

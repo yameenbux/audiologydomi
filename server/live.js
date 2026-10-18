@@ -88,6 +88,14 @@ async function keepSessions(opened) {
 }
 const sessionsSaved = () => sessionWrites;
 
+/** For the uptime monitor: can the live database be reached right now? Null when there's no live database. */
+async function health() {
+  if (!pool) return null;
+  const t = Date.now();
+  await Promise.race([pool.query("SELECT 1"), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 5000))]);
+  return { ms: Date.now() - t, practices: sandbox.all().filter((s) => s.live).length };
+}
+
 /** Add a practice (empty: its patients come in through Import) and open it. */
 async function addPractice({ code, name, brand = "domi", settings = {} }) {
   if (!pool) throw new Error("No live database configured");
@@ -99,4 +107,4 @@ async function addPractice({ code, name, brand = "domi", settings = {} }) {
 
 async function stop() { if (pool) { await sandbox.settle().catch(() => {}); await sessionWrites; auth.setSessionStore(null); await pool.end(); pool = null; } }
 
-module.exports = { start, stop, addPractice, enabled, open, roll, sessionsSaved, poolForTests: () => pool };
+module.exports = { start, stop, addPractice, enabled, open, roll, sessionsSaved, health, poolForTests: () => pool };
