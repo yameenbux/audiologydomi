@@ -1011,6 +1011,38 @@ function opticabasePage() {
 }
 
 /* ---------- The pilot: baseline, targets, and what's measured each week ---------- */
+/** One target as a chart: the baseline ("Before Domi") as a grey bar, then each pilot week, with the target dashed. */
+function pilotChart(t, weeks, fmt) {
+  const W = 300, H = 132, top = 18, bottom = 22, left = 4, right = 4, gap = 4;
+  const vals = weeks.map((w) => w[t.key]);
+  const max = Math.max(t.baseline || 0, t.goal || 0, ...vals.filter((v) => v != null)) * 1.15 || 1;
+  const n = 1 + 13; // Before, then all 13 pilot weeks: the chart fills in as the pilot runs
+  const bw = Math.min(26, (W - left - right - gap * (n - 1)) / n), base = H - bottom;
+  const y = (v) => base - (v / max) * (base - top);
+  const x = (i) => left + i * (bw + gap) + (i ? 6 : 0); // a little air between Before and week 1
+  // Bars anchored to the baseline with a rounded data-end (4px) and a square foot.
+  const bar = (i, v, cls, tip) => {
+    if (v == null) return `<rect class="pc-none" x="${x(i)}" y="${base - 2}" width="${bw}" height="2" data-tip="${esc(tip)}: not measured yet"></rect>`;
+    const h = Math.max(base - y(v), 2), r = Math.min(4, bw / 2, h);
+    const X = x(i), Y = base - h;
+    return `<path class="${cls}" d="M${X},${base}V${Y + r}Q${X},${Y} ${X + r},${Y}H${X + bw - r}Q${X + bw},${Y} ${X + bw},${Y + r}V${base}Z" data-tip="${esc(tip)}: ${esc(fmt(v, t.key))} ${esc(t.unit)}"></path>`;
+  };
+  const marks = [bar(0, t.baseline, "pc-before", "Before Domi"),
+    ...weeks.map((w, i) => bar(i + 1, w[t.key], w.inProgress ? "pc-after pc-now" : "pc-after", `Week ${w.week}${w.inProgress ? " so far" : ""}`))].join("");
+  const last = [...weeks].reverse().find((w) => w[t.key] != null);
+  const li = last ? weeks.indexOf(last) + 1 : null;
+  const label = (i, v) => `<text class="pc-val" x="${x(i) + bw / 2}" y="${y(v) - 5}" text-anchor="middle">${esc(fmt(v, t.key))}</text>`;
+  const goal = t.goal != null ? `<line class="pc-goal" x1="${left}" x2="${W - right}" y1="${y(t.goal)}" y2="${y(t.goal)}"></line>` : "";
+  const xl = (i, s) => `<text class="pc-x" x="${x(i) + bw / 2}" y="${H - 6}" text-anchor="middle">${s}</text>`;
+  return `<figure class="pl-chart">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t.label)}: before Domi ${esc(fmt(t.baseline, t.key))}, target ${esc(fmt(t.goal, t.key))}${last ? `, week ${last.week} ${esc(fmt(last[t.key], t.key))}` : ""}">
+      <line class="pc-axis" x1="${left}" x2="${W - right}" y1="${base}" y2="${base}"></line>
+      ${goal}${marks}${label(0, t.baseline)}${last ? label(li, last[t.key]) : ""}
+      ${xl(0, "Before")}${li ? xl(li, "Wk " + last.week) : ""}
+    </svg>
+    <figcaption class="pc-key"><span><i class="pc-sw before"></i>Before Domi</span><span><i class="pc-sw after"></i>With Domi, each week</span>${weeks.some((w) => w.inProgress) ? `<span><i class="pc-sw cur"></i>This week so far</span>` : ""}<span><i class="pc-sw goal"></i>Target</span></figcaption>
+  </figure>`;
+}
 function pilotPage() {
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Pilot results",
@@ -1038,6 +1070,7 @@ function pilotPage() {
   const verdict = { "no-targets": ["plain", "No targets set yet"], measuring: ["apricot", `Measuring: ${d.weeksComplete} of 13 weeks complete`], met: ["ok", "On track: every target met"], "not-met": ["crit", "Not met yet"] }[d.status];
   const cards = d.targets.map((t) => `<div class="pl-card ${t.met === true ? "ok" : t.met === false ? "no" : ""}">
       <div class="caps">${esc(t.label)}</div>
+      ${pilotChart(t, d.weeks, fmt)}
       <div class="pl-nums"><span><small>Before</small><b>${fmt(t.baseline, t.key)}</b></span><span class="arrow">→</span><span><small>Now${t.weeks ? ` (${t.weeks} wk avg)` : ""}</small><b>${fmt(t.now, t.key)}</b></span><span><small>Target</small><b>${fmt(t.goal, t.key)}</b></span></div>
       <div class="pl-foot">${t.met == null ? `<span class="muted">Measured once a full week is done</span>` : `<span class="badge ${t.met ? "b-ok" : "b-crit"}">${t.met ? "Met" : "Not met"}</span>`}${t.change != null ? `<span class="muted">${t.change > 0 ? "+" : ""}${t.change}% vs before · target ${t.better === "down" ? "−" : "+"}${t.pct}%</span>` : ""}</div></div>`).join("");
   const row = (w) => `<tr class="${w.inProgress ? "pl-now" : ""}"><td><b>Week ${w.week}</b><div class="muted">${esc(w.label)}${w.inProgress ? " · so far" : ""}</div></td>
@@ -2848,6 +2881,15 @@ document.addEventListener("submit", async (e) => {
     }
   } catch (err) { fail(err); }
 });
+// Chart tooltips: any mark with data-tip shows it beside the pointer (pilot charts).
+let tipEl = null;
+document.addEventListener("pointerover", (e) => {
+  const m = e.target.closest && e.target.closest("[data-tip]");
+  if (!m) { if (tipEl) tipEl.hidden = true; return; }
+  if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "pc-tip"; tipEl.setAttribute("role", "status"); document.body.appendChild(tipEl); }
+  tipEl.textContent = m.dataset.tip; tipEl.hidden = false;
+});
+document.addEventListener("pointermove", (e) => { if (tipEl && !tipEl.hidden) { tipEl.style.left = Math.min(e.clientX + 12, innerWidth - tipEl.offsetWidth - 8) + "px"; tipEl.style.top = (e.clientY - 34) + "px"; } });
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
