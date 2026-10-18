@@ -84,32 +84,63 @@ const CHALLENGE_MS = 5 * 60e3, CHALLENGE_TRIES = 5;
 const PAIR_MS = 10 * 60e3;
 const LOCK_AFTER = 5, LOCK_MS = 15 * 60e3;
 
+// A session's id is a hash of the token in its cookie: the token itself is never stored, here or in Postgres.
 const sessions = new Map();   // id -> { id, sbId, uid, actingAs, kind, created, lastSeen, ua }
 const challenges = new Map(); // id -> { sbId, uid, expires, tries }
 const pairings = new Map();   // token -> { sbId, uid, by, expires }
 const revokeHooks = [];
 
+const keyOf = (t) => crypto.createHash("sha256").update(String(t)).digest("base64url");
+
+// Live practices keep their sessions in Postgres too, so a restart or a deploy doesn't sign everyone out
+// (live.js sets the store). Demo sessions stay in memory only.
+let store = null;
+const TOUCH_SAVE_MS = 5 * 60e3; // how stale lastSeen may get in the store before it's written again
+const setSessionStore = (st) => { store = st; };
+const save = (s) => { if (store && store.wants(s)) { s.savedSeen = s.lastSeen; store.save(s); } };
+
+/** A new session. Its token goes in the cookie and is never kept; the session is found by the token's hash. */
 function createSession({ sbId, uid, kind, ua }) {
-  const s = { id: token(), sbId, uid, actingAs: null, kind, created: Date.now(), lastSeen: Date.now(), ua: String(ua || "").slice(0, 160) };
+  const t = token();
+  const s = { id: keyOf(t), sbId, uid, actingAs: null, kind, created: Date.now(), lastSeen: Date.now(), ua: String(ua || "").slice(0, 160) };
   sessions.set(s.id, s);
-  return s;
+  save(s);
+  return { ...s, token: t };
 }
-/** A live session, or null if it's missing, idle too long or past its absolute limit. Touches lastSeen. */
-function getSession(id, { touch = true } = {}) {
+/** The session a cookie's token belongs to, or null if it's missing, idle too long or past its absolute limit. */
+const getSession = (t, opts) => (t ? sessionById(keyOf(t), opts) : null);
+/** The same, by the session's id. Touching it keeps it alive (and saves lastSeen now and then). */
+function sessionById(id, { touch = true } = {}) {
   const s = id && sessions.get(id);
   if (!s) return null;
   const now = Date.now();
   if (now - s.lastSeen > IDLE_MS || now - s.created > ABSOLUTE_MS) { endSession(id, "expired"); return null; }
-  if (touch) s.lastSeen = now;
+  if (touch) { s.lastSeen = now; if (now - (s.savedSeen || 0) > TOUCH_SAVE_MS) save(s); }
   return s;
 }
 function endSession(id, why = "signed out") {
   const s = sessions.get(id);
   if (!s) return false;
   sessions.delete(id);
+  if (store && store.wants(s)) store.remove(id);
   revokeHooks.forEach((f) => f(s, why));
   return true;
 }
+/** Who's viewing as whom changed: keep that across a restart too. */
+const sessionChanged = (s) => save(s);
+/** Sessions loaded back from the store on start-up, less any that have expired meanwhile. */
+function restoreSessions(rows) {
+  const now = Date.now();
+  let n = 0;
+  for (const r of rows) {
+    if (now - r.lastSeen > IDLE_MS || now - r.created > ABSOLUTE_MS) { if (store) store.remove(r.id); continue; }
+    sessions.set(r.id, { ...r, savedSeen: r.lastSeen });
+    n++;
+  }
+  return n;
+}
+/** Tests only: forget every session in memory, as a restart would. */
+const forgetSessionsForTests = () => sessions.clear();
 const sessionsFor = (sbId) => [...sessions.values()].filter((s) => s.sbId === sbId);
 const onRevoke = (f) => revokeHooks.push(f);
 
@@ -139,7 +170,7 @@ function takePairing(t) {
 // Clear out anything expired every minute.
 setInterval(() => {
   const now = Date.now();
-  for (const [id] of sessions) getSession(id, { touch: false });
+  for (const [id] of sessions) sessionById(id, { touch: false });
   for (const [id, c] of challenges) if (now > c.expires) challenges.delete(id);
   for (const [t, p] of pairings) if (now > p.expires) pairings.delete(t);
 }, 60e3).unref();
@@ -159,6 +190,6 @@ const clearCookie = (req) => `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Ag
 module.exports = {
   DEMO, DEMO_PASSWORD, DEMO_HASH, LOCK_AFTER, LOCK_MS, CHALLENGE_TRIES, IDLE_MS, ABSOLUTE_MS,
   hashPassword, checkPassword, newSecret, matchTotp, currentCode, otpauthUri, hotp, base32, unbase32, stepAt,
-  createSession, getSession, endSession, sessionsFor, onRevoke, newChallenge, getChallenge, newPairing, takePairing,
+  createSession, getSession, sessionById, endSession, sessionsFor, sessionChanged, setSessionStore, restoreSessions, forgetSessionsForTests, onRevoke, newChallenge, getChallenge, newPairing, takePairing,
   readCookie, sessionCookie, clearCookie,
 };

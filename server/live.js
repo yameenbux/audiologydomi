@@ -6,6 +6,7 @@ const brands = require("./brands");
 const { openDb } = require("./db");
 const pgs = require("./pgstore");
 const cal = require("./calendar");
+const auth = require("./auth");
 
 let pool = null;
 const enabled = () => !!pool;
@@ -64,8 +65,28 @@ async function start(url = process.env.DATABASE_URL) {
   await pgs.ensureControl(pool);
   const opened = [];
   for (const rec of await pgs.listPractices(pool)) opened.push(await open(rec));
+  await keepSessions(opened);
   return opened;
 }
+
+/**
+ * Sign-ins to live practices are written to Postgres as they start, change and end, and loaded back on start-up,
+ * so a restart or a deploy doesn't sign everyone out. Writes go in order, one at a time; a failed one is logged
+ * (the session still works until the next restart).
+ */
+let sessionWrites = Promise.resolve();
+async function keepSessions(opened) {
+  const p = pool;
+  const queue = (f) => { sessionWrites = sessionWrites.then(f).catch((e) => console.error("Couldn't save a sign-in:", e.message)); };
+  auth.setSessionStore({
+    wants: (s) => { const sb = sandbox.get(s.sbId); return !!(sb && sb.live); },
+    save: (s) => { const row = { ...s }; queue(() => pgs.saveSession(p, row)); },
+    remove: (id) => queue(() => pgs.removeSession(p, id)),
+  });
+  const n = auth.restoreSessions(await pgs.loadSessions(p, opened.map((sb) => sb.id)));
+  if (n) console.log(`Signed-in sessions kept from before the restart: ${n}`);
+}
+const sessionsSaved = () => sessionWrites;
 
 /** Add a practice (empty: its patients come in through Import) and open it. */
 async function addPractice({ code, name, brand = "domi", settings = {} }) {
@@ -76,6 +97,6 @@ async function addPractice({ code, name, brand = "domi", settings = {} }) {
   return open({ code, name, brand, settings, state: {} });
 }
 
-async function stop() { if (pool) { await sandbox.settle().catch(() => {}); await pool.end(); pool = null; } }
+async function stop() { if (pool) { await sandbox.settle().catch(() => {}); await sessionWrites; auth.setSessionStore(null); await pool.end(); pool = null; } }
 
-module.exports = { start, stop, addPractice, enabled, open, roll, poolForTests: () => pool };
+module.exports = { start, stop, addPractice, enabled, open, roll, sessionsSaved, poolForTests: () => pool };

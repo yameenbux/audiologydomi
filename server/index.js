@@ -38,12 +38,12 @@ function verify(req) {
   const real = sb && asSignedIn(account(sb, s.uid));
   const eff = sb && (s.actingAs === SELF ? account(sb, s.uid) : s.actingAs ? account(sb, s.actingAs) : real);
   if (!sb || !real || !real.active) { auth.endSession(s.id, sb ? "account switched off" : "demo expired"); return null; }
-  if (!eff || !eff.active) { s.actingAs = null; return verify(req); }
+  if (!eff || !eff.active) { s.actingAs = null; auth.sessionChanged(s); return verify(req); }
   sb.lastSeen = Date.now();
   return { sb, session: s, real: pub(real), user: pub(eff) };
 }
 /** End every session an account has in this practice: they've just been switched off. */
-const signOutEverywhere = (sb, uid, why) => auth.sessionsFor(sb.id).filter((s) => s.uid === uid || s.actingAs === uid).forEach((s) => (s.uid === uid ? auth.endSession(s.id, why) : (s.actingAs = null)));
+const signOutEverywhere = (sb, uid, why) => auth.sessionsFor(sb.id).filter((s) => s.uid === uid || s.actingAs === uid).forEach((s) => (s.uid === uid ? auth.endSession(s.id, why) : ((s.actingAs = null), auth.sessionChanged(s))));
 // Short public handle for a session, so the office can see and end sessions without ever seeing a token.
 const handle = (s) => crypto.createHash("sha256").update(s.id).digest("base64url").slice(0, 12);
 
@@ -190,7 +190,7 @@ route("POST", "/api/auth/code", { public: true }, (req, body) => {
     db.prepare("UPDATE users SET totp_step = ? WHERE id = ?").run(step, row.id);
     c.expires = 0; // used
     const s = auth.createSession({ sbId: sb.id, uid: row.id, kind: "password", ua: req.headers["user-agent"] });
-    req.cookies.push(auth.sessionCookie(req, s.id));
+    req.cookies.push(auth.sessionCookie(req, s.token));
     svc.audit(row.name, "auth.login", row.id, "Signed in with password and two-factor code");
     return { sandbox: sb.id, user: pub(map.user(row)) };
   });
@@ -224,6 +224,7 @@ route("POST", "/api/auth/view-as", {}, (req, body) => {
   const target = account(req.auth.sb, body.userId);
   if (!target || !target.active) throw new svc.HttpError(400, "Unknown user.");
   req.auth.session.actingAs = target.id !== req.auth.real.id ? target.id : body.as === "clinician" && req.auth.real.dual ? SELF : null;
+  auth.sessionChanged(req.auth.session);
   if (target.id !== req.auth.real.id) svc.audit(req.auth.real.name, "auth.view-as", target.id, `Viewing the app as ${target.name}`);
   return { user: pub(target.id === req.auth.real.id && !req.auth.session.actingAs ? req.auth.real : target) };
 });
@@ -244,7 +245,7 @@ route("POST", "/api/auth/pair/redeem", { public: true }, (req, body) => {
   const sb = p && sandbox.get(p.sbId);
   if (!p || !sb) throw new svc.HttpError(401, "That link has been used or has expired. Show a new QR code on the office screen.");
   const s = auth.createSession({ sbId: sb.id, uid: p.uid, kind: "paired", ua: req.headers["user-agent"] });
-  req.cookies.push(auth.sessionCookie(req, s.id));
+  req.cookies.push(auth.sessionCookie(req, s.token));
   const u = account(sb, p.uid);
   if (!u || !u.active) throw new svc.HttpError(401, "That account has been switched off.");
   sandbox.run(sb, () => svc.audit(u.name, "auth.login", u.id, "Signed in on a phone with a one-time link from the office"));
@@ -684,7 +685,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     res.write(`event: hello\ndata: ${JSON.stringify({ user: who.user.name, sandbox: who.sb.id })}\n\n`);
     // An open live connection counts as activity; it also ends as soon as the session does.
-    const ping = setInterval(() => { if (!auth.getSession(who.session.id)) return res.end(); who.sb.lastSeen = Date.now(); res.write(": ping\n\n"); }, 25000);
+    const ping = setInterval(() => { if (!auth.sessionById(who.session.id)) return res.end(); who.sb.lastSeen = Date.now(); res.write(": ping\n\n"); }, 25000);
     const streams = liveStreams.get(who.session.id) || new Set(); streams.add(res); liveStreams.set(who.session.id, streams);
     res.on("close", () => { clearInterval(ping); streams.delete(res); if (!streams.size) liveStreams.delete(who.session.id); });
     return bus.subscribe(res, who.user, who.sb.id);

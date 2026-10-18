@@ -160,9 +160,24 @@ CREATE TABLE IF NOT EXISTS domi.practices (
   code TEXT PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL DEFAULT 'domi',
   settings JSONB NOT NULL DEFAULT '{}'::jsonb, state JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), active BOOLEAN NOT NULL DEFAULT true
-);`;
+);
+-- Who's signed in, so a restart doesn't sign everyone out. id is a hash of the cookie's token, never the token.
+CREATE TABLE IF NOT EXISTS domi.sessions (
+  id TEXT PRIMARY KEY, practice TEXT NOT NULL REFERENCES domi.practices(code) ON DELETE CASCADE, uid TEXT NOT NULL,
+  acting_as TEXT, kind TEXT NOT NULL, created BIGINT NOT NULL, last_seen BIGINT NOT NULL, ua TEXT
+);
+ALTER TABLE domi.sessions ENABLE ROW LEVEL SECURITY;`;
 
 async function ensureControl(pool) { await pool.query(CONTROL); }
+async function saveSession(pool, s) {
+  await pool.query(`INSERT INTO domi.sessions (id, practice, uid, acting_as, kind, created, last_seen, ua) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (id) DO UPDATE SET acting_as = EXCLUDED.acting_as, last_seen = EXCLUDED.last_seen`, [s.id, s.sbId, s.uid, s.actingAs, s.kind, s.created, s.lastSeen, s.ua]);
+}
+const removeSession = (pool, id) => pool.query("DELETE FROM domi.sessions WHERE id = $1", [id]);
+async function loadSessions(pool, codes) {
+  const { rows } = await pool.query("SELECT * FROM domi.sessions WHERE practice = ANY($1)", [codes]);
+  return rows.map((r) => ({ id: r.id, sbId: r.practice, uid: r.uid, actingAs: r.acting_as, kind: r.kind, created: Number(r.created), lastSeen: Number(r.last_seen), ua: r.ua || "" }));
+}
 async function listPractices(pool) {
   const { rows } = await pool.query("SELECT code, name, brand, settings, state FROM domi.practices WHERE active ORDER BY created_at");
   return rows;
@@ -171,4 +186,4 @@ async function addPractice(pool, { code, name, brand = "domi", settings }) {
   await pool.query("INSERT INTO domi.practices (code, name, brand, settings) VALUES ($1, $2, $3, $4::jsonb)", [code, name, brand, JSON.stringify(settings || {})]);
 }
 
-module.exports = { Store, pemOf, pgPool, pgDDL, schemaFor, ensureControl, listPractices, addPractice };
+module.exports = { Store, pemOf, pgPool, pgDDL, schemaFor, ensureControl, listPractices, addPractice, saveSession, removeSession, loadSessions };

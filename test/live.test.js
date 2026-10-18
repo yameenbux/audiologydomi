@@ -90,6 +90,38 @@ test("a live practice's changes are saved to Postgres and come back after a rest
   await live.stop();
 });
 
+test("sign-ins to a live practice survive a restart; the database never holds the token", opts, async () => {
+  const auth = require("../server/auth");
+  await live.start(URL_);
+  const s = auth.createSession({ sbId: "TEST1", uid: "u-test", kind: "password", ua: "Test browser" });
+  const demo = auth.createSession({ sbId: sandbox.create().id, uid: "u-admin", kind: "password", ua: "x" });
+  await live.sessionsSaved();
+  const rows = await inPg("SELECT * FROM domi.sessions");
+  assert.strictEqual(rows.length, 1, "only the live practice's session is kept, not the demo's");
+  assert.strictEqual(rows[0].id, s.id);
+  assert.notStrictEqual(rows[0].id, s.token);
+  assert.ok(!JSON.stringify(rows).includes(s.token), "the cookie's token is never stored");
+  // One that has gone idle meanwhile isn't brought back.
+  await inPg("INSERT INTO domi.sessions (id, practice, uid, kind, created, last_seen) VALUES ('old', 'TEST1', 'u-test', 'password', $1, $1)", [Date.now() - 3 * 3600e3]);
+
+  // Restart: memory is empty, then the server loads the sessions back.
+  await live.stop(); auth.forgetSessionsForTests();
+  assert.strictEqual(auth.getSession(s.token), null);
+  await live.start(URL_);
+  const back = auth.getSession(s.token);
+  assert.ok(back, "still signed in after the restart");
+  assert.strictEqual(back.uid, "u-test"); assert.strictEqual(back.sbId, "TEST1");
+  assert.strictEqual(auth.getSession(demo.token), null, "demo sign-ins aren't kept");
+  await live.sessionsSaved();
+  assert.deepStrictEqual((await inPg("SELECT id FROM domi.sessions ORDER BY id")).map((r) => r.id), [s.id], "the idle one is deleted");
+
+  // Signing out deletes it.
+  auth.endSession(back.id);
+  await live.sessionsSaved();
+  assert.strictEqual((await inPg("SELECT COUNT(*)::int AS n FROM domi.sessions"))[0].n, 0);
+  await live.stop();
+});
+
 test("a live practice is never evicted with the demos", opts, async () => {
   const before = sandbox.all().filter((s) => s.live).length;
   for (let i = 0; i < 3; i++) sandbox.create();
