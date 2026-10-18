@@ -12,14 +12,17 @@ const all = (sql, ...a) => db.prepare(sql).all(...a);
 const one = (sql, ...a) => db.prepare(sql).get(...a);
 
 // What can be measured, and which way is better. `measured`: Domi works it out; otherwise the office enters it weekly
-// (`entry` names what it types in). Miles come from the clinicians' mileage claims, the same source as the baseline,
+// (`entry` names what it types in). `pool`: a ratio, judged over the weeks' totals (so a quiet week doesn't count the
+// same as a busy one). `level`: the target is a figure to reach (80% refilled), not a percentage change. Miles come from the clinicians' mileage claims, the same source as the baseline,
 // never from Domi's planned routes (those are on Plan routes and the mileage report).
 const MEASURES = {
-  unfilledPerWeek: { label: "Cancelled slots left empty, per week", unit: "slots", better: "down", measured: true, dp: 1 },
+  // The share of cancelled slots someone else was booked into. Not "slots left empty a week": that falls whenever fewer
+  // people cancel, whatever the office does.
+  refillRate: { label: "Cancelled slots refilled", unit: "%", better: "up", measured: true, dp: 0, level: true, pool: ["refilled", "cancellations", 100] },
   // Every call logged on the call list (no answer, not interested, booked), over the slots refilled.
-  callsPerRefill: { label: "Phone calls to fill each cancelled slot", unit: "calls", better: "down", measured: true, dp: 1 },
+  callsPerRefill: { label: "Phone calls to fill each cancelled slot", unit: "calls", better: "down", measured: true, dp: 1, pool: ["calls", "refilled", 1] },
   officeHours: { label: "Office hours a week on scheduling and phoning round", unit: "hours", better: "down", measured: false, entry: "hours", dp: 1 },
-  milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: false, entry: "miles", dp: 1 },
+  milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: false, entry: "miles", dp: 1, pool: ["milesClaimed", "visits", 1] },
   visitsPerWeek: { label: "Visits done per week", unit: "visits", better: "up", measured: true, dp: 0 },
 };
 const WEEKS = 13; // the pilot runs three months
@@ -45,7 +48,7 @@ function save(input, user) {
         if (!MEASURES[k]) continue;
         if (v === "" || v == null) continue;
         const n = Number(v);
-        if (!Number.isFinite(n) || n < 0 || n > 10000) throw new svc.HttpError(400, `Enter a number for "${MEASURES[k].label}".`);
+        if (!Number.isFinite(n) || n < 0 || n > (MEASURES[k].unit === "%" ? 100 : 10000)) throw new svc.HttpError(400, `Enter a number for "${MEASURES[k].label}".`);
         b[k] = n;
       }
       next.baseline = b;
@@ -57,6 +60,7 @@ function save(input, user) {
         const pct = Number(x.pct);
         if (!Number.isFinite(pct) || pct <= 0 || pct > 100) throw new svc.HttpError(400, `Enter the improvement for "${MEASURES[x.key].label}" as a percentage.`);
         if (next.baseline[x.key] == null) throw new svc.HttpError(400, `Enter the baseline for "${MEASURES[x.key].label}" before setting its target.`);
+        if (MEASURES[x.key].level && pct <= next.baseline[x.key]) throw new svc.HttpError(400, `The target for "${MEASURES[x.key].label}" must be higher than the baseline.`);
         t.push({ key: x.key, pct });
       }
       if (t.length > 4) throw new svc.HttpError(400, "Agree up to four targets.");
@@ -116,20 +120,26 @@ function report() {
       week: w, from: cal.iso(from), to: cal.iso(to), label: `${cal.label(from)} – ${cal.label(to)}`, inProgress,
       // Per visit from the mileage claims the office entered.
       milesClaimed: c.miles[w] != null ? c.miles[w] : null, milesPerVisit: c.miles[w] != null && visits ? round(c.miles[w] / visits, 1) : null, visits,
-      cancellations: cancelled.length, refilled, unfilledPerWeek: cancelled.length - refilled, calls, callsPerRefill: refilled ? round(calls / refilled, 1) : null,
+      cancellations: cancelled.length, refilled, unfilledPerWeek: cancelled.length - refilled, refillRate: cancelled.length ? Math.round((refilled / cancelled.length) * 100) : null, calls, callsPerRefill: refilled ? round(calls / refilled, 1) : null,
       officeHours: c.hours[w] != null ? c.hours[w] : null, visitsPerWeek: visits,
     });
   }
-  // Each target is judged on the average of the last four complete weeks (fewer early on).
+  // Each target is judged on the last four complete weeks (fewer early on): the average, or for a ratio the weeks'
+  // totals divided (4 refilled of 5 cancelled, then 1 of 1, is 5 of 6, not the average of 80% and 100%).
   const complete = out.weeks.filter((x) => !x.inProgress).slice(-4);
-  for (const t of c.targets) {
+  for (const t of c.targets.filter((x) => MEASURES[x.key])) {
     const m = MEASURES[t.key], base = c.baseline[t.key];
     const vals = complete.map((x) => x[t.key]).filter((v) => v != null);
-    const now = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    const goal = m.better === "down" ? base * (1 - t.pct / 100) : base * (1 + t.pct / 100);
+    let now = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    if (m.pool && vals.length) {
+      const [num, den, k] = m.pool, used = complete.filter((x) => x[t.key] != null);
+      now = (used.reduce((a, x) => a + x[num], 0) / used.reduce((a, x) => a + x[den], 0)) * k;
+    }
+    const goal = m.level ? t.pct : m.better === "down" ? base * (1 - t.pct / 100) : base * (1 + t.pct / 100);
     const met = now == null ? null : m.better === "down" ? now <= goal : now >= goal;
-    const change = now == null || !base ? null : Math.round(((now - base) / base) * 100);
-    out.targets.push({ key: t.key, label: m.label, unit: m.unit, better: m.better, pct: t.pct, baseline: base, goal: round(goal, m.dp), now: round(now, m.dp), weeks: vals.length, change, met });
+    // A percentage moves in points; anything else as a percentage of the baseline.
+    const change = now == null ? null : m.unit === "%" ? Math.round(now - base) : !base ? null : Math.round(((now - base) / base) * 100);
+    out.targets.push({ key: t.key, label: m.label, unit: m.unit, better: m.better, level: !!m.level, pct: t.pct, baseline: base, goal: round(goal, m.dp), now: round(now, m.dp), weeks: vals.length, change, met });
   }
   out.status = !c.targets.length ? "no-targets" : out.targets.some((t) => t.met == null) ? "measuring" : out.targets.every((t) => t.met) ? "met" : "not-met";
   out.weeksComplete = out.weeks.filter((x) => !x.inProgress).length;
