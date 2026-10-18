@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS users (
   active INTEGER NOT NULL DEFAULT 1,               -- 0 = can't sign in (left the practice); kept for the audit trail
   office INTEGER NOT NULL DEFAULT 0                -- a clinician who also runs the practice (a director): office access too
 );
+CREATE TABLE IF NOT EXISTS diary_log (           -- diary changes to copy into another system (Opticabase), until it can sync
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id TEXT NOT NULL REFERENCES appointments(id),
+  change TEXT NOT NULL CHECK (change IN ('booked','moved','cancelled','not-seen')),
+  at TEXT NOT NULL,                                 -- when it changed: YYYY-MM-DD HH:MM, UK time
+  patient_id TEXT NOT NULL, visit_date TEXT NOT NULL, visit_time TEXT NOT NULL, clinician TEXT NOT NULL, type TEXT NOT NULL,
+  was_date TEXT, was_time TEXT, was_clinician TEXT, -- a move: where it was before
+  reason TEXT, copied_at TEXT, copied_by TEXT
+);
 CREATE TABLE IF NOT EXISTS confirmations (       -- confirmation calls (CC1-CC3), one row per call made
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   appointment_id TEXT NOT NULL REFERENCES appointments(id),
@@ -187,7 +196,7 @@ const ADDED_COLUMNS = [
   ["leads", "dob", "TEXT"],
   ["leads", "pc_from", "TEXT"],
 ];
-const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
+const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "diary_log", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
 function openDb(brand = brands.get(), { empty = false } = {}) {

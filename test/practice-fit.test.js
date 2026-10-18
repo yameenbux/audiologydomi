@@ -238,9 +238,149 @@ test("Opticabase: its export imports with the ID, the home-visit reason, the nex
   assert.strictEqual((rec.patient || rec).nhsFrom.iso, "2026-10-21", "a month before the next exam, plus a day");
   // Importing the same export again finds them by their ID.
   const again = await call("POST", "/api/import/preview", o.token, { csv });
-  assert.ok(again.data.rows.every((x) => x.status === "duplicate"));
+  assert.ok(again.data.rows.every((x) => x.status === "same"), "the same export again: everyone already up to date");
   // The ID is unique within the practice.
   assert.strictEqual((await call("PUT", "/api/patients/p5", o.token, { obId: "30111" })).status, 409);
+});
+
+test("Opticabase every morning: the same export again adds new patients, updates changed ones by ID, and never doubles anyone", async () => {
+  const o = await office();
+  const H = "ID,Title,Last Name,Name,DOB,Address,Post code,Phone,Mobile,E-Mail,Domi Reason,NHS No,Next Exam";
+  const day1 = [H,
+    "40001,Mrs,Whittle,Joan,14/03/1938,12 Weetwood Lane,LS16 5NX,,07700 900401,,Dementia: can't go out alone,9990001111,20/11/2026",
+    "40002,Mr,Ashworth,Frank,02/07/1941,3 Otley Road,LS6 4DH,0113 555 0124,,,After a stroke,,05/10/2026"].join("\n");
+  assert.strictEqual((await call("POST", "/api/import/commit", o.token, { csv: day1 })).data.imported, 2);
+  // Next morning: Joan has moved and has a new mobile; Frank is unchanged; Ivy is new; a row reuses Frank's ID
+  // for someone with a different date of birth; and Joan's row has an empty email, which must not blank anything.
+  const day2 = [H,
+    "40001,Mrs,Whittle,Joan,14/03/1938,4 Moor Grange View,LS16 5JQ,,07700 900499,,Dementia: can't go out alone,9990001111,20/11/2026",
+    "40002,Mr,Ashworth,Frank,02/07/1941,3 Otley Road,LS6 4DH,0113 555 0124,,,After a stroke,,05/10/2026",
+    "40003,Mrs,Pickles,Ivy,09/09/1936,8 Church Lane,LS27 9AB,,07700 900403,,Parkinson's,,",
+    "40002,Mr,Ashworth,Francis,11/11/1950,9 Other Road,LS6 1AA,,07700 900777,,,,"].join("\n");
+  const pv = (await call("POST", "/api/import/preview", o.token, { csv: day2 })).data;
+  assert.deepStrictEqual(pv.rows.map((r) => r.status), ["update", "same", "ready", "conflict"]);
+  assert.deepStrictEqual(pv.rows[0].changes.map((c) => c.field), ["addr", "pc", "phone"]);
+  assert.strictEqual(pv.rows[0].changes[0].to, "4 Moor Grange View");
+  assert.match(pv.rows[3].conflict, /born 1941-07-02/);
+  assert.deepStrictEqual({ ready: pv.counts.ready, update: pv.counts.update, same: pv.counts.same, conflict: pv.counts.conflict }, { ready: 1, update: 1, same: 1, conflict: 1 });
+
+  const done = (await call("POST", "/api/import/commit", o.token, { csv: day2 })).data;
+  assert.deepStrictEqual({ imported: done.imported, updated: done.updated, same: done.same, conflicts: done.conflicts }, { imported: 1, updated: 1, same: 1, conflicts: 1 });
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const joans = st.patients.filter((p) => p.obId === "40001");
+  assert.strictEqual(joans.length, 1, "Joan once, not twice");
+  assert.strictEqual(joans[0].addr, "4 Moor Grange View"); assert.strictEqual(joans[0].pc, "LS16 5JQ");
+  assert.strictEqual(joans[0].phone.replace(/\s/g, ""), "07700900499");
+  assert.strictEqual(joans[0].eligibility, "Dementia: can't go out alone", "an unchanged field stays");
+  assert.strictEqual(st.patients.find((p) => p.obId === "40002").name, "Frank Ashworth", "the mismatched row changed nothing");
+  const rec = (await call("GET", `/api/patients/${joans[0].id}`, o.token)).data;
+  assert.ok(rec.history.some((n) => n.label === "Updated from Opticabase" && /address, postcode, phone/.test(n.body)));
+
+  // A patient added in Domi by hand, without an ID, is found by phone and given their Opticabase ID: not doubled.
+  const hand = (await call("POST", "/api/patients", o.token, { name: "Wilfred Oddie", addr: "22 Kirk Lane", pc: "LS6 4FH", phone: "07700 900404" })).data.patient;
+  const day3 = [H, "40004,Mr,Oddie,Wilfred,,22 Kirk Lane,LS6 4FH,,07700 900404,,,,"].join("\n");
+  const p3 = (await call("POST", "/api/import/preview", o.token, { csv: day3 })).data;
+  assert.strictEqual(p3.rows[0].status, "update");
+  assert.deepStrictEqual(p3.rows[0].changes.map((c) => c.field), ["obId"]);
+  await call("POST", "/api/import/commit", o.token, { csv: day3 });
+  const after = (await call("GET", "/api/state", o.token)).data.patients.filter((p) => p.name === "Wilfred Oddie");
+  assert.strictEqual(after.length, 1); assert.strictEqual(after[0].id, hand.id); assert.strictEqual(after[0].obId, "40004");
+});
+
+test("phone mode: a cancellation gives the office a call list, nobody is texted, and rung patients drop off", async () => {
+  const o = await office();
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { mode: "phone" })).status, 200);
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const offersBefore = st.messages.filter((m) => m.kind === "offer").length;
+  const a = st.appts.find((x) => x.day === 3 && x.status === "booked");
+  const r = (await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" })).data;
+  assert.strictEqual(r.outcome, "call-list");
+  const after = (await call("GET", "/api/state", o.token)).data;
+  assert.strictEqual(after.messages.filter((m) => m.kind === "offer").length, offersBefore, "nobody texted an offer");
+
+  const g = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  assert.strictEqual(g.mode, "phone");
+  const ok = g.candidates.filter((c) => c.ok);
+  assert.ok(ok.length >= 2, "at least two people to ring");
+  // First: no answer. Second: not interested. Both drop off this slot's list and show as rung.
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: ok[0].waitlistId, outcome: "no-answer" })).status, 200);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: ok[1].waitlistId, outcome: "declined" })).status, 200);
+  const g2 = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  assert.ok(!g2.candidates.some((c) => c.waitlistId === ok[0].waitlistId || c.waitlistId === ok[1].waitlistId));
+  assert.deepStrictEqual(g2.rung.map((x) => x.outcome), ["No answer", "Not interested"]);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: ok[0].waitlistId, outcome: "maybe" })).status, 400);
+  // The third says yes.
+  const next = g2.candidates.find((c) => c.ok);
+  const b = await call("POST", `/api/gaps/${a.id}/book`, o.token, { waitlistId: next.waitlistId });
+  assert.strictEqual(b.status, 200, JSON.stringify(b.data));
+  assert.strictEqual(b.data.start, a.start);
+});
+
+test("phone mode: an NHS sight test can't be offered a slot inside PCSE's notice; repairs and deliveries can", async () => {
+  const o = await office();
+  await call("PUT", "/api/settings", o.token, { mode: "phone" });
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const a = st.appts.find((x) => x.day === 1 && x.status === "booked");
+  await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" });
+  const g = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  const nhs = g.candidates.filter((c) => c.type === "sight");
+  assert.ok(nhs.length, "someone on the list is waiting for an NHS sight test");
+  assert.ok(nhs.every((c) => !c.ok && /PCSE/.test(c.reason)), "none of them can take tomorrow's slot");
+  assert.ok(g.candidates.filter((c) => c.ok).every((c) => c.type !== "sight"));
+});
+
+test("pilot: the baseline and targets are saved, each week is measured from the diary, and only the office sees it", async () => {
+  const o = await office();
+  const empty = (await call("GET", "/api/pilot", o.token)).data;
+  assert.strictEqual(empty.config.start, null); assert.deepStrictEqual(empty.weeks, []);
+  // A target needs its baseline first.
+  assert.strictEqual((await call("PUT", "/api/pilot", o.token, { start: "2026-10-12", baseline: {}, targets: [{ key: "milesPerVisit", pct: 10 }] })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/pilot", o.token, { start: "12/10/2026" })).status, 400);
+  const r = await call("PUT", "/api/pilot", o.token, { start: "2026-10-12", agreedBy: "Zain, office manager",
+    baseline: { milesPerVisit: 9.5, unfilledPerWeek: 4, officeHours: 12 }, targets: [{ key: "milesPerVisit", pct: 10 }, { key: "officeHours", pct: 25 }] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+  const d = r.data;
+  assert.strictEqual(d.weeks.length, 1); assert.ok(d.weeks[0].inProgress, "week 1 is this week");
+  assert.ok(d.weeks[0].visits > 0, "today's visits count");
+  assert.ok(d.weeks[0].milesPerVisit > 0, "miles from today's routes");
+  assert.deepStrictEqual(d.targets.map((t) => [t.key, t.goal]), [["milesPerVisit", 8.6], ["officeHours", 9]]);
+  assert.strictEqual(d.status, "measuring", "nothing is judged on a week that isn't finished");
+  // A cancellation this week shows as cancelled and left empty until someone is booked in.
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const a = st.appts.find((x) => x.day === 2 && x.status === "booked");
+  await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" });
+  const w1 = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
+  assert.strictEqual(w1.cancellations, 1); assert.strictEqual(w1.unfilledPerWeek, 1);
+  // The office records its own hours each week.
+  assert.strictEqual((await call("PUT", "/api/pilot/hours", o.token, { week: 1, hours: "8.5" })).status, 200);
+  assert.strictEqual((await call("PUT", "/api/pilot/hours", o.token, { week: 1, hours: "lots" })).status, 400);
+  assert.strictEqual((await call("GET", "/api/pilot", o.token)).data.weeks[0].officeHours, 8.5);
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  assert.strictEqual((await call("GET", "/api/pilot", amira.token)).status, 403);
+});
+
+test("copy to Opticabase: every booking, move and cancellation is listed with the Opticabase ID, then ticked off", async () => {
+  const o = await office();
+  assert.deepStrictEqual((await call("GET", "/api/diary-changes", o.token)).data.todo, [], "a fresh demo has nothing to copy");
+  await call("PUT", "/api/patients/p9", o.token, { obId: "51234" });
+  const slot = (await call("POST", "/api/slots", o.token, { patientId: "p9", type: "repair", avail: "any", date: "2026-10-19" })).data.slots[0];
+  const b = (await call("POST", "/api/bookings", o.token, { patientId: "p9", type: "repair", avail: "any", clinicianId: slot.clinicianId, day: slot.day, start: slot.start })).data;
+  const opts = (await call("POST", `/api/appointments/${b.appointmentId}/move-options`, o.token, {})).data.slots;
+  const to = opts.find((x) => x.day !== slot.day || x.start !== slot.start);
+  assert.strictEqual((await call("POST", `/api/appointments/${b.appointmentId}/move`, o.token, { clinicianId: to.clinicianId, day: to.day, start: to.start })).status, 200);
+  await call("POST", `/api/appointments/${b.appointmentId}/cancel`, o.token, { reason: "Patient asked to rebook" });
+  const d = (await call("GET", "/api/diary-changes", o.token)).data;
+  assert.deepStrictEqual(d.todo.map((x) => x.change), ["booked", "moved", "cancelled"]);
+  assert.ok(d.todo.every((x) => x.obId === "51234"), "each carries the Opticabase ID to find them by");
+  const moved = d.todo[1];
+  assert.strictEqual(moved.wasDate, "2026-10-19"); assert.strictEqual(moved.wasTime, `${String(Math.floor(slot.start / 60)).padStart(2, "0")}:${String(slot.start % 60).padStart(2, "0")}`);
+  assert.strictEqual(d.todo[2].reason, "Patient asked to rebook");
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.diaryTodo, 3);
+  assert.strictEqual((await call("POST", "/api/diary-changes/copied", o.token, { ids: [] })).status, 400);
+  assert.strictEqual((await call("POST", "/api/diary-changes/copied", o.token, { ids: d.todo.map((x) => x.id) })).data.copied, 3);
+  const after = (await call("GET", "/api/diary-changes", o.token)).data;
+  assert.strictEqual(after.todo.length, 0); assert.strictEqual(after.done.length, 3);
+  assert.ok(after.done.every((x) => x.copiedBy));
 });
 
 test("Facebook leads: their form's street address and date of birth are kept, and a postcode is found in the address", async () => {

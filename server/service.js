@@ -235,6 +235,34 @@ function completePcse(id, user) {
   });
 }
 
+/**
+ * Every booking, move, cancellation and not-seen visit, kept for the office to copy into Opticabase's diary while
+ * the two systems can't talk to each other. A snapshot: the dates are real dates, so they never need rolling.
+ */
+function diaryLog(change, a, { was = null, reason = null } = {}) {
+  run("INSERT INTO diary_log (appointment_id, change, at, patient_id, visit_date, visit_time, clinician, type, was_date, was_time, was_clinician, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    a.id, change, `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`, a.patientId, cal.iso(a.day), hm(a.start), getClinician(a.clinicianId).name, TYPES[a.type].name,
+    was ? cal.iso(was.day) : null, was ? hm(was.start) : null, was ? was.clinician : null, reason);
+}
+/** Diary changes still to copy across (oldest first), and the latest ones already copied. */
+function diaryChanges() {
+  const row = (r) => { const p = getPatient(r.patient_id) || {}; return { id: r.id, appointmentId: r.appointment_id, change: r.change, at: r.at, obId: p.obId || null, patient: p.name, dob: p.dob || null, pc: p.pc,
+    visitDate: r.visit_date, visitTime: r.visit_time, clinician: r.clinician, type: r.type, wasDate: r.was_date, wasTime: r.was_time, wasClinician: r.was_clinician, reason: r.reason, copiedAt: r.copied_at, copiedBy: r.copied_by }; };
+  return { todo: all("SELECT * FROM diary_log WHERE copied_at IS NULL ORDER BY id").map(row), done: all("SELECT * FROM diary_log WHERE copied_at IS NOT NULL ORDER BY id DESC LIMIT 50").map(row) };
+}
+/** The office has put these changes into Opticabase: tick them off. */
+function markDiaryCopied(ids, user) {
+  return tx(() => {
+    const list = Array.isArray(ids) ? ids.map(Number).filter(Number.isInteger) : [];
+    if (!list.length) throw new HttpError(400, "Choose the changes you've copied.");
+    const at = `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`;
+    let n = 0;
+    for (const id of list) n += run("UPDATE diary_log SET copied_at = ?, copied_by = ? WHERE id = ? AND copied_at IS NULL", at, user.name, id).changes;
+    audit(user.name, "diary.copied", "diary_log", `${n} diary change${n === 1 ? "" : "s"} copied to Opticabase`);
+    bus.emit({ type: "appointment.updated" });
+    return { copied: n };
+  });
+}
 const declinedFor = (slotId) => all("SELECT waitlist_id FROM offers WHERE slot_id = ? AND status IN ('declined','expired')", slotId).map((r) => r.waitlist_id);
 const pendingFor = (slotId) => all("SELECT * FROM offers WHERE slot_id = ? AND status = 'pending'", slotId);
 
@@ -252,6 +280,7 @@ function cancelAppointment(id, reason, actor, { byText = false, byLink = false }
     run("UPDATE appointments SET status = 'cancelled', reason = ?, cancelled_min = ? WHERE id = ?", reason, sandbox.nowMin(), id);
     audit(actor, "appointment.cancel", id, `${p.name} at ${hm(a.start)}: ${reason}`);
     pcseTask("cancel", a, p); // PCSE must be told an NHS visit won't happen, or the claim won't match
+    diaryLog("cancelled", a, { reason });
     textPatient(p, { kind: "cancellation", body: byText || byLink
       ? `Thanks ${first(p.name)}, we've cancelled your visit ${when(a.day, a.start)}. We'll be in touch to rebook. ${practice()}`
       : `Hi ${first(p.name)}, your visit ${when(a.day, a.start)} has been cancelled (${reason.toLowerCase()}). We'll be in touch to rebook. ${practice()}` });
@@ -277,6 +306,14 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
     return { outcome: "unfilled", why, slotId, clinicianId: slot.clinicianId, day: slot.day, start: slot.start, candidates: [], plan: { mode: "none" } };
   }
   const { clinician, window, candidates } = rank(slot, declinedFor(slotId));
+  // Phone mode: nobody is texted. The office gets the ranked list to ring, straight away.
+  if (settings().mode === "phone") {
+    const callable = candidates.filter((c) => c.ok);
+    const why = callable.length ? `Ring the list: ${callable.length} ${callable.length === 1 ? "person fits" : "people fit"}, best match first` : "Nobody suitable on the waiting list";
+    run("UPDATE appointments SET gap = 1 WHERE id = ?", slotId);
+    audit(actor, "slot.call-list", slotId, `${cal.label(slot.day)} ${hm(slot.start)}: ${callable.length} to ring`);
+    return { outcome: "call-list", why, slotId, clinicianId: slot.clinicianId, clinician: clinician.name, day: slot.day, start: slot.start, window, candidates: candidates.slice(0, 8), plan: { mode: "phone" }, now: sandbox.nowMin() };
+  }
   const eligible = candidates.filter((c) => c.ok && !c.byPhone); // phone-only patients are rung by the office, never texted
   const ringable = candidates.filter((c) => c.ok && c.byPhone);
   const now = sandbox.nowMin();
@@ -335,6 +372,7 @@ function book(slot, waitlistId, offerId, actor, how = offerId ? "offer" : "insta
     id, slot.clinicianId, p.id, w.type, slot.day, slot.start, slot.drive, note, sandbox.nowMin(), slot.id, w.source === "recall" ? "recall" : sourceFor(p.id));
   run("UPDATE appointments SET gap = 0 WHERE id = ?", slot.id);
   pcseTask("lodge", getAppt(id), p);
+  diaryLog("booked", getAppt(id), { reason: `Refilled ${old.name}'s cancelled visit` });
   run("UPDATE waitlist SET status = 'booked' WHERE id = ?", waitlistId);
   run("UPDATE recalls SET status = 'booked' WHERE waitlist_id = ?", waitlistId);
   if (offerId) run("UPDATE offers SET status = 'accepted', booked_appointment_id = ? WHERE id = ?", id, offerId);
@@ -812,6 +850,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
   if (after) run("UPDATE appointments SET drive = ? WHERE id = ?", slot.driveOut, after.id);
   pcseTask("lodge", getAppt(id), p);
+  diaryLog("booked", getAppt(id), { reason: by === "the office" ? null : "Booked online by the patient" });
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
   run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
   addNote(p.id, `Booked by ${by} for ${cal.label(day)} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
@@ -823,7 +862,12 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
 }
 
 /* ---------- Importing patients from a spreadsheet ---------- */
-const existingPatients = () => all("SELECT name, pc, phone, dob FROM patients");
+/** Patients already on Domi, with what an import compares and can update. Erased records are left out. */
+const existingPatients = () => all("SELECT id, name, pc, phone, dob, addr, email, eligibility, rep, last_test, next_exam, recall_months, ob_id, nhs_no, premises FROM patients WHERE erased = 0")
+  .map((r) => ({ id: r.id, name: r.name, pc: r.pc, phone: r.phone, dob: r.dob, addr: r.addr, email: r.email, eligibility: r.eligibility, rep: r.rep,
+    lastTest: r.last_test, nextExam: r.next_exam, recallMonths: r.recall_months, obId: r.ob_id, nhsNo: r.nhs_no, premises: r.premises }));
+const IMPORT_COLS = { name: "name", dob: "dob", addr: "addr", pc: "pc", phone: "phone", email: "email", eligibility: "eligibility", rep: "rep",
+  lastTest: "last_test", nextExam: "next_exam", recallMonths: "recall_months", nhsNo: "nhs_no", premises: "premises", obId: "ob_id" };
 function checkImport(input) {
   const region = sandbox.current().brand.region;
   try { return importer.check(input.csv, input.mapping, existingPatients(), { townOf: (d) => regions.townOf(region, d) }); }
@@ -835,7 +879,8 @@ function previewImport(input) {
   const r = checkImport(input);
   return { fields: importer.FIELDS, headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
     rows: r.rows.map((x) => ({ line: x.line, status: x.status, name: x.patient.name, pc: x.patient.pc, phone: x.patient.phone, age: x.patient.age,
-      errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null })) };
+      errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null,
+      changes: x.changes, conflict: x.conflict || null })) };
 }
 
 /**
@@ -847,8 +892,20 @@ function commitImport(input, user) {
   return tx(() => {
     const r = checkImport(input);
     if (r.missing.length) throw new HttpError(400, `Choose which column holds ${r.missing.join(" and ")}.`);
-    const ready = r.rows.filter((x) => x.status === "ready");
-    if (!ready.length) throw new HttpError(400, "There's nothing to import: every row has a problem or is already on Domi.");
+    const ready = r.rows.filter((x) => x.status === "ready"), updates = r.rows.filter((x) => x.status === "update");
+    if (!ready.length && !updates.length) throw new HttpError(400, "There's nothing to import: every row is already up to date on Domi, or has a problem.");
+    // Patients already on Domi: only what changed in Opticabase is written, and the record says so.
+    let updated = 0, skipped = 0;
+    for (const row of updates) {
+      const cur = one("SELECT id, erased FROM patients WHERE id = ?", row.patientId);
+      const nhs = row.changes.find((c) => c.field === "nhsNo");
+      if (!cur || cur.erased || (nhs && one("SELECT 1 FROM patients WHERE nhs_no = ? AND id != ?", nhs.to, cur.id))) { skipped++; continue; }
+      for (const c of row.changes) run(`UPDATE patients SET ${IMPORT_COLS[c.field]} = ? WHERE id = ?`, c.field === "recallMonths" ? Number(c.to) : c.to, cur.id);
+      if (row.changes.some((c) => c.field === "dob")) run("UPDATE patients SET age = ? WHERE id = ?", row.patient.age, cur.id);
+      run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", cur.id, "Updated from Opticabase",
+        `Changed by the import: ${row.changes.map((c) => c.label).join(", ")}.`, user.name, sandbox.stamp());
+      updated++;
+    }
     let recalls = 0;
     const seq = one("SELECT COALESCE(MAX(added_seq), 0) AS s FROM waitlist").s;
     for (const row of ready) {
@@ -865,9 +922,9 @@ function commitImport(input, user) {
       }
     }
     // Counts only: patient details never go into the audit log or the event stream.
-    audit(user.name, "patients.import", "patients", `${ready.length} imported, ${r.counts.duplicate} duplicates and ${r.counts.error} with errors skipped, ${recalls} recalls`);
-    bus.emit({ type: "patients.imported", count: ready.length });
-    return { imported: ready.length, duplicates: r.counts.duplicate, errors: r.counts.error, recalls };
+    audit(user.name, "patients.import", "patients", `${ready.length} imported, ${updated} updated, ${r.counts.same} unchanged, ${r.counts.conflict + skipped} not matched, ${r.counts.duplicate} duplicates and ${r.counts.error} with errors skipped, ${recalls} recalls`);
+    bus.emit({ type: "patients.imported", count: ready.length + updated });
+    return { imported: ready.length, updated, same: r.counts.same, conflicts: r.counts.conflict + skipped, duplicates: r.counts.duplicate, errors: r.counts.error, recalls };
   });
 }
 
@@ -1238,7 +1295,7 @@ function saveSettings(input, user) {
     if (!list.length) throw new HttpError(400, "Leave at least one visit patients can book online, or take the booking link off your website.");
     next.online = ONLINE_TYPES.filter((k) => list.includes(k));
   }
-  if (has("mode")) { if (!["offer", "instant"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
+  if (has("mode")) { if (!["offer", "instant", "phone"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
   if (has("offerMinutes")) { const n = Number(input.offerMinutes); if (!(Number.isInteger(n) && n >= 1 && n <= 240)) throw new HttpError(400, "The reply window must be between 1 and 240 minutes."); next.offerMinutes = n; }
   if (has("autoRecalls")) { if (typeof input.autoRecalls !== "boolean") throw new HttpError(400, "Turn automatic recall texts on or off."); next.autoRecalls = input.autoRecalls; }
   // How far ahead bookings can go, in days: the office (up to 2 years), patients online, and gaps offered by text.
@@ -1394,6 +1451,7 @@ async function moveAppointment(id, input, user) {
     redrive(old.id, a.day); redrive(c.id, day);
     // PCSE's notification is for a date and time: cancel the old one and lodge the new.
     pcseTask("cancel", a, p); pcseTask("lodge", getAppt(a.id), p);
+    if (moving || old.id !== c.id) diaryLog("moved", getAppt(a.id), { was: { day: a.day, start: a.start, clinician: old.name } });
     const was = `${cal.label(a.day)} ${hm(a.start)}`;
     textPatient(p, { kind: "time-change", body: `Hi ${first(p.name)}, it's ${practice()}. Your home visit has moved to ${when(day, start)} with ${c.first} (was ${cal.phrase(a.day).replace(/^on /, "")} at ${hm(a.start)}). Reply CANCEL if that doesn't suit.` });
     sendSms({ to: "clinician", name: old.name, kind: "diary-change", toClinicianId: old.id, body: old.id === c.id
@@ -1463,6 +1521,7 @@ function notDone(id, input, user) {
     const p = getPatient(a.patientId), c = getClinician(a.clinicianId), note = clean(input.note, 1000);
     run("UPDATE appointments SET status = 'missed', seen = 1, reason = ? WHERE id = ?", reason, a.id);
     pcseTask("cancel", a, p);
+    diaryLog("not-seen", a, { reason });
     addNote(p.id, `${reason} when ${c.first} called at ${hm(a.start)}.${note ? " " + note : ""}`, user, { silent: true });
     let rebooked = null;
     if (input.rebook !== false) {
@@ -1496,9 +1555,26 @@ const freedSlot = (id) => {
 };
 /** Who on the waiting list could take a freed slot, best first, including people who asked to be phoned. */
 function gapCandidates(id) {
-  const slot = freedSlot(id), { clinician, window, candidates } = rank(slot, []);
+  const slot = freedSlot(id), { clinician, window, candidates } = rank(slot, declinedFor(id));
   const pending = pendingFor(slot.id).map((o) => map.wait(one("SELECT * FROM waitlist WHERE id = ?", o.waitlist_id)).patientId);
-  return { slotId: slot.id, clinicianId: clinician.id, clinician: clinician.name, day: slot.day, start: slot.start, type: slot.type, window, candidates, offeredTo: pending.map((pid) => getPatient(pid).name) };
+  // Who the office has already rung for this slot, so nobody is rung twice.
+  const rung = all("SELECT o.status, o.deadline, w.patient_id FROM offers o JOIN waitlist w ON w.id = o.waitlist_id WHERE o.slot_id = ? AND o.status = 'declined' AND o.round = 0 ORDER BY o.id", slot.id)
+    .map((r) => ({ name: getPatient(r.patient_id).name, outcome: r.deadline === "no-answer" ? "No answer" : "Not interested" }));
+  return { slotId: slot.id, clinicianId: clinician.id, clinician: clinician.name, day: slot.day, start: slot.start, type: slot.type, window, candidates, offeredTo: pending.map((pid) => getPatient(pid).name), rung, mode: settings().mode };
+}
+/** The office rang someone on the list: no answer, or they don't want it. They drop off the list for this slot only. */
+function skipCandidate(id, waitlistId, outcome, user) {
+  return tx(() => {
+    const slot = freedSlot(id);
+    if (!["no-answer", "declined"].includes(outcome)) throw new HttpError(400, "Choose no answer or not interested.");
+    const w = one("SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'", String(waitlistId || ""));
+    if (!w) throw new HttpError(409, "They're no longer waiting.");
+    // Kept with the slot's offers (round 0: rung by the office, not texted), so ranking leaves them out next time.
+    run("INSERT INTO offers (slot_id, waitlist_id, status, round, sent_at, expires_at, deadline) VALUES (?, ?, 'declined', 0, ?, ?, ?)", slot.id, w.id, Date.now(), Date.now(), outcome);
+    audit(user.name, "call-list." + outcome, slot.id, `${getPatient(w.patient_id).name}: ${outcome === "no-answer" ? "no answer" : "not interested"} for ${cal.label(slot.day)} ${hm(slot.start)}`);
+    bus.emit({ type: "slot.unfilled", slotId: slot.id });
+    return { ok: true };
+  });
 }
 /** The office rang someone (usually a patient who can't take texts) and they said yes: book them straight in. */
 function bookCandidate(id, waitlistId, user) {
@@ -1693,4 +1769,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

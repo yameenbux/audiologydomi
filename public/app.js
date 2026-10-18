@@ -237,6 +237,7 @@ function onEvent(type, e) {
   if (type === "refill.started") {
     if (e.cancelled && e.cancelled.byText) toast(`${e.cancelled.patient} texted to cancel. Refilling ${hm(e.start)}.`);
     if (e.cancelled && e.cancelled.byLink) toast(`${e.cancelled.patient}'s visit was cancelled online. Refilling ${hm(e.start)}.`);
+    if (e.outcome === "call-list") { openCallList(e.slotId); return; }
     if (!UI.flow || UI.flow.slotId !== e.slotId) { UI.flow = flowFrom(e); openDrawer({ kind: "flow" }); }
     return;
   }
@@ -893,7 +894,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -923,6 +924,13 @@ async function syncPage() {
   } else if (r.page === "calls") {
     const keep = UI.pg && UI.pg.kind === "calls" ? UI.pg.stage : null;
     UI.pg = { kind: "calls", stage: keep, data: await api("GET", "/api/calls").catch(() => null) };
+  } else if (r.page === "opticabase") {
+    const keep = UI.pg && UI.pg.kind === "opticabase" ? UI.pg : null;
+    UI.pg = { kind: "opticabase", tab: keep ? keep.tab : "todo", data: await api("GET", "/api/diary-changes").catch(() => (keep && keep.data) || null) };
+  } else if (r.page === "pilot") {
+    const keep = UI.pg && UI.pg.kind === "pilot" ? UI.pg : null;
+    UI.pg = { kind: "pilot", edit: keep ? keep.edit : false, data: await api("GET", "/api/pilot").catch(() => (keep && keep.data) || null) };
+    if (UI.pg.data && !UI.pg.data.config.start) UI.pg.edit = true;
   } else if (r.page === "pvn") {
     const keep = UI.pg && UI.pg.kind === "pvn" ? UI.pg.tab : null;
     UI.pg = { kind: "pvn", tab: keep, data: await api("GET", "/api/pvn").catch(() => (UI.pg && UI.pg.data) || null) };
@@ -958,7 +966,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "pilot" ? pilotPage() : p === "opticabase" ? opticabasePage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -968,11 +976,82 @@ function sideNav() {
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
-    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("opticabase", "copy", "Copy to Opticabase", S.diaryTodo || 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
 }
+/* ---------- Diary changes to copy into Opticabase (until the two systems can sync) ---------- */
+const CHANGE_UI = { booked: ["b-ok", "Booked"], moved: ["b-forest", "Moved"], cancelled: ["b-crit", "Cancelled"], "not-seen": ["b-warn", "Not seen"] };
+const ukDate = (iso) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "");
+function diaryCsv(rows) {
+  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const head = ["Changed", "Change", "Opticabase ID", "Patient", "Date of birth", "Postcode", "Visit date", "Visit time", "Clinician", "Visit type", "Was date", "Was time", "Was clinician", "Reason"];
+  return [head, ...rows.map((r) => [r.at, CHANGE_UI[r.change][1], r.obId, r.patient, r.dob, r.pc, r.visitDate, r.visitTime, r.clinician, r.type, r.wasDate, r.wasTime, r.wasClinician, r.reason])].map((x) => x.map(q).join(",")).join("\r\n");
+}
+function opticabasePage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Copy to Opticabase",
+    lead: "Every visit booked, moved, cancelled or not seen in Domi, listed so the office can make the same change in the Opticabase diary. Tick each one off once it's done. Opticabase and Domi can't talk to each other directly yet, so this keeps the two diaries the same.",
+    actions: d && d.todo.length ? `<button class="btn secondary" type="button" data-act="diary-csv">${icon("copy")}Download as a spreadsheet</button>` : "" });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const tab = g.tab || "todo", list = tab === "todo" ? d.todo : d.done;
+  const tabs = `<div class="seg calls-tabs" role="tablist" aria-label="Which changes"><button type="button" role="tab" data-act="diary-tab" data-v="todo" aria-pressed="${tab === "todo"}">To copy<span class="mono">${d.todo.length}</span></button><button type="button" role="tab" data-act="diary-tab" data-v="done" aria-pressed="${tab === "done"}">Copied<span class="mono">${d.done.length}</span></button></div>`;
+  const row = (r) => `<tr>
+    <td><span class="badge ${CHANGE_UI[r.change][0]}">${CHANGE_UI[r.change][1]}</span><div class="muted" style="font-size:12px;margin-top:3px">${esc(r.at.slice(11))}${r.at.slice(0, 10) !== (calDay(0) || {}).iso ? ` · ${esc(ukDate(r.at.slice(0, 10)))}` : ""}</div></td>
+    <td><b>${esc(r.patient || "")}</b><div class="muted mono" style="font-size:12px">${r.obId ? `Opticabase ${esc(r.obId)}` : `<span class="late">No Opticabase ID</span>`}${r.dob ? ` · ${esc(r.dob.split("-").reverse().join("/"))}` : ""}</div></td>
+    <td><b>${esc(ukDate(r.visitDate))} ${esc(r.visitTime)}</b><div class="muted">${esc(r.clinician)} · ${esc(r.type)}</div>${r.change === "moved" ? `<div class="muted" style="font-size:12px">Was ${esc(ukDate(r.wasDate))} ${esc(r.wasTime)}${r.wasClinician !== r.clinician ? ` with ${esc(r.wasClinician)}` : ""}</div>` : ""}</td>
+    <td class="muted" style="font-size:13px">${esc(r.reason || "")}</td>
+    <td>${tab === "todo" ? `<button class="btn secondary sm" type="button" data-act="diary-copied" data-id="${r.id}">${icon("check")}Copied</button>` : `<span class="muted" style="font-size:12.5px">${esc(r.copiedBy || "")}, ${esc(r.copiedAt.slice(11))}</span>`}</td></tr>`;
+  return `<div class="pg">${head}${tabs}
+    ${list.length ? `<section class="card"><div class="pvn-tw"><table class="pvn-t dl-t"><thead><tr><th>Change</th><th>Patient</th><th>Visit</th><th>Why</th><th></th></tr></thead><tbody>${list.map(row).join("")}</tbody></table></div>
+      ${tab === "todo" && list.length > 1 ? `<div class="form-f" style="padding:12px 0 0"><button class="btn" type="button" data-act="diary-copied-all">${icon("check")}All ${list.length} copied</button></div>` : ""}</section>`
+      : `<div class="empty"><b>${tab === "todo" ? "Opticabase is up to date" : "Nothing copied yet"}</b>${tab === "todo" ? "New bookings, moves and cancellations appear here as they happen." : "Changes you tick off appear here."}</div>`}
+  </div>`;
+}
+
+/* ---------- The pilot: baseline, targets, and what's measured each week ---------- */
+function pilotPage() {
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Pilot results",
+    lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Miles, visits and empty slots are worked out by Domi; office hours are what you record each week.",
+    actions: d && d.config.start && !g.edit ? `<button class="btn secondary" type="button" data-act="pilot-edit">${icon("gear")}Change baseline or targets</button>` : "" });
+  if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
+  const M = d.measures, c = d.config, fmt = (v, k) => v == null ? "–" : `${Number(v).toFixed(M[k].dp)}`;
+  if (g.edit) {
+    const tgt = (k) => (c.targets.find((t) => t.key === k) || {}).pct || "";
+    return `<div class="pg narrow">${head}
+      <form id="pilot-form" class="pg-form" novalidate data-keep-form>
+        <section class="card"><div class="card-h"><h2>Go-live</h2><p>Week 1 starts on this day. The pilot runs 13 weeks.</p></div>
+          <div class="row2"><div class="field"><label for="pl-start">Go-live date</label><input class="input" type="date" id="pl-start" value="${esc(c.start || "")}"></div>
+          <div class="field"><label for="pl-by">Agreed with</label><input class="input" id="pl-by" maxlength="80" value="${esc(c.agreedBy || "")}" placeholder="Name and role"></div></div></section>
+        <section class="card"><div class="card-h"><h2>Baseline and targets</h2><p>The baseline is your own figure from the 4 weeks before go-live. Tick up to four targets and how much better each must be. They decide whether the success fee is due at day 90.</p></div>
+          <table class="pl-set"><thead><tr><th>Measure</th><th>Baseline</th><th>Target</th></tr></thead><tbody>
+          ${Object.entries(M).map(([k, m]) => `<tr><td><b>${esc(m.label)}</b><div class="muted">${m.measured ? "Measured by Domi" : "Recorded by the office each week"} · ${m.better === "down" ? "lower is better" : "higher is better"}</div></td>
+            <td><input class="input sm" id="pl-b-${k}" inputmode="decimal" value="${esc(c.baseline[k] != null ? c.baseline[k] : "")}" aria-label="Baseline: ${esc(m.label)}"> <span class="muted">${esc(m.unit)}</span></td>
+            <td><label class="chk"><input type="checkbox" id="pl-t-${k}" ${tgt(k) ? "checked" : ""}><span>${m.better === "down" ? "down" : "up"} by</span></label> <input class="input sm" id="pl-p-${k}" inputmode="decimal" style="width:64px" value="${esc(tgt(k))}" aria-label="Target %: ${esc(m.label)}"> %</td></tr>`).join("")}
+          </tbody></table></section>
+        <div id="pl-err" aria-live="polite"></div>
+        <div class="form-f">${c.start ? `<button class="btn ghost" type="button" data-act="pilot-cancel">Cancel</button>` : ""}<button class="btn" type="submit">${icon("check")}Save</button></div>
+      </form></div>`;
+  }
+  const verdict = { "no-targets": ["plain", "No targets set yet"], measuring: ["apricot", `Measuring: ${d.weeksComplete} of 13 weeks complete`], met: ["ok", "On track: every target met"], "not-met": ["crit", "Not met yet"] }[d.status];
+  const cards = d.targets.map((t) => `<div class="pl-card ${t.met === true ? "ok" : t.met === false ? "no" : ""}">
+      <div class="caps">${esc(t.label)}</div>
+      <div class="pl-nums"><span><small>Before</small><b>${fmt(t.baseline, t.key)}</b></span><span class="arrow">→</span><span><small>Now${t.weeks ? ` (${t.weeks} wk avg)` : ""}</small><b>${fmt(t.now, t.key)}</b></span><span><small>Target</small><b>${fmt(t.goal, t.key)}</b></span></div>
+      <div class="pl-foot">${t.met == null ? `<span class="muted">Measured once a full week is done</span>` : `<span class="badge ${t.met ? "b-ok" : "b-crit"}">${t.met ? "Met" : "Not met"}</span>`}${t.change != null ? `<span class="muted">${t.change > 0 ? "+" : ""}${t.change}% vs before · target ${t.better === "down" ? "−" : "+"}${t.pct}%</span>` : ""}</div></div>`).join("");
+  const row = (w) => `<tr class="${w.inProgress ? "pl-now" : ""}"><td><b>Week ${w.week}</b><div class="muted">${esc(w.label)}${w.inProgress ? " · so far" : ""}</div></td>
+    <td class="mono">${w.visits}</td><td class="mono">${fmt(w.milesPerVisit, "milesPerVisit")}</td><td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.unfilledPerWeek}</td>
+    <td><input class="input sm mono pl-hours" data-week="${w.week}" inputmode="decimal" value="${w.officeHours != null ? esc(w.officeHours) : ""}" placeholder="–" aria-label="Office hours, week ${w.week}"></td></tr>`;
+  return `<div class="pg">${head}
+    <div class="pl-top"><span class="badge b-${verdict[0]}">${esc(verdict[1])}</span><span class="muted">Go-live ${esc(new Date(c.start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }))}${c.agreedBy ? ` · agreed with ${esc(c.agreedBy)}` : ""} · success fee reviewed after week 13</span></div>
+    ${cards ? `<div class="pl-cards">${cards}</div>` : `<div class="callout">${icon("bolt")}<div>No targets yet. <button class="linkish" type="button" data-act="pilot-edit">Add the baseline and targets</button></div></div>`}
+    <section class="card" style="margin-top:18px"><div class="card-h"><h2>Week by week</h2><p>Miles come from the road routes of each day's visits. Empty slots are cancellations nobody was booked into. Type the office's hours for each week; they save as you go.</p></div>
+      ${d.weeks.length ? `<div class="pvn-tw"><table class="pvn-t pl-t"><thead><tr><th>Week</th><th>Visits</th><th>Miles / visit</th><th>Cancelled</th><th>Refilled</th><th>Left empty</th><th>Office hours</th></tr></thead><tbody>${d.weeks.map(row).join("")}</tbody></table></div>`
+        : `<div class="empty"><b>The pilot hasn't started</b>Week 1 begins on the go-live date.</div>`}
+    </section></div>`;
+}
+
 /* ---------- PCSE pre-visit notifications (GOS6 PVNs): an office job, not on the clinician's phone ---------- */
 const PVN_TABS = [["breach", "Breach risk"], ["todo", "To lodge"], ["early", "Too early to lodge"], ["notified", "Notified"], ["cancels", "Cancellations"]];
 const ERT_ORDER = ["1", "2", "3.1", "3.2", "3.3", "4.1", "4.2", "5.1", "5.2", "5.3", "6"];
@@ -1361,6 +1440,7 @@ function settingsPage() {
       <section class="card"><div class="card-h"><h2>When a visit is cancelled</h2><p>Domi picks the best-matched patients on the waiting list: urgency, area, how long they've waited and the extra driving.</p></div>
         <div class="choice2" role="radiogroup" aria-label="How cancelled visits are filled">
           <label class="choice"><input type="radio" name="set-mode" value="offer" ${st.mode === "offer" ? "checked" : ""}><span><b>${icon("send")}Text an offer</b><span>Patients reply YES to take it. The best match is asked first; when the visit is close, the top three are asked at once.</span></span></label>
+          <label class="choice"><input type="radio" name="set-mode" value="phone" ${st.mode === "phone" ? "checked" : ""}><span><b>${icon("phone")}Phone a call list</b><span>Nobody is texted. The office gets the waiting list ranked for that slot, best match first, with each number to ring and one click to book.</span></span></label>
           <label class="choice"><input type="radio" name="set-mode" value="instant" ${st.mode === "instant" ? "checked" : ""}><span><b>${icon("bolt")}Book instantly</b><span>The best match is booked straight in and told by text. Fastest, but nobody is asked first.</span></span></label></div>
         <div class="row2" style="margin-top:14px"><div class="field"><label for="set-om">Normal reply window</label><select class="input" id="set-om">${mins.map((m) => `<option value="${m}" ${m === st.offerMinutes ? "selected" : ""}>${m} minutes</option>`).join("")}</select><span class="hint after">Shorter when the visit is close.</span></div>
           ${sf("fee", "Your fee per visit (£)", st.fee, 'type="number" min="0" max="2000" step="1"', "Used to show what refilled cancellations are worth.")}</div>
@@ -1918,14 +1998,17 @@ function importDrawer() {
   const head = (cap, title) => `<div class="drawer-h"><div><div class="caps">${cap}</div><h2 style="margin-top:6px">${title}</h2></div>${closeX}</div>`;
   if (I.done) {
     const d = I.done;
-    return `${head("Import finished", `${d.imported} patient${d.imported === 1 ? "" : "s"} added`)}<div class="drawer-b">
+    return `${head("Import finished", [d.imported && `${d.imported} added`, d.updated && `${d.updated} updated`].filter(Boolean).join(", ") || "Nothing changed")}<div class="drawer-b">
       <ol class="steps">
-        <li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.imported} added to Domi</div><div class="sd">Each record notes it came from the spreadsheet. Search for them under Patients.</div></div></li>
+        ${d.imported ? `<li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.imported} added to Domi</div><div class="sd">Each record notes it came from the import. Search for them under Patients.</div></div></li>` : ""}
+        ${d.updated ? `<li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.updated} brought up to date</div><div class="sd">Only what changed in the file was written, and each record notes what changed.</div></div></li>` : ""}
+        ${d.same ? `<li class="step"><span class="ic">${icon("check")}</span><div><div class="st">${d.same} already up to date</div><div class="sd">Nothing to change.</div></div></li>` : ""}
+        ${d.conflicts ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.conflicts} not matched, left alone</div><div class="sd">Their Opticabase ID belongs to someone with a different date of birth on Domi. Check both records.</div></div></li>` : ""}
         ${d.recalls ? `<li class="step ok"><span class="ic">${icon("cal")}</span><div><div class="st">${d.recalls} due a sight test</div><div class="sd">They're on the recall list and in the refill pool, so a cancellation near them can go to them.</div></div></li>` : ""}
         ${d.duplicates ? `<li class="step"><span class="ic">${icon("copy")}</span><div><div class="st">${d.duplicates} skipped as already on Domi</div><div class="sd">Matched by mobile number, or name with postcode or date of birth.</div></div></li>` : ""}
         ${d.errors ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.errors} skipped with problems</div><div class="sd">Fix them in the spreadsheet and import the file again: anyone already added is skipped next time.</div></div></li>` : ""}
       </ol>
-      <div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Now stop using the spreadsheet</b><div style="margin-top:2px">From here on, add and change patients in Domi only, so there's one up-to-date record. Delete or archive the sheet once you've checked the import.</div></div></div>
+      <div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Using Opticabase as well?</b><div style="margin-top:2px">Import the same Opticabase export again whenever it suits, every morning for instance. Patients are matched by their Opticabase ID: new ones are added, changed addresses and numbers are updated, and nothing is entered twice.</div></div></div>
     </div><div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Import another file</button><button class="btn" type="button" data-act="close">Done</button></div>`;
   }
   if (!I.pv) {
@@ -1935,6 +2018,7 @@ function importDrawer() {
         <li><b>Save your sheet as a CSV file.</b> Google Sheets: <i>File → Download → Comma-separated values</i>. Excel: <i>Save As → CSV UTF-8</i>.</li>
         <li><b>Choose the file below.</b> Domi works out which column is which; you can change any of them.</li>
         <li><b>Check the preview, then import.</b> Problems and possible duplicates are shown first, and skipped.</li>
+        <li><b>From Opticabase? Import it again whenever you like.</b> Patients are matched by their Opticabase ID: new ones are added and changed details updated.</li>
       </ol>
       <label class="imp-drop" for="imp-file">${icon("copy")}<span><b>${I.busy ? "Checking…" : "Choose a CSV file"}</b><small>Up to 5,000 patients, 3 MB</small></span></label>
       <input type="file" id="imp-file" accept=".csv,text/csv" hidden>
@@ -1945,8 +2029,9 @@ function importDrawer() {
   }
   const pv = I.pv, c = pv.counts, f = I.filter || "all";
   const fieldOpts = (cur) => `<option value="">Don't import</option>` + pv.fields.map((x) => `<option value="${x.key}" ${x.key === cur ? "selected" : ""}>${esc(x.label)}</option>`).join("");
-  const shown = pv.rows.filter((r) => f === "all" || (f === "problems" ? r.status === "error" : f === "dup" ? r.status === "duplicate" : r.status === "ready" && r.warnings.length));
-  const badge = (r) => r.status === "error" ? `<span class="badge b-crit">Won't import</span>` : r.status === "duplicate" ? `<span class="badge b-plain">Already on Domi</span>` : r.warnings.length ? `<span class="badge b-warn">Check</span>` : `<span class="badge b-ok">Ready</span>`;
+  const shown = pv.rows.filter((r) => f === "all" || (f === "new" ? r.status === "ready" : f === "update" ? r.status === "update" : f === "same" ? r.status === "same" || r.status === "duplicate" : f === "problems" ? r.status === "error" || r.status === "conflict" : (r.status === "ready" || r.status === "update") && r.warnings.length));
+  const badge = (r) => r.status === "error" ? `<span class="badge b-crit">Won't import</span>` : r.status === "conflict" ? `<span class="badge b-crit">Doesn't match</span>` : r.status === "duplicate" ? `<span class="badge b-plain">Already on Domi</span>` : r.status === "same" ? `<span class="badge b-plain">Up to date</span>` : r.status === "update" ? `<span class="badge b-forest">Update</span>` : r.warnings.length ? `<span class="badge b-warn">Check</span>` : `<span class="badge b-ok">New</span>`;
+  const shownVal = (v) => v == null ? "nothing" : String(v);
   const LIMIT = 150;
   return `${head(`${esc(I.name || "Your file")} · ${c.total} row${c.total === 1 ? "" : "s"}`, "Check before importing")}<div class="drawer-b">
     ${pv.missing.length ? `<div class="err" role="alert" style="margin-bottom:12px">Choose which column holds ${esc(pv.missing.join(" and "))}.</div>` : ""}
@@ -1956,17 +2041,20 @@ function importDrawer() {
       </tbody></table></details>
     <div class="seg imp-filter" role="group" aria-label="Show rows">
       <button type="button" data-act="imp-filter" data-v="all" aria-pressed="${f === "all"}">All ${c.total}</button>
+      <button type="button" data-act="imp-filter" data-v="new" aria-pressed="${f === "new"}">New ${c.ready}</button>
+      <button type="button" data-act="imp-filter" data-v="update" aria-pressed="${f === "update"}">Updates ${c.update || 0}</button>
+      <button type="button" data-act="imp-filter" data-v="same" aria-pressed="${f === "same"}">Already on Domi ${(c.same || 0) + c.duplicate}</button>
       <button type="button" data-act="imp-filter" data-v="warn" aria-pressed="${f === "warn"}">To check ${c.warnings}</button>
-      <button type="button" data-act="imp-filter" data-v="dup" aria-pressed="${f === "dup"}">Duplicates ${c.duplicate}</button>
-      <button type="button" data-act="imp-filter" data-v="problems" aria-pressed="${f === "problems"}">Won't import ${c.error}</button>
+      <button type="button" data-act="imp-filter" data-v="problems" aria-pressed="${f === "problems"}">Won't import ${c.error + (c.conflict || 0)}</button>
     </div>
     <ul class="imp-rows">${shown.slice(0, LIMIT).map((r) => `<li class="${r.status}"><div class="ir-h"><span class="mono muted">Row ${r.line}</span><b>${esc(r.name || "(no name)")}</b><span class="muted">${esc(r.pc || "")}${r.age ? " · " + r.age : ""}</span>${badge(r)}</div>
-      ${r.errors.length || r.warnings.length || r.duplicateOf ? `<div class="ir-m">${r.errors.map((m) => `<span class="e">${esc(m)}</span>`).join("")}${r.duplicateOf ? `<span>Same as ${esc(r.duplicateOf)}</span>` : ""}${r.warnings.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
+      ${r.changes && r.changes.length ? `<div class="ir-m ir-ch">${r.changes.map((x) => `<span><b>${esc(x.label.charAt(0).toUpperCase() + x.label.slice(1))}</b>: ${esc(shownVal(x.from))} → ${esc(x.to)}</span>`).join("")}</div>` : ""}
+      ${r.errors.length || r.warnings.length || r.duplicateOf || r.conflict ? `<div class="ir-m">${r.errors.map((m) => `<span class="e">${esc(m)}</span>`).join("")}${r.duplicateOf ? `<span>Same as ${esc(r.duplicateOf)}</span>` : ""}${r.conflict ? `<span class="e">${esc(r.conflict)}</span>` : ""}${r.warnings.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
       ${r.recallDue != null && r.recallDue <= 14 && r.status === "ready" ? `<div class="ir-m"><span class="ok">Sight test ${r.recallDue < 0 ? `overdue by ${-r.recallDue} days` : r.recallDue === 0 ? "due today" : `due in ${r.recallDue} days`}: will join recalls</span></div>` : ""}</li>`).join("")}
       ${shown.length > LIMIT ? `<li class="muted" style="text-align:center">…and ${shown.length - LIMIT} more</li>` : ""}${!shown.length ? `<li class="muted" style="text-align:center">Nothing here.</li>` : ""}</ul>
     ${I.err ? `<div class="err" role="alert" style="margin-top:12px">${esc(I.err)}</div>` : ""}
   </div>
-  <div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Choose another file</button><button class="btn" type="button" data-act="import-commit" ${!c.ready || pv.missing.length || I.busy ? "disabled" : ""}>${icon("check")}${I.busy ? "Importing…" : `Import ${c.ready} patient${c.ready === 1 ? "" : "s"}`}</button></div>`;
+  <div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Choose another file</button><button class="btn" type="button" data-act="import-commit" ${!(c.ready + (c.update || 0)) || pv.missing.length || I.busy ? "disabled" : ""}>${icon("check")}${I.busy ? "Importing…" : [c.ready && `Add ${c.ready}`, c.update && `update ${c.update}`].filter(Boolean).join(" and ").replace(/^./, (x) => x.toUpperCase()) || "Nothing to import"}</button></div>`;
 }
 async function importPreview(mapping) {
   const I = UI.imp;
@@ -2135,18 +2223,35 @@ function moveDrawer(d) {
 }
 
 /* ---------- A free slot: who could take it, and booking whoever the office rings ---------- */
+/** Phone mode: a cancellation opens the slot's call list straight away (unless the office is busy in another drawer). */
+async function openCallList(slotId) {
+  if (UI.drawer && UI.drawer.kind !== "gap" && UI.drawer.kind !== "flow" && UI.drawer.kind !== "appt") { toast("A visit was cancelled: its call list is under Free slots"); return; }
+  const d = { kind: "gap", id: slotId, data: null }; openDrawer(d);
+  d.data = await api("GET", `/api/gaps/${slotId}`).catch(() => null); if (UI.drawer === d) redraw();
+}
 function gapDrawer(d) {
   const g = d.data;
   if (!g) return `<div class="drawer-h"><div><div class="caps">Free slot</div><h2 style="margin-top:6px">Finding who fits…</h2></div>${closeX}</div>`;
-  const ok = g.candidates.filter((x) => x.ok), rest = g.candidates.filter((x) => !x.ok).slice(0, 4);
-  const card = (x) => { const p = pat(x.patientId); return `<div class="offer ${x.byPhone ? "" : ""}"><div class="oh"><span><b>${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span></span>${x.byPhone ? `<span class="badge b-apricot">${icon("phone")}Phone them</span>` : `<span class="badge b-plain">${x.score} pts</span>`}</div>
+  const phoneMode = g.mode === "phone";
+  const ok = g.candidates.filter((x) => x.ok), rest = g.candidates.filter((x) => !x.ok).slice(0, 6);
+  const nhsBlocked = rest.some((x) => /PCSE/.test(x.reason || ""));
+  const card = (x, i) => { const p = pat(x.patientId); const ring = phoneMode || x.byPhone; const tel = String(p.phone || "").replace(/[^\d+]/g, "");
+    return `<div class="offer ${phoneMode && i === 0 ? "accepted" : ""}"><div class="oh"><span><b>${phoneMode ? `${i + 1}. ` : ""}${esc(x.name)}</b> <span class="muted">· ${T(x.type).name}</span></span>${phoneMode && i === 0 ? `<span class="badge b-ok">Best match: ring first</span>` : x.byPhone && !phoneMode ? `<span class="badge b-apricot">${icon("phone")}Phone them</span>` : `<span class="badge b-plain">${x.score} pts</span>`}</div>
+    ${ring && p.phone ? `<a class="cl-tel" href="tel:${esc(tel)}">${icon("phone")}<span class="mono">${esc(p.phone)}</span>${p.rep ? `<span class="muted">· family: ${esc(p.rep)}</span>` : ""}</a>` : ""}
     <div class="why">${x.why.map((w) => `<span>${esc(w)}</span>`).join("")}</div>
-    <div class="oa">${x.byPhone ? `<a class="btn secondary sm" href="tel:${esc(p.phone.replace(/\s/g, ""))}">${icon("phone")}<span class="mono">${esc(p.phone)}</span></a>` : ""}<button class="btn sm" type="button" data-act="gap-book" data-slot="${g.slotId}" data-w="${x.waitlistId}">${icon("check")}${x.byPhone ? "They said yes: book" : "Book " + esc(first(x.name))}</button></div></div>`; };
-  return `<div class="drawer-h"><div><div class="caps">${esc(g.clinician)} · ${whenLabel(g.day, g.start)}</div><h2 style="margin-top:6px">Fill this slot</h2></div>${closeX}</div>
+    <div class="oa cl-acts">
+      <button class="btn sm" type="button" data-act="gap-book" data-slot="${g.slotId}" data-w="${x.waitlistId}">${icon("check")}${ring ? "They said yes: book" : "Book " + esc(first(x.name))}</button>
+      ${phoneMode ? `<button class="btn ghost sm" type="button" data-act="gap-skip" data-slot="${g.slotId}" data-w="${x.waitlistId}" data-v="no-answer">No answer</button><button class="btn ghost sm" type="button" data-act="gap-skip" data-slot="${g.slotId}" data-w="${x.waitlistId}" data-v="declined">Not interested</button>` : ""}</div></div>`; };
+  const intro = phoneMode
+    ? `${g.window} min free. Ring down the list, best match first. When someone says yes, book them here: ${esc(first(g.clinician))}'s phone updates straight away. No answer or not interested takes them off the list for this slot only.`
+    : `${g.window} min free. Ring anyone below and book them here: they're texted the time (unless they asked for calls), ${esc(first(g.clinician))}'s phone updates, and anyone with an offer out hears it's gone.${g.offeredTo.length ? ` Waiting on a text reply from ${esc(g.offeredTo.join(" and "))}.` : ""}`;
+  return `<div class="drawer-h"><div><div class="caps">${esc(g.clinician)} · ${whenLabel(g.day, g.start)}</div><h2 style="margin-top:6px">${phoneMode ? "Call list for this slot" : "Fill this slot"}</h2></div>${closeX}</div>
     <div class="drawer-b">
-      <p class="muted" style="margin:0 0 14px;font-size:13.5px">${g.window} min free. Ring anyone below and book them here: they're texted the time (unless they asked for calls), ${esc(first(g.clinician))}'s phone updates, and anyone with an offer out hears it's gone.${g.offeredTo.length ? ` Waiting on a text reply from ${esc(g.offeredTo.join(" and "))}.` : ""}</p>
-      ${ok.length ? `<div class="offers">${ok.slice(0, 8).map(card).join("")}</div>` : `<div class="callout apricot">${icon("clock")}<div><b>Nobody on the waiting list fits</b><div style="margin-top:2px">Use Book a visit to put in someone new.</div></div></div>`}
-      ${rest.length ? `<details style="margin-top:16px"><summary class="muted">Who doesn't fit, and why</summary><ul class="mini">${rest.map((x) => `<li><b>${esc(x.name)}</b><div>${esc(x.reason)}</div></li>`).join("")}</ul></details>` : ""}
+      <p class="muted" style="margin:0 0 14px;font-size:13.5px">${intro}</p>
+      ${nhsBlocked ? `<div class="callout" style="margin-bottom:12px">${icon("shield")}<div><b>No NHS sight test in this slot</b><div style="margin-top:2px">It's inside PCSE's notice period, so the list only has visits that don't need a notification: repairs, deliveries, rechecks and private tests.</div></div></div>` : ""}
+      ${ok.length ? `<div class="offers">${ok.slice(0, 8).map(card).join("")}</div>` : `<div class="callout apricot">${icon("clock")}<div><b>${g.rung && g.rung.length ? "Everyone who fits has been rung" : "Nobody on the waiting list fits"}</b><div style="margin-top:2px">Use Book a visit to put in someone new, or leave the time free.</div></div></div>`}
+      ${g.rung && g.rung.length ? `<div class="rung"><span class="caps">Rung for this slot</span>${g.rung.map((r) => `<span>${esc(r.name)}: ${esc(r.outcome)}</span>`).join("")}</div>` : ""}
+      ${rest.length ? `<details style="margin-top:16px" ${phoneMode && !ok.length ? "open" : ""}><summary class="muted">Who can't take it, and why</summary><ul class="mini">${rest.map((x) => `<li><b>${esc(x.name)}</b><div>${esc(x.reason)}</div></li>`).join("")}</ul></details>` : ""}
     </div>`;
 }
 
@@ -2486,6 +2591,12 @@ document.addEventListener("click", async (e) => {
         toast(r.status === "done" ? (r.invoice ? `Recorded as completed. Invoice ${r.invoice.number} raised.` : "Recorded as completed") : r.rebooked ? "Recorded: nobody in. Back on the waiting list." : "Recorded: nobody in"); break;
       }
       case "gap": { const d = { kind: "gap", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("GET", `/api/gaps/${el.dataset.id}`); if (UI.drawer === d) redraw(); break; }
+      case "gap-skip": {
+        el.disabled = true;
+        await api("POST", `/api/gaps/${el.dataset.slot}/skip`, { waitlistId: el.dataset.w, outcome: el.dataset.v });
+        const d = UI.drawer; if (d && d.kind === "gap") { d.data = await api("GET", `/api/gaps/${el.dataset.slot}`); redraw(); }
+        toast(el.dataset.v === "no-answer" ? "No answer: next on the list" : "Not interested: next on the list"); break;
+      }
       case "gap-book": {
         el.disabled = true;
         const r = await api("POST", `/api/gaps/${el.dataset.slot}/book`, { waitlistId: el.dataset.w });
@@ -2496,6 +2607,20 @@ document.addEventListener("click", async (e) => {
       case "tm-back": go("team"); break;
       case "calls-stage": UI.pg.stage = Number(el.dataset.v); render(); break;
       case "pvn-tab": UI.pg.tab = el.dataset.v; render(); break;
+      case "pilot-edit": UI.pg.edit = true; render(); break;
+      case "diary-tab": UI.pg.tab = el.dataset.v; render(); break;
+      case "diary-copied": case "diary-copied-all": {
+        el.disabled = true;
+        const ids = el.dataset.act === "diary-copied" ? [Number(el.dataset.id)] : UI.pg.data.todo.map((r) => r.id);
+        const r = await api("POST", "/api/diary-changes/copied", { ids });
+        UI.pg.data = await api("GET", "/api/diary-changes"); await load(); toast(`${r.copied} ticked off`); break;
+      }
+      case "diary-csv": {
+        const blob = new Blob(["\ufeff" + diaryCsv(UI.pg.data.todo)], { type: "text/csv" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `domi-diary-changes-${(calDay(0) || {}).iso || "today"}.csv`; document.body.appendChild(a); a.click(); a.remove();
+        toast("Downloaded. Tick them off once they're in Opticabase."); break;
+      }
+      case "pilot-cancel": UI.pg.edit = false; render(); break;
       case "pvn-copy": { const v = el.dataset.v; try { await navigator.clipboard.writeText(v); toast(el.dataset.all ? "Copied: every field for this visit" : "Copied: " + v); } catch (err) { window.prompt("Copy:", v); } break; }
       case "pvn-cancel-done": el.disabled = true; await api("POST", `/api/pcse/${el.dataset.id}/done`); UI.pg.data = await api("GET", "/api/pvn"); await load(); toast("Ticked off: cancelled in PCSE"); break;
       case "call-rec": {
@@ -2525,6 +2650,7 @@ document.addEventListener("click", async (e) => {
         el.disabled = true;
         const r = await api("POST", "/api/appointments/" + el.dataset.id + "/cancel", { reason: $("#reason").value });
         if (!isAdmin()) { closeDrawer(); UI.pid = null; UI.rec = null; toast("Visit cancelled. The office system is refilling the slot."); await load(); break; }
+        if (r.outcome === "call-list") { await openCallList(r.slotId); refetch(); break; }
         UI.flow = flowFrom(r); openDrawer({ kind: "flow" }); refetch(); break;
       }
       case "patient-cancel": el.disabled = true; closeDrawer(); await api("POST", "/api/demo/sms", { patientId: el.dataset.id, body: "CANCEL" }); break;
@@ -2538,7 +2664,7 @@ document.addEventListener("click", async (e) => {
       case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
       case "import-commit": {
         const I = UI.imp; I.busy = true; I.err = null; redraw();
-        try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast(`${I.done.imported} patients imported`); }
+        try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast([I.done.imported && `${I.done.imported} added`, I.done.updated && `${I.done.updated} updated`].filter(Boolean).join(", ") || "Nothing changed"); }
         catch (e) { I.err = e.message; }
         I.busy = false; redraw(); break;
       }
@@ -2605,6 +2731,14 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
+    if (e.target.id === "pilot-form") {
+      const v = (id) => ($("#" + id) || {}).value || "";
+      const keys = Object.keys(UI.pg.data.measures), baseline = {}, targets = [];
+      for (const k of keys) { baseline[k] = v("pl-b-" + k); if (($("#pl-t-" + k) || {}).checked) targets.push({ key: k, pct: v("pl-p-" + k) }); }
+      try { UI.pg.data = await api("PUT", "/api/pilot", { start: v("pl-start"), agreedBy: v("pl-by"), baseline, targets }); UI.pg.edit = false; render(); toast("Pilot saved"); }
+      catch (x) { if (x.offline) throw x; $("#pl-err").innerHTML = `<div class="callout danger-card" role="alert">${esc(x.message)}</div>`; }
+      return;
+    }
     if (e.target.dataset.form === "pvn-lodge" || e.target.dataset.form === "pvn-icb") {
       const ids = e.target.dataset.ids.split(",").filter(Boolean), val = (e.target.querySelector("input").value || "").trim();
       if (e.target.dataset.form === "pvn-lodge") { await api("POST", "/api/pvn/lodge", { apptIds: ids, ref: val }); toast(`Lodged: PVN ${val}`); }
@@ -2714,6 +2848,10 @@ document.addEventListener("submit", async (e) => {
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.classList.contains("pl-hours")) {
+      await api("PUT", "/api/pilot/hours", { week: Number(e.target.dataset.week), hours: e.target.value.trim() });
+      UI.pg.data = await api("GET", "/api/pilot"); render(); toast("Office hours saved");
+    }
     if (e.target.dataset.actChange === "pvn-ert") {
       await api("PUT", `/api/appointments/${e.target.dataset.id}/pvn`, { ert: e.target.value || null });
       UI.pg.data = await api("GET", "/api/pvn"); render(); toast(e.target.value ? `Early retest code ${e.target.value} saved` : "Early retest code removed");

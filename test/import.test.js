@@ -40,7 +40,7 @@ test("each row: errors stop it, warnings don't; landline-only patients are phone
     "margaret holt,BL1 4AB,07700 900533,,,,",
   ].join("\n");
   const r = imp.check(csv, null, []);
-  assert.deepStrictEqual(r.counts, { total: 5, ready: 2, duplicate: 1, error: 2, warnings: 1 });
+  assert.deepStrictEqual(r.counts, { total: 5, ready: 2, update: 0, same: 0, conflict: 0, duplicate: 1, error: 2, warnings: 1 });
   const [m, np, bp, joan, dup] = r.rows;
   assert.strictEqual(m.patient.name, "Margaret Holt", "capitals tidied");
   assert.strictEqual(m.patient.pc, "BL1 4AB");
@@ -87,14 +87,14 @@ test("import: preview saves nothing; commit saves what passed, skips duplicates,
   const before = (await call("GET", "/api/state", office.token)).data;
   const pv = await call("POST", "/api/import/preview", office.token, { csv: SHEET });
   assert.strictEqual(pv.status, 200);
-  assert.deepStrictEqual(pv.data.counts, { total: 4, ready: 2, duplicate: 1, error: 1, warnings: 2 });
+  assert.deepStrictEqual(pv.data.counts, { total: 4, ready: 2, update: 0, same: 0, conflict: 0, duplicate: 1, error: 1, warnings: 2 });
   assert.ok(pv.data.rows[0].warnings.includes("BL1 is outside the towns you cover"), "the Leeds demo practice doesn't cover Bolton");
   assert.match(pv.data.rows[2].duplicateOf, /Dorothy Fenwick, already on Domi/);
   assert.strictEqual((await call("GET", "/api/state", office.token)).data.patients.length, before.patients.length, "a preview saves nothing");
 
   const c = await call("POST", "/api/import/commit", office.token, { csv: SHEET, mapping: pv.data.mapping });
   assert.strictEqual(c.status, 200);
-  assert.deepStrictEqual(c.data, { imported: 2, duplicates: 1, errors: 1, recalls: 1 });
+  assert.deepStrictEqual(c.data, { imported: 2, updated: 0, same: 0, conflicts: 0, duplicates: 1, errors: 1, recalls: 1 });
   const s = (await call("GET", "/api/state", office.token)).data;
   const edith = s.patients.find((p) => p.name === "Edith Crompton");
   assert.strictEqual(edith.addr, "4 Chorley New Road, Bolton");

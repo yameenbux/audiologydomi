@@ -40,7 +40,12 @@ test("the branded demo: the practice's name, look and towns, 50 invented patient
   for (const t of meta.areas) assert.ok(s.patients.some((p) => t.districts.includes(p.pc.split(" ")[0])), `someone in ${t.town}`);
   assert.ok(s.appts.length >= 70, "a full week");
   assert.ok(s.patients.every((p) => p.eligibility), "every patient has a home-visit reason");
-  const sms = (await call("POST", "/api/appointments/a3/cancel", office.token, { reason: "Patient unwell" })).data;
+  // HVO phone their patients, so a cancellation becomes a call list by default; with texts switched on, the offer
+  // carries the practice's name.
+  assert.strictEqual(s.settings.mode, "phone");
+  assert.strictEqual((await call("POST", "/api/appointments/a3/cancel", office.token, { reason: "Patient unwell" })).data.outcome, "call-list");
+  await call("PUT", "/api/settings", office.token, { mode: "offer" });
+  const sms = (await call("POST", "/api/appointments/a5/cancel", office.token, { reason: "Patient unwell" })).data;
   assert.match(sms.offers[0].body, /it's Home Visiting Optics\./);
   // The old login doesn't work in the branded demo.
   assert.strictEqual((await call("POST", "/api/auth/password", null, { sandbox: office.sandbox, email: "sarah@airevalleyeyecare.example", password: require("../server/auth").DEMO_PASSWORD })).status, 401);
