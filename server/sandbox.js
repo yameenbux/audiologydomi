@@ -18,7 +18,7 @@ let openDb = null; // injected by db.js to avoid a require cycle
 // reminderAt: when the day-before reminders go out (minutes after midnight on the demo clock).
 // practice: the practice's name, as patients see it in texts, on the booking page and on invoices. The product is Domi.
 // The default practice is invented for the demo (server/brands.js); a branded demo uses the practice's own name.
-const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: "offer", offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60,
+const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: brand.id === "hvo" ? "phone" : "offer", /* HVO phone their patients */ offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: 85, reminders: true, reminderAt: 17 * 60,
   // Given in the thank-you email each ad lead gets, so they know when the office will call.
   officeHours: brand.officeHours || "Monday to Friday, 9am to 5pm",
   // Price per visit type, in pounds. 0 = no invoice to the patient: NHS sight tests are claimed from the NHS

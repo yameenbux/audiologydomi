@@ -1102,7 +1102,7 @@ button.rm-row:hover { background: var(--subtle) }
 .pl-nums b { font-size: 22px; font-variant-numeric: tabular-nums }
 .pl-nums .arrow { color: var(--muted); font-size: 18px; padding-bottom: 3px }
 .pl-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px }
-.pl-t tr.now td { background: color-mix(in srgb, var(--apricot-soft) 45%, transparent) }
+.pl-t tr.pl-now td { background: color-mix(in srgb, var(--apricot-soft) 45%, transparent) }
 .pl-t .pl-hours { width: 72px }
 .pl-set { width: 100%; border-collapse: collapse; font-size: 14px }
 .pl-set td, .pl-set th { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle }

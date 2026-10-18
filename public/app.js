@@ -1040,7 +1040,7 @@ function pilotPage() {
       <div class="caps">${esc(t.label)}</div>
       <div class="pl-nums"><span><small>Before</small><b>${fmt(t.baseline, t.key)}</b></span><span class="arrow">→</span><span><small>Now${t.weeks ? ` (${t.weeks} wk avg)` : ""}</small><b>${fmt(t.now, t.key)}</b></span><span><small>Target</small><b>${fmt(t.goal, t.key)}</b></span></div>
       <div class="pl-foot">${t.met == null ? `<span class="muted">Measured once a full week is done</span>` : `<span class="badge ${t.met ? "b-ok" : "b-crit"}">${t.met ? "Met" : "Not met"}</span>`}${t.change != null ? `<span class="muted">${t.change > 0 ? "+" : ""}${t.change}% vs before · target ${t.better === "down" ? "−" : "+"}${t.pct}%</span>` : ""}</div></div>`).join("");
-  const row = (w) => `<tr class="${w.inProgress ? "now" : ""}"><td><b>Week ${w.week}</b><div class="muted">${esc(w.label)}${w.inProgress ? " · so far" : ""}</div></td>
+  const row = (w) => `<tr class="${w.inProgress ? "pl-now" : ""}"><td><b>Week ${w.week}</b><div class="muted">${esc(w.label)}${w.inProgress ? " · so far" : ""}</div></td>
     <td class="mono">${w.visits}</td><td class="mono">${fmt(w.milesPerVisit, "milesPerVisit")}</td><td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.unfilledPerWeek}</td>
     <td><input class="input sm mono pl-hours" data-week="${w.week}" inputmode="decimal" value="${w.officeHours != null ? esc(w.officeHours) : ""}" placeholder="–" aria-label="Office hours, week ${w.week}"></td></tr>`;
   return `<div class="pg">${head}
