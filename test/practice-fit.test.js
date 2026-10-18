@@ -350,7 +350,15 @@ test("pilot: the baseline and targets are saved, each week is measured from the 
   const a = st.appts.find((x) => x.day === 2 && x.status === "booked");
   await call("POST", `/api/appointments/${a.id}/cancel`, o.token, { reason: "Patient unwell" });
   const w1 = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
-  assert.strictEqual(w1.cancellations, 1); assert.strictEqual(w1.unfilledPerWeek, 1);
+  assert.strictEqual(w1.cancellations, 1); assert.strictEqual(w1.unfilledPerWeek, 1); assert.strictEqual(w1.callsPerRefill, null);
+  // Filled by phone: the first person didn't pick up, the second said yes. Two calls for one refill.
+  const gap = (await call("GET", `/api/gaps/${a.id}`, o.token)).data;
+  const first = gap.candidates.find((c) => c.ok);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/skip`, o.token, { waitlistId: first.waitlistId, outcome: "no-answer" })).status, 200);
+  const second = (await call("GET", `/api/gaps/${a.id}`, o.token)).data.candidates.find((c) => c.ok && c.waitlistId !== first.waitlistId);
+  assert.strictEqual((await call("POST", `/api/gaps/${a.id}/book`, o.token, { waitlistId: second.waitlistId })).status, 200);
+  const w1b = (await call("GET", "/api/pilot", o.token)).data.weeks[0];
+  assert.deepStrictEqual([w1b.refilled, w1b.unfilledPerWeek, w1b.calls, w1b.callsPerRefill], [1, 0, 2, 2]);
   // The office records its own hours, and the miles on the week's mileage claims; per visit is claimed miles over visits.
   assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1, hours: "8.5" })).status, 200);
   assert.strictEqual((await call("PUT", "/api/pilot/week", o.token, { week: 1, hours: "lots" })).status, 400);

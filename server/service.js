@@ -1583,7 +1583,10 @@ function bookCandidate(id, waitlistId, user) {
     const cand = rank(slot, []).candidates.find((x) => x.waitlistId === String(waitlistId || ""));
     if (!cand) throw new HttpError(409, "They're no longer waiting: they may have just been booked or offered another visit.");
     if (!cand.ok) throw new HttpError(409, `${cand.name} can't take this slot: ${cand.reason.charAt(0).toLowerCase() + cand.reason.slice(1)}.`);
-    return book(slot, cand.waitlistId, null, user.name, "office");
+    const done = book(slot, cand.waitlistId, null, user.name, "office");
+    // The call that worked, kept with the unanswered ones, so the pilot can count calls per refill.
+    run("INSERT INTO offers (slot_id, waitlist_id, status, round, sent_at, expires_at, booked_appointment_id) VALUES (?, ?, 'accepted', 0, ?, ?, ?)", slot.id, cand.waitlistId, Date.now(), Date.now(), done.appointmentId);
+    return done;
   });
 }
 

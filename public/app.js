@@ -1014,7 +1014,7 @@ function opticabasePage() {
 function pilotPage() {
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Pilot results",
-    lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Visits and empty slots are worked out by Domi. Miles and office hours are what you record each week: miles from the clinicians' mileage claims, the same source as your baseline, so the comparison is fair.",
+    lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Visits, empty slots and calls per refill are worked out by Domi. Miles and office hours are what you record each week: miles from the clinicians' mileage claims, the same source as your baseline, so the comparison is fair.",
     actions: d && d.config.start && !g.edit ? `<button class="btn secondary" type="button" data-act="pilot-edit">${icon("gear")}Change baseline or targets</button>` : "" });
   if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
   const M = d.measures, c = d.config, fmt = (v, k) => v == null ? "–" : `${Number(v).toFixed(M[k].dp)}`;
@@ -1044,13 +1044,13 @@ function pilotPage() {
     <td class="mono">${w.visits}</td>
     <td><input class="input sm mono pl-entry" data-week="${w.week}" data-k="miles" inputmode="decimal" value="${w.milesClaimed != null ? esc(w.milesClaimed) : ""}" placeholder="–" aria-label="Miles claimed, week ${w.week}"></td>
     <td class="mono">${fmt(w.milesPerVisit, "milesPerVisit")}</td>
-    <td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.unfilledPerWeek}</td>
+    <td class="mono">${w.cancellations}</td><td class="mono">${w.refilled}</td><td class="mono">${w.unfilledPerWeek}</td><td class="mono">${fmt(w.callsPerRefill, "callsPerRefill")}</td>
     <td><input class="input sm mono pl-entry" data-week="${w.week}" data-k="hours" inputmode="decimal" value="${w.officeHours != null ? esc(w.officeHours) : ""}" placeholder="–" aria-label="Office hours, week ${w.week}"></td></tr>`;
   return `<div class="pg">${head}
     <div class="pl-top"><span class="badge b-${verdict[0]}">${esc(verdict[1])}</span><span class="muted">Go-live ${esc(new Date(c.start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }))}${c.agreedBy ? ` · agreed with ${esc(c.agreedBy)}` : ""} · success fee reviewed after week 13</span></div>
     ${cards ? `<div class="pl-cards">${cards}</div>` : `<div class="callout">${icon("bolt")}<div>No targets yet. <button class="linkish" type="button" data-act="pilot-edit">Add the baseline and targets</button></div></div>`}
-    <section class="card" style="margin-top:18px"><div class="card-h"><h2>Week by week</h2><p>Type each week's total from the mileage claims, and the office's hours; they save as you go. Miles per visit is the claimed miles over the visits done. Empty slots are cancellations nobody was booked into.</p></div>
-      ${d.weeks.length ? `<div class="pvn-tw"><table class="pvn-t pl-t"><thead><tr><th>Week</th><th>Visits</th><th>Miles claimed</th><th>Miles / visit</th><th>Cancelled</th><th>Refilled</th><th>Left empty</th><th>Office hours</th></tr></thead><tbody>${d.weeks.map(row).join("")}</tbody></table></div>`
+    <section class="card" style="margin-top:18px"><div class="card-h"><h2>Week by week</h2><p>Type each week's total from the mileage claims, and the office's hours; they save as you go. Miles per visit is the claimed miles over the visits done. Empty slots are cancellations nobody was booked into. Calls per refill counts every call logged on the call list (no answer, not interested, booked), so log each one there.</p></div>
+      ${d.weeks.length ? `<div class="pvn-tw"><table class="pvn-t pl-t"><thead><tr><th>Week</th><th>Visits</th><th>Miles claimed</th><th>Miles / visit</th><th>Cancelled</th><th>Refilled</th><th>Left empty</th><th>Calls / refill</th><th>Office hours</th></tr></thead><tbody>${d.weeks.map(row).join("")}</tbody></table></div>`
         : `<div class="empty"><b>The pilot hasn't started</b>Week 1 begins on the go-live date.</div>`}
     </section></div>`;
 }

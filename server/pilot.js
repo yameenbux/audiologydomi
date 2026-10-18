@@ -15,9 +15,11 @@ const one = (sql, ...a) => db.prepare(sql).get(...a);
 // (`entry` names what it types in). Miles come from the clinicians' mileage claims, the same source as the baseline,
 // never from Domi's planned routes (those are on Plan routes and the mileage report).
 const MEASURES = {
-  milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: false, entry: "miles", dp: 1 },
   unfilledPerWeek: { label: "Cancelled slots left empty, per week", unit: "slots", better: "down", measured: true, dp: 1 },
+  // Every call logged on the call list (no answer, not interested, booked), over the slots refilled.
+  callsPerRefill: { label: "Phone calls to fill each cancelled slot", unit: "calls", better: "down", measured: true, dp: 1 },
   officeHours: { label: "Office hours a week on scheduling and phoning round", unit: "hours", better: "down", measured: false, entry: "hours", dp: 1 },
+  milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: false, entry: "miles", dp: 1 },
   visitsPerWeek: { label: "Visits done per week", unit: "visits", better: "up", measured: true, dp: 0 },
 };
 const WEEKS = 13; // the pilot runs three months
@@ -109,11 +111,12 @@ function report() {
     const visits = one("SELECT COUNT(*) AS n FROM appointments WHERE day BETWEEN ? AND ? AND status NOT IN ('cancelled','missed')", from, lastDay).n;
     const cancelled = all("SELECT id FROM appointments WHERE day BETWEEN ? AND ? AND status = 'cancelled'", from, to);
     const refilled = cancelled.filter((a) => one("SELECT 1 FROM appointments WHERE filled_from = ? AND status != 'cancelled'", a.id)).length;
+    const calls = cancelled.reduce((n, a) => n + one("SELECT COUNT(*) AS n FROM offers WHERE slot_id = ? AND round = 0", a.id).n, 0);
     out.weeks.push({
       week: w, from: cal.iso(from), to: cal.iso(to), label: `${cal.label(from)} – ${cal.label(to)}`, inProgress,
       // Per visit from the mileage claims the office entered.
       milesClaimed: c.miles[w] != null ? c.miles[w] : null, milesPerVisit: c.miles[w] != null && visits ? round(c.miles[w] / visits, 1) : null, visits,
-      cancellations: cancelled.length, refilled, unfilledPerWeek: cancelled.length - refilled,
+      cancellations: cancelled.length, refilled, unfilledPerWeek: cancelled.length - refilled, calls, callsPerRefill: refilled ? round(calls / refilled, 1) : null,
       officeHours: c.hours[w] != null ? c.hours[w] : null, visitsPerWeek: visits,
     });
   }
