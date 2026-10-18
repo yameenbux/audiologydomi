@@ -739,7 +739,7 @@ if (require.main === module) {
     if (opened.length) console.log(`Live practices open: ${opened.map((sb) => sb.id).join(", ")}`);
     return start();
   }).then(() => {
-    console.log(`Domi demo running on http://localhost:${PORT}`);
+    console.log(`Domi ${process.env.DEMO_MODE === "0" ? "live" : "demo"} running on http://localhost:${PORT}`);
     console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
     console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);
   });
