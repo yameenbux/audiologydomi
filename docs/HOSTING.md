@@ -58,4 +58,4 @@ UK hosting is necessary but not enough. The demo deliberately leaves these out:
   - data processing agreements with the host, Twilio and the routing provider;
   - the NHS Data Security and Protection Toolkit if there are NHS contracts;
   - Cyber Essentials, which many NHS buyers ask suppliers for.
-- **Routing.** The public OSRM server is fair-use only. Self-host OSRM with the UK map, or use a paid routing API under a DPA. Only postcodes are sent to it, never names.
+- **Routing.** The live practice uses openrouteservice (HeiGIT, Germany) on its free plan: set `ROUTING_PROVIDER=ors` and the `ORS_API_KEY` secret. Only postcode-centre coordinates are sent, never names or addresses. The public OSRM server is fair-use only and isn't used for real patients. If the free allowance stops being enough, self-host OSRM with the UK map.

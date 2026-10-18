@@ -1,8 +1,12 @@
 "use strict";
 // Drive times between patients' homes.
 //
-// Road routes: full postcodes are geocoded with postcodes.io (free, Ordnance Survey/ONS data), and an OSRM
-// table request gives road driving times between every pair of stops. Results are cached, requests time out
+// Road routes: full postcodes are geocoded with postcodes.io (free, Ordnance Survey/ONS data), and a routing
+// table gives road driving times and distances between every pair of stops. Two routers are supported:
+//  - "ors": openrouteservice (HeiGIT, Heidelberg), free Standard plan, commercial use allowed, results
+//    CC-BY-SA 4.0 (credited on the map). Needs ORS_API_KEY. Kept inside its daily limits (see ORS_DAILY).
+//  - "osrm": an OSRM server (OSRM_URL), e.g. our own; the public demo server is for testing only.
+// Only postcode centre points are ever sent, never names or house numbers. Results are cached, requests time out
 // after a few seconds, and after a failure the router is left alone for a minute. Whenever a road time isn't
 // available, an estimate from straight-line distance is used instead, so booking never waits on a third party.
 //
@@ -44,6 +48,10 @@ const TRAFFIC = 1.3;         // OSRM times are free-flowing; daytime Leeds traff
 const TIMEOUT_MS = 3000;
 const BACKOFF_MS = 60_000;
 const MAX_POINTS = 100;      // OSRM's public server limit for one table request
+const ORS_MAX_POINTS = 50;   // openrouteservice: 3,500 pairs a request, so 50 x 50
+// openrouteservice Standard plan: matrix 500 a day and 40 a minute, directions 2,000 a day. Domi stops short of
+// the daily limits and uses estimates for the rest of the day, so the account is never cut off.
+const ORS_DAILY = { matrix: 450, directions: 1800 };
 
 const FULL = /^([A-Z]{1,2}\d[A-Z\d]?) ?(\d[A-Z]{2})$/;
 /** "ls64dh" -> "LS6 4DH"; a district stays a district. */
@@ -54,12 +62,23 @@ function normalise(pc) {
 }
 const isFull = (pc) => FULL.test(normalise(pc));
 
-const cfg = { provider: "estimate", osrmUrl: "https://router.project-osrm.org", geoUrl: "https://api.postcodes.io", fetch: (...a) => fetch(...a) };
+const cfg = { provider: "estimate", osrmUrl: "https://router.project-osrm.org", orsUrl: "https://api.openrouteservice.org", orsKey: null, geoUrl: "https://api.postcodes.io", fetch: (...a) => fetch(...a) };
 const geo = new Map(Object.entries(KNOWN)); // postcode -> [lat, lon]
 const placed = new Map();                   // coordinates given by the app itself (the invented demo addresses)
 const invalid = new Set();                  // full postcodes postcodes.io says don't exist
 const road = new Map();                     // "A|B" -> minutes by road
-const status = { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0 };
+const dist = new Map();                     // "A|B" -> km by road, where the router gave it
+const status = { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0, used: { day: null, matrix: 0, directions: 0 } };
+const routed = () => cfg.provider === "osrm" || (cfg.provider === "ors" && !!cfg.orsKey);
+/** Count an openrouteservice request against today's allowance; false when today's is used up. */
+function spend(kind) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (status.used.day !== today) status.used = { day: today, matrix: 0, directions: 0 };
+  if (status.used[kind] >= ORS_DAILY[kind]) return false;
+  status.used[kind]++;
+  return true;
+}
+const orsInit = (body) => ({ method: "POST", headers: { Authorization: cfg.orsKey, "Content-Type": "application/json", Accept: "application/json, application/geo+json" }, body: JSON.stringify(body) });
 
 const toMinutes = (sec) => Math.round((sec / 60) * TRAFFIC) + PARK_MIN;
 // Road times between the demo's own postcodes, fetched from OSRM once and saved (routes-seed.json), so the
@@ -75,7 +94,7 @@ function configure(o = {}) {
   Object.assign(cfg, Object.fromEntries(Object.entries(o).filter(([, v]) => v != null)));
   return cfg;
 }
-configure({ provider: process.env.ROUTING_PROVIDER, osrmUrl: process.env.OSRM_URL });
+configure({ provider: process.env.ROUTING_PROVIDER, osrmUrl: process.env.OSRM_URL, orsKey: process.env.ORS_API_KEY });
 
 /** Where we think a postcode is: its own coordinates if known, else its district's centre. */
 function point(pc) {
@@ -144,12 +163,28 @@ async function geocode(pcs) {
  * quickly when routing is off or paused, so callers can always await it.
  */
 async function prepare(pcs) {
-  if (cfg.provider !== "osrm") return;
+  if (!routed()) return;
   const list = [...new Set(pcs.filter(Boolean).map(normalise))];
   await geocode(list);
-  const pts = list.filter(exact).slice(0, MAX_POINTS);
+  const pts = list.filter(exact).slice(0, cfg.provider === "ors" ? ORS_MAX_POINTS : MAX_POINTS);
   const missing = pts.some((a) => pts.some((b) => a !== b && !road.has(a + "|" + b)));
   if (!missing || paused()) return;
+  if (cfg.provider === "ors") {
+    if (!spend("matrix")) return;
+    try {
+      const body = await getJson(`${cfg.orsUrl}/v2/matrix/driving-car`, orsInit({ locations: pts.map((p) => { const [lat, lon] = geo.get(p); return [lon, lat]; }), metrics: ["duration", "distance"], units: "km" }));
+      if (!Array.isArray(body.durations)) throw new Error("router gave no durations");
+      body.durations.forEach((row, i) => row.forEach((sec, j) => {
+        if (i === j || sec == null) return;
+        road.set(pts[i] + "|" + pts[j], toMinutes(sec));
+        const k = body.distances && body.distances[i] && body.distances[i][j];
+        if (k != null) dist.set(pts[i] + "|" + pts[j], k);
+      }));
+      status.roadPairs = road.size;
+      status.lastOk = new Date().toISOString();
+    } catch (err) { failed(err); }
+    return;
+  }
   try {
     const coords = pts.map((p) => { const [lat, lon] = geo.get(p); return `${lon},${lat}`; }).join(";");
     const body = await getJson(`${cfg.osrmUrl}/table/v1/driving/${coords}?annotations=duration`);
@@ -168,13 +203,23 @@ async function prepare(pcs) {
  */
 const paths = new Map();
 async function roadPath(pcs) {
-  if (cfg.provider !== "osrm" || pcs.length < 2) return null;
+  if (!routed() || pcs.length < 2) return null;
   await geocode(pcs);
   const pts = pcs.map(point);
   if (pts.some((p) => !p)) return null;
   const key = pts.map(([a, b]) => `${a.toFixed(5)},${b.toFixed(5)}`).join(";");
   if (paths.has(key)) return paths.get(key);
   if (paused()) return null;
+  if (cfg.provider === "ors") {
+    if (pts.length > ORS_MAX_POINTS || !spend("directions")) return null;
+    try {
+      const body = await getJson(`${cfg.orsUrl}/v2/directions/driving-car/geojson`, orsInit({ coordinates: pts.map(([lat, lon]) => [lon, lat]) }));
+      const f = body.features && body.features[0];
+      const line = f ? f.geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]) : null;
+      if (line) { paths.set(key, line); if (paths.size > 500) paths.delete(paths.keys().next().value); }
+      return line;
+    } catch (err) { failed(err); return null; }
+  }
   try {
     const body = await getJson(`${cfg.osrmUrl}/route/v1/driving/${pts.map(([lat, lon]) => `${lon},${lat}`).join(";")}?overview=full&geometries=geojson`);
     const line = body.routes && body.routes[0] ? body.routes[0].geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]) : null;
@@ -185,10 +230,13 @@ async function roadPath(pcs) {
 
 /** For the technical view: how drive times are being worked out right now. */
 function routingStatus() {
+  const ors = cfg.provider === "ors" && !!cfg.orsKey;
   return {
-    provider: cfg.provider === "osrm" ? "Road routes (OSRM) with postcodes.io" : "Estimates from postcode coordinates",
-    live: cfg.provider === "osrm",
-    router: cfg.provider === "osrm" ? new URL(cfg.osrmUrl).host : null,
+    provider: ors ? "Road routes (openrouteservice) with postcodes.io" : cfg.provider === "osrm" ? "Road routes (OSRM) with postcodes.io" : "Estimates from postcode coordinates",
+    live: routed(),
+    router: ors ? new URL(cfg.orsUrl).host : cfg.provider === "osrm" ? new URL(cfg.osrmUrl).host : null,
+    usedToday: ors ? { ...status.used, limits: ORS_DAILY } : null,
+    credit: ors ? "Routes © openrouteservice.org by HeiGIT · map data © OpenStreetMap contributors" : null,
     placedPostcodes: geo.size,
     roadPairs: road.size,
     snapshotPairs: KNOWN_PAIRS,
@@ -202,8 +250,8 @@ function routingStatus() {
 /** Testing hook: forget everything learned at runtime. */
 function _reset() {
   geo.clear(); Object.entries(KNOWN).forEach(([k, v]) => geo.set(k, v)); placed.forEach((v, k) => geo.set(k, v));
-  invalid.clear(); road.clear(); loadSnapshot();
-  Object.assign(status, { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0 });
+  invalid.clear(); road.clear(); dist.clear(); loadSnapshot();
+  Object.assign(status, { roadPairs: 0, lookups: 0, lastOk: null, lastError: null, pausedUntil: 0, used: { day: null, matrix: 0, directions: 0 } });
 }
 
 /**
@@ -215,10 +263,12 @@ function place(pc, coords) { const n = normalise(pc); placed.set(n, coords); geo
 /** Where a postcode is, for drawing: { lat, lon, exact } (exact = its own coordinates, not its district's centre). */
 function locate(pc) { const p = point(pc); return p ? { lat: p[0], lon: p[1], exact: exact(pc) } : null; }
 
-/** Estimated road miles between two postcodes: straight-line distance scaled for roads. */
+/** Road miles between two postcodes: the router's distance when it has one, else straight-line distance scaled for roads. */
 function miles(from, to) {
   const a = point(from), b = point(to);
   if (!a || !b || normalise(from) === normalise(to)) return 0;
+  const k = dist.get(normalise(from) + "|" + normalise(to));
+  if (k != null) return Math.round((k / 1.609) * 10) / 10;
   return Math.round((km(a, b) * ROAD_FACTOR / 1.609) * 10) / 10;
 }
 

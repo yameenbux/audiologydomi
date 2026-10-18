@@ -20,7 +20,7 @@ function fakeNetwork({ down = false } = {}) {
   };
   return { fetch, calls };
 }
-test.afterEach(() => { travel._reset(); travel.configure({ provider: "estimate", fetch: (...a) => fetch(...a) }); });
+test.afterEach(() => { travel._reset(); travel.configure({ provider: "estimate", orsKey: "", fetch: (...a) => fetch(...a) }); });
 
 test("postcodes are tidied up, and districts still work", () => {
   assert.strictEqual(travel.normalise(" ls64dh "), "LS6 4DH");
@@ -70,4 +70,50 @@ test("with routing off, nothing goes over the network", async () => {
   travel.configure({ provider: "estimate", fetch: net.fetch });
   await travel.prepare(["LS7 3AB", "LS6 4DH"]);
   assert.strictEqual(net.calls.length, 0);
+});
+
+test("openrouteservice: one matrix for the stops, road times and road miles cached, daily allowance respected", async () => {
+  const calls = [];
+  const fetch = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (url.endsWith("/postcodes")) {
+      const { postcodes } = JSON.parse(init.body);
+      return json({ status: 200, result: postcodes.map((q, i) => ({ query: q, result: { latitude: 53.5 + i / 100, longitude: -2.4 } })) });
+    }
+    if (url.endsWith("/v2/matrix/driving-car")) {
+      const { locations, metrics } = JSON.parse(init.body);
+      assert.deepStrictEqual(metrics, ["duration", "distance"]);
+      const n = locations.length;
+      return json({ durations: Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 0 : 900))), distances: Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 0 : 16.09))) });
+    }
+    return json({ features: [{ geometry: { coordinates: [[-2.4, 53.5], [-2.41, 53.51]] } }] });
+  };
+  travel.configure({ provider: "ors", orsKey: "test-key", fetch });
+  await travel.prepare(["BL1 4AB", "BL3 6RT", "WN6 7QA"]);
+  const m = calls.filter((c) => c.url.endsWith("/v2/matrix/driving-car"));
+  assert.strictEqual(m.length, 1, "one table for all three");
+  assert.strictEqual(m[0].init.headers.Authorization, "test-key");
+  assert.ok(!m[0].init.body.includes("BL1"), "only coordinates are sent, never the postcode or a name");
+  const d = travel.driveInfo("BL1 4AB", "WN6 7QA");
+  assert.strictEqual(d.source, "road");
+  assert.strictEqual(d.min, Math.round(15 * 1.3) + 4, "15 min by road, plus traffic and parking");
+  assert.strictEqual(travel.miles("BL1 4AB", "WN6 7QA"), 10, "16.09 km by road is 10 miles");
+  await travel.prepare(["BL1 4AB", "BL3 6RT", "WN6 7QA"]);
+  assert.strictEqual(calls.filter((c) => c.url.endsWith("/v2/matrix/driving-car")).length, 1, "cached: not asked twice");
+  assert.ok(await travel.roadPath(["BL1 4AB", "BL3 6RT"]));
+  const st = travel.routingStatus();
+  assert.match(st.provider, /openrouteservice/); assert.match(st.credit, /HeiGIT/);
+  assert.strictEqual(st.usedToday.matrix, 1); assert.strictEqual(st.usedToday.directions, 1);
+});
+
+test("openrouteservice without a key, or with its daily allowance used up, falls back to estimates", async () => {
+  const calls = [];
+  const fetch = async (url, init = {}) => { calls.push(url); if (url.endsWith("/postcodes")) return json({ status: 200, result: JSON.parse(init.body).postcodes.map((q) => ({ query: q, result: { latitude: 53.6, longitude: -2.5 } })) }); return json({ durations: [[0, 600], [600, 0]] }); };
+  travel.configure({ provider: "ors", orsKey: "", fetch });
+  await travel.prepare(["BL1 1AA", "BL2 2BB"]);
+  assert.strictEqual(calls.length, 0, "no key: nothing is sent anywhere");
+  assert.strictEqual(travel.routingStatus().live, false);
+  travel.configure({ orsKey: "k" });
+  for (let i = 0; i < 460; i++) await travel.prepare([`BL1 ${i % 10}AA`.replace(/ (\d)AA/, " $1AA"), `BL9 ${i % 10}ZZ`, `OL${i} 1AA`]);
+  assert.ok(travel.routingStatus().usedToday.matrix <= 450, "stops short of the 500 a day");
 });

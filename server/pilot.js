@@ -11,11 +11,13 @@ const bus = require("./bus");
 const all = (sql, ...a) => db.prepare(sql).all(...a);
 const one = (sql, ...a) => db.prepare(sql).get(...a);
 
-// What can be measured, and which way is better. `measured`: Domi works it out; otherwise the office enters it weekly.
+// What can be measured, and which way is better. `measured`: Domi works it out; otherwise the office enters it weekly
+// (`entry` names what it types in). Miles come from the clinicians' mileage claims, the same source as the baseline:
+// Domi's own planned-route miles are shown alongside for reference, never judged against the baseline.
 const MEASURES = {
-  milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: true, dp: 1 },
+  milesPerVisit: { label: "Miles driven per visit", unit: "miles", better: "down", measured: false, entry: "miles", dp: 1 },
   unfilledPerWeek: { label: "Cancelled slots left empty, per week", unit: "slots", better: "down", measured: true, dp: 1 },
-  officeHours: { label: "Office hours a week on scheduling and phoning round", unit: "hours", better: "down", measured: false, dp: 1 },
+  officeHours: { label: "Office hours a week on scheduling and phoning round", unit: "hours", better: "down", measured: false, entry: "hours", dp: 1 },
   visitsPerWeek: { label: "Visits done per week", unit: "visits", better: "up", measured: true, dp: 0 },
 };
 const WEEKS = 13; // the pilot runs three months
@@ -24,7 +26,7 @@ const round = (v, dp) => (v == null ? null : Math.round(v * 10 ** dp) / 10 ** dp
 /** The pilot as saved in the practice's settings, with defaults. */
 function config() {
   const p = svc.settings().pilot || {};
-  return { start: p.start || null, baseline: p.baseline || {}, targets: Array.isArray(p.targets) ? p.targets : [], hours: p.hours || {}, agreedBy: p.agreedBy || null };
+  return { start: p.start || null, baseline: p.baseline || {}, targets: Array.isArray(p.targets) ? p.targets : [], hours: p.hours || {}, miles: p.miles || {}, agreedBy: p.agreedBy || null };
 }
 
 /** Set the go-live date, the baseline and the targets. Only the office; changes are audited. */
@@ -66,22 +68,33 @@ function save(input, user) {
   });
 }
 
-/** The office's own weekly figure for time spent scheduling (Domi can't see phone calls made outside it). */
-function saveHours(week, hours, user) {
+// What the office types in each week: hours it spent scheduling (Domi can't see calls made outside it), and the total
+// miles on that week's mileage claims.
+const ENTRIES = { hours: { max: 168, word: "hours" }, miles: { max: 20000, word: "miles" } };
+
+/** Save the office's figures for one pilot week. Blank clears one. */
+function saveWeek(week, input, user) {
   return svc.tx(() => {
-    const c = config(), w = Number(week), h = hours === "" || hours == null ? null : Number(hours);
+    const c = config(), w = Number(week), st = svc.settings(), next = { ...c };
     if (!c.start) throw new svc.HttpError(400, "Set the go-live date first.");
     if (!Number.isInteger(w) || w < 1 || w > WEEKS) throw new svc.HttpError(400, "Choose a pilot week.");
-    if (h != null && (!Number.isFinite(h) || h < 0 || h > 168)) throw new svc.HttpError(400, "Enter the hours as a number.");
-    const st = svc.settings();
-    st.pilot = { ...c, hours: { ...c.hours, [w]: h } };
-    if (h == null) delete st.pilot.hours[w];
-    svc.audit(user.name, "pilot.hours", "settings", `Week ${w}: ${h == null ? "cleared" : h + " hours"}`);
+    const said = [];
+    for (const [k, e] of Object.entries(ENTRIES)) {
+      if (input[k] === undefined) continue;
+      const v = input[k] === "" || input[k] == null ? null : Number(input[k]);
+      if (v != null && (!Number.isFinite(v) || v < 0 || v > e.max)) throw new svc.HttpError(400, `Enter the ${e.word} as a number.`);
+      next[k] = { ...c[k] };
+      if (v == null) delete next[k][w]; else next[k][w] = v;
+      said.push(v == null ? `${e.word} cleared` : `${v} ${e.word}`);
+    }
+    if (!said.length) throw new svc.HttpError(400, "Enter the hours or the miles.");
+    st.pilot = next;
+    svc.audit(user.name, "pilot.week", "settings", `Week ${w}: ${said.join(", ")}`);
     return { ok: true };
   });
 }
 
-/** Route miles for one clinician's day, from the same road routing as the mileage report. */
+/** Domi's planned route miles for one clinician's day, from the same road routing as the mileage report. */
 async function milesFor(clinicianId, day) {
   const r = await svc.routeFor(clinicianId, day, null, { withPath: false });
   return { miles: r.totals.miles, visits: r.totals.visits };
@@ -110,7 +123,9 @@ async function report() {
     const refilled = cancelled.filter((a) => one("SELECT 1 FROM appointments WHERE filled_from = ? AND status != 'cancelled'", a.id)).length;
     out.weeks.push({
       week: w, from: cal.iso(from), to: cal.iso(to), label: `${cal.label(from)} – ${cal.label(to)}`, inProgress,
-      milesPerVisit: routed ? round(miles / routed, 1) : null, miles: round(miles, 1), visits,
+      // Per visit from the mileage claims the office entered; Domi's planned miles alongside, for reference only.
+      milesClaimed: c.miles[w] != null ? c.miles[w] : null, milesPerVisit: c.miles[w] != null && visits ? round(c.miles[w] / visits, 1) : null,
+      plannedMiles: round(miles, 1), plannedPerVisit: routed ? round(miles / routed, 1) : null, visits,
       cancellations: cancelled.length, refilled, unfilledPerWeek: cancelled.length - refilled,
       officeHours: c.hours[w] != null ? c.hours[w] : null, visitsPerWeek: visits,
     });
@@ -131,4 +146,4 @@ async function report() {
   return out;
 }
 
-module.exports = { report, save, saveHours, MEASURES, WEEKS };
+module.exports = { report, save, saveWeek, MEASURES, WEEKS };

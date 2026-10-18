@@ -332,11 +332,10 @@ Each booking option is labelled **Road route** or **Estimated**.
 - **Road times** come from an [OSRM](https://project-osrm.org) table request covering every stop in the diary, with 30% added for daytime traffic and 4 minutes for parking.
 - **Caching and fallback:** results are cached; requests time out after 3 seconds, and after a failure the router is left alone for a minute. Until then, straight-line estimates are used, so booking never waits on a third party.
 - **The sample diary** uses road times saved from OSRM (`server/routes-seed.json`), so it shows real routes even offline.
-- **Live lookups** need `ROUTING_PROVIDER=osrm`, which `render.yaml` sets. Locally and in the tests, new postcodes are estimated.
+- **Live lookups** need `ROUTING_PROVIDER=osrm`, which `render.yaml` sets for the demo. Locally and in the tests, new postcodes are estimated.
+- **The live practice** uses [openrouteservice](https://openrouteservice.org) (`ROUTING_PROVIDER=ors` with an `ORS_API_KEY`): its free plan allows commercial use and gives road distances as well as times, so the mileage report uses road miles. Domi keeps under the free daily allowance (matrix and directions requests are counted) and falls back to estimates when it's used up or the key is missing. The map credits openrouteservice, as its licence requires.
 
-For real patients, swap the public OSRM demo server (fair use only, no traffic
-data) for a self-hosted OSRM with the UK map, or a paid service under a data
-processing agreement. Only `server/travel.js` changes.
+The public OSRM demo server is fair use only, so it isn't used for real patients.
 
 ### Sending real texts
 
@@ -356,8 +355,9 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 | `OFFER_MINUTES` | 20 | How long a patient has to reply |
 | `DEMO_MODE` | `1` | `0` removes the demo shortcuts: no password on screen, no code helper, no QR sign-in |
 | `MAX_SANDBOXES` | 100 | Private demos kept in memory at once |
-| `ROUTING_PROVIDER` | `estimate` | `osrm` for live road routes and postcode lookups |
+| `ROUTING_PROVIDER` | `estimate` | `osrm` or `ors` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
+| `ORS_API_KEY` | none | openrouteservice key, for `ROUTING_PROVIDER=ors` (a Fly secret, never in `fly.toml`) |
 | `DEFAULT_BRAND` | none (`domi`) | The brand the plain address opens in (`server/brands.js`). `/?brand=<id>` always overrides it |
 | `MARKETING_URL` | `https://domi.ysbdesigns.uk/` | The website: "Powered by Domi" links here, and the demo's privacy policy and terms (`/privacy`, `/terms`) are the website's |
 | `CF_BEACON_TOKEN` | none | Cloudflare Web Analytics (cookieless, so no consent banner). Never added to the cancellation page, whose address holds a private token |

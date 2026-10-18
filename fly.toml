@@ -11,7 +11,7 @@ primary_region = "lhr"
   DEMO_MODE = "0"            # no sample practices, no demo shortcuts, no demo password
   DEFAULT_BRAND = "hvo"      # the practice's look on the sign-in page
   PRACTICE_CODE = "HVO"      # the practice people sign in to
-  ROUTING_PROVIDER = "osrm"
+  ROUTING_PROVIDER = "ors"   # openrouteservice; needs the ORS_API_KEY secret, estimates without it
   OFFER_MINUTES = "20"
 
 [http_service]
