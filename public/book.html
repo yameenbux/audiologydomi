@@ -72,6 +72,8 @@ const err = (m) => m ? `<div class="err bk-err" role="alert">${esc(m)}</div>` : 
 
 function view(e) {
   const f = S.form;
+  if (!S.info.types.length) return `<div class="caps">Home visits</div><h1>Booking online is switched off</h1>
+    <p class="bk-lead">Please call us and we'll find a time that suits you.${S.info.brand && S.info.brand.phone ? ` Our number is <a href="tel:${esc(S.info.brand.phone.replace(/\s/g, ""))}">${esc(S.info.brand.phone)}</a>.` : ""}</p>`;
   if (S.step === 1) return `${steps(1)}<div class="caps">Home visits</div><h1>Book an eye care visit at home</h1>
     <p class="bk-lead">Tell us where you live and what you need, and we'll show you the times when one of our team is nearby.</p>
     <form id="f1">

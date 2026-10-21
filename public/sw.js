@@ -1,7 +1,7 @@
 /* Domi service worker: keeps the app itself on the phone so it opens without signal.
    Patient data is not cached here. The app keeps today's round itself, and wipes it on sign-out. */
 "use strict";
-const CACHE = "domi-shell-v6";
+const CACHE = "domi-shell-v7";
 const SHELL = ["/", "/app.js", "/areas.js", "/powered.js", "/app.css", "/fonts/fonts.css", "/vendor/qrcode-generator-1.4.4.js", "/vendor/leaflet-1.9.4/leaflet.js", "/vendor/leaflet-1.9.4/leaflet.css", "/logo.svg", "/logo-lockup.svg", "/favicon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -14,6 +14,9 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return; // API: always the network
+  // Pages whose address is a private token (a family's cancellation link, a staff sign-in link) are never saved on
+  // the device, so the token doesn't outlive the visit to the page.
+  if (/^\/(cancel|invite)\//.test(url.pathname)) return;
   const longLived = url.pathname.startsWith("/fonts/") || url.pathname.startsWith("/vendor/");
   if (longLived) {
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })));

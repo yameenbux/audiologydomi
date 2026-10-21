@@ -89,10 +89,13 @@ async function deliverEmail(to, subject, text, replyTo) {
   if (!res.ok) throw new Error(json.message || `Resend returned ${res.status}`);
   return { providerId: json.id };
 }
-/** Record an email now; send it once the surrounding transaction commits, as sendSms does. */
-function sendEmail({ to, name, subject, body, kind, leadId = null, replyTo = null }) {
+/**
+ * Record an email now; send it once the surrounding transaction commits, as sendSms does. `kept` is the copy stored
+ * in the practice's records when the email itself carries a secret (a sign-in link): the secret goes out, never in.
+ */
+function sendEmail({ to, name, subject, body, kind, leadId = null, replyTo = null, kept = body }) {
   const row = db.prepare("INSERT INTO emails (to_addr, to_name, subject, body, kind, lead_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id")
-    .get(to, name, subject, body, kind, leadId, sandbox.stamp().slice(0, 5));
+    .get(to, name, subject, kept, kind, leadId, sandbox.stamp().slice(0, 5));
   const sb = sandbox.current();
   const note = (providerId) => { try { sandbox.run(sb, () => db.prepare("UPDATE emails SET provider_id = ? WHERE id = ?").run(providerId, row.id)); } catch {} };
   const job = () => deliverEmail(to, subject, body, replyTo).then(({ providerId }) => note(providerId), (err) => note("failed: " + err.message));

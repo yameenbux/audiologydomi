@@ -65,7 +65,7 @@ const hm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(Mat
 const toMin = (s) => { const [h, m] = String(s).split(":").map(Number); return h * 60 + m; };
 const icon = (n, cls) => `<svg class="i ${cls || ""}"><use href="#i-${n}"/></svg>`;
 const first = (n) => String(n).split(" ")[0];
-const initials = (n) => String(n).split(" ").map((w) => w[0]).join("").slice(0, 2);
+const initials = (n) => esc(String(n).split(" ").map((w) => w[0]).join("").slice(0, 2)); // always lands in HTML
 const district = (pc) => String(pc).split(" ")[0];
 const active = (a) => a.status !== "cancelled";
 /** A visit type, with this practice's own length (from /api/state; /api/meta has the defaults). */
@@ -151,9 +151,12 @@ async function prefetchRecords() {
   let route = null; try { route = await api("GET", "/api/route?day=0"); } catch (e) { /* the map just won't be offline */ }
   const c = store.get(OFFLINE_KEY, null); if (c) { c.records = records; c.route = route; store.set(OFFLINE_KEY, c); }
 }
+const OFFLINE_MS = 12 * 3600e3; // as long as a sign-in lasts: a lost phone's copy stops opening after that
 function goOffline() {
   const c = store.get(OFFLINE_KEY, null);
   if (!c || (S && c.user !== S.user.id)) return false;
+  // Opened without signal and not signed in: only a copy saved within a working day, never an old one.
+  if (!S && !(Date.now() - (c.savedAt || 0) < OFFLINE_MS)) { wipeOffline(); return false; }
   if (!S) { S = c.state; META = META || c.meta; fetchedAt = c.fetchedAt; }
   if (!UI.offline) { UI.offline = true; toast("No signal. Your round is saved on this phone, and changes will sync later."); }
   render();
@@ -161,7 +164,7 @@ function goOffline() {
 }
 /** A change made without signal: shown straight away, sent when the connection is back. */
 function queueChange(url, body, apply) {
-  outbox.push({ url, body, at: Date.now() }); store.set(OUTBOX_KEY, outbox);
+  outbox.push({ url, body, at: Date.now(), uid: S.user.id }); store.set(OUTBOX_KEY, outbox);
   apply();
   const c = store.get(OFFLINE_KEY, null);
   if (c) { c.state = S; if (UI.rec) c.records[UI.rec.id] = UI.rec; store.set(OFFLINE_KEY, c); }
@@ -173,6 +176,8 @@ async function flush() {
   try {
     while (outbox.length) {
       const job = outbox[0];
+      // Only ever sent as the person who made the change: someone else signing in on this phone doesn't send it.
+      if (job.uid && S && job.uid !== S.user.id) { outbox.shift(); store.set(OUTBOX_KEY, outbox); continue; }
       try { await api("POST", job.url, job.body); sent++; }
       catch (e) { if (e.offline) return; toast(`One change couldn't sync: ${e.message}`, true); }
       outbox.shift(); store.set(OUTBOX_KEY, outbox);
@@ -311,6 +316,7 @@ function render() {
   $("#clock").hidden = !signedIn; $("#roles").hidden = !signedIn || !isOffice(); $("#actions").hidden = !signedIn;
   $("#reset").hidden = !isOffice() || !!META.live; // a live practice can't be reset
   if (META.live) $("#open-phone").hidden = true;    // phone pairing by QR is a demo shortcut
+  if (META.live && $("#uth")) $("#uth").hidden = true; // so is browsing the raw tables
   document.body.classList.toggle("clin-mode", signedIn && !isAdmin());
   if (!signedIn) { $("#app").innerHTML = signInView(); return; }
   $("#role-admin").setAttribute("aria-pressed", isAdmin());
@@ -625,7 +631,7 @@ function recallsPanel() {
     <p class="panel-note">Patients due a sight test are offered cancelled visits near them, 48 hours or more ahead so PCSE can be told. You can also text them your booking page.</p>
     <p class="panel-note" style="padding-top:0">${S.settings.autoRecalls ? `${icon("check")} Recall texts go out automatically at ${hm(S.settings.recallAt)}. Patients who'd rather be phoned stay here for you to call.` : `Automatic recall texts are off.`} <a href="#/settings/refill">Change</a></p>
     <ul class="recalls">${due.map((r) => { const p = pat(r.patientId); return `<li>
-      <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${district(p.pc)}</span>` : ""}</div></div>
+      <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${esc(district(p.pc))}</span>` : ""}</div></div>
       <div class="ra">${r.status === "booked" ? `<span class="badge b-ok">Booked</span>`
         : `${r.status === "texted" ? `<span class="badge b-plain">Texted ${esc(String(r.textedAt || "").slice(0, 5))}</span>` : `<button class="btn secondary sm" type="button" data-act="recall-text" data-id="${r.id}">${icon("send")}Text link</button>`}
            <button class="icon-btn sm" type="button" data-act="recall-dismiss" data-id="${r.id}" title="Remove from recalls" aria-label="Remove ${esc(p ? p.name : "")} from recalls">${icon("x")}</button>`}</div></li>`; }).join("")}</ul>
@@ -651,7 +657,7 @@ function wlItem(w, i) {
     : `<span class="badge ${w.prio === "urgent" ? "b-crit" : w.prio === "soon" ? "b-warn" : "b-plain"}">${META.prio[w.prio].label}</span>`;
   return `<li class="${w.status === "booked" ? "booked" : ""}"><span class="pos">${w.status === "booked" ? icon("check") : i + 1}</span>
     <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-      <div class="meta"><span>${t.name}</span><span>${district(p.pc)}</span><span>${META.avail[w.avail]}</span>${w.shortNotice ? "" : "<span>Needs 24h notice</span>"}<span>${w.source === "recall" ? esc(w.note || "Recall due") : w.days + " days waiting"}</span></div></div>
+      <div class="meta"><span>${t.name}</span><span>${esc(district(p.pc))}</span><span>${META.avail[w.avail]}</span>${w.shortNotice ? "" : "<span>Needs 24h notice</span>"}<span>${w.source === "recall" ? esc(w.note || "Recall due") : w.days + " days waiting"}</span></div></div>
     ${badge}</li>`;
 }
 function smsBubble(m) {
@@ -984,8 +990,10 @@ function sideNav() {
 /* ---------- Diary changes to copy into Opticabase (until the two systems can sync) ---------- */
 const CHANGE_UI = { booked: ["b-ok", "Booked"], moved: ["b-forest", "Moved"], cancelled: ["b-crit", "Cancelled"], "not-seen": ["b-warn", "Not seen"] };
 const ukDate = (iso) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "");
+/** A spreadsheet cell as plain text: Excel runs a cell starting with = + - @ as a formula, so those get a leading '. */
+const csvSafe = (v) => { const t = String(v == null ? "" : v); return /^[=+\-@\t\r]/.test(t) ? "'" + t : t; };
 function diaryCsv(rows) {
-  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`;
   const head = ["Changed", "Change", "Opticabase ID", "Patient", "Date of birth", "Postcode", "Visit date", "Visit time", "Clinician", "Visit type", "Was date", "Was time", "Was clinician", "Reason"];
   return [head, ...rows.map((r) => [r.at, CHANGE_UI[r.change][1], r.obId, r.patient, r.dob, r.pc, r.visitDate, r.visitTime, r.clinician, r.type, r.wasDate, r.wasTime, r.wasClinician, r.reason])].map((x) => x.map(q).join(",")).join("\r\n");
 }
@@ -1468,7 +1476,7 @@ function settingsPage() {
           <td><label class="money-in"><span>£</span><input class="input" type="number" min="0" max="5000" step="1" data-price="${k}" value="${Number((st.prices || {})[k] || 0)}" aria-label="Price for ${esc(t.name)}"></label></td>
           <td>${can ? `<label class="chk"><input type="checkbox" data-online="${k}" ${on ? "checked" : ""}><span>${on ? "Yes" : "No"}</span></label>` : `<span class="muted">Arranged by the practice</span>`}</td></tr>`; }).join("")}
         </tbody></table></div>
-        <div style="padding:0 22px 20px"><p class="set-note">The length is the time with the patient; Domi adds the driving between visits itself. It shapes every booking, refill offer, planned route and the diary. If a longer length would run a booked visit into the next one, Domi names it so it can be moved first.</p>${dayFit(st)}<div class="field" style="max-width:340px"><label for="set-tgt">Target: patients seen per clinician per day</label><select class="input" id="set-tgt">${Array.from({ length: 20 }, (_, i) => i + 1).map((n) => `<option ${n === (st.clinicTarget || 10) ? "selected" : ""}>${n}</option>`).join("")}</select><span class="hint after">Each clinic's true count is shown against this in the diary. Recalls count 1; old recalls, new patients, Facebook leads and referrals 0.5.</span></div>${uses(["Diary", "Booking", "Refilling cancellations", "Route planning", "Invoices", "Booking page"])}</div></section>
+        <div style="padding:0 22px 20px"><p class="set-note">${(st.online || []).length ? "" : "<b>Online booking is off.</b> The booking page asks patients to phone. "}Untick every visit under "Patients can book online" to switch online booking off. The length is the time with the patient; Domi adds the driving between visits itself. It shapes every booking, refill offer, planned route and the diary. If a longer length would run a booked visit into the next one, Domi names it so it can be moved first.</p>${dayFit(st)}<div class="field" style="max-width:340px"><label for="set-tgt">Target: patients seen per clinician per day</label><select class="input" id="set-tgt">${Array.from({ length: 20 }, (_, i) => i + 1).map((n) => `<option ${n === (st.clinicTarget || 10) ? "selected" : ""}>${n}</option>`).join("")}</select><span class="hint after">Each clinic's true count is shown against this in the diary. Recalls count 1; old recalls, new patients, Facebook leads and referrals 0.5.</span></div>${uses(["Diary", "Booking", "Refilling cancellations", "Route planning", "Invoices", "Booking page"])}</div></section>
       ${setFoot()}</form>`;
   } else if (sec === "refill") {
     const mins = [5, 10, 15, 20, 30, 45, 60, 90, 120];
@@ -2398,7 +2406,7 @@ function reportDrawer(r) {
 function reportCsv(r) {
   const rows = [["Clinician", "Day", "Visits", "Booked minutes", "Working minutes", "Utilisation %", "Driving minutes", "Miles (estimated)", `Mileage at ${r.ratePence}p (GBP)`]];
   r.clinicians.forEach((c) => c.days.forEach((d) => rows.push([c.name, d.dayLabel, d.visits, d.bookedMin, d.workingMin, d.utilisation, d.driveMin, d.miles, (d.mileagePence / 100).toFixed(2)])));
-  const csv = rows.map((row) => row.map((v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(",")).join("\r\n");
+  const csv = rows.map((row) => row.map((v) => typeof v === "number" ? v : csvSafe(v)).map((v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "mileage-and-utilisation.csv";
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);

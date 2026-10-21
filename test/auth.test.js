@@ -137,3 +137,44 @@ test("lots of failed attempts from one connection are slowed down", async () => 
   assert.strictEqual(last.status, 429);
   assert.strictEqual((await password(sb, "sarah@airevalleyeyecare.example")).status, 429, "applies to every sign-in step");
 });
+
+test("wrong codes count against the account, so a known password can't be used to guess codes over and over", async () => {
+  const sb = await newDemo();
+  let last;
+  // Several fresh challenges, a wrong code on each: the password is right every time, but the account still locks.
+  const from = { "Fly-Client-IP": "203.0.113.9" }; // its own connection, so earlier tests' failures don't count
+  const pwd = (email) => call("POST", "/api/auth/password", null, { sandbox: sb, email, password: DEMO_PASSWORD }, from);
+  for (let i = 0; i < LOCK_AFTER; i++) {
+    const pw = await pwd("amira@airevalleyeyecare.example");
+    assert.strictEqual(pw.status, 200, `password ${i + 1} accepted while the account is open`);
+    last = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code: "000000" }, from);
+  }
+  assert.strictEqual(last.status, 429); assert.match(last.data.error, /locked/);
+  assert.strictEqual((await pwd("amira@airevalleyeyecare.example")).status, 429, "locked for the password step too");
+  // A right code clears the count: a slip or two never adds up across days.
+  const sarah = await pwd("sarah@airevalleyeyecare.example");
+  await call("POST", "/api/auth/code", null, { challenge: sarah.data.challenge, code: "000000" }, from);
+  const again = await pwd("sarah@airevalleyeyecare.example");
+  const ok = await call("POST", "/api/auth/code", null, { challenge: again.data.challenge, code: await demoCode(again.data.challenge) }, from);
+  assert.strictEqual(ok.status, 200);
+});
+
+test("the per-connection limit uses Fly's client address, which a caller can't change", async () => {
+  await newDemo();
+  let last;
+  // On Fly, rotating X-Forwarded-For no longer gives a fresh allowance: the bucket is Fly-Client-IP.
+  for (let i = 0; i < 32; i++) last = await call("POST", "/api/auth/code", null, { challenge: "made-up", code: "123456" }, { "Fly-Client-IP": "198.51.100.7", "X-Forwarded-For": "10.0.0." + i });
+  assert.strictEqual(last.status, 429);
+  const other = await call("POST", "/api/auth/code", null, { challenge: "made-up", code: "123456" }, { "Fly-Client-IP": "198.51.100.8" });
+  assert.strictEqual(other.status, 401, "another connection isn't blocked");
+});
+
+test("a server with a live database never runs the demo shortcuts, even if DEMO_MODE is missing", () => {
+  const { execFileSync } = require("node:child_process");
+  const demoWith = (env) => execFileSync(process.execPath, ["-e", "process.stdout.write(String(require('./server/auth').DEMO))"],
+    { env: { PATH: process.env.PATH, ...env }, cwd: require("node:path").join(__dirname, "..") }).toString();
+  assert.strictEqual(demoWith({}), "true", "a plain demo server");
+  assert.strictEqual(demoWith({ DATABASE_URL: "postgres://x@db.example/p" }), "false", "live database, DEMO_MODE unset");
+  assert.strictEqual(demoWith({ DATABASE_URL: "postgres://x@db.example/p", DEMO_MODE: "1" }), "true", "only when asked for outright");
+  assert.strictEqual(demoWith({ DEMO_MODE: "0" }), "false");
+});

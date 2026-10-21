@@ -43,7 +43,10 @@ test("a new clinician sets up their own password and app from the invitation, on
   sandbox.run(sandbox.get(o.sandbox), () => {
     const e = require("../server/db").db.prepare("SELECT * FROM emails WHERE kind = 'staff-invite' ORDER BY id DESC").get();
     assert.strictEqual(e.to_addr, "nadia@airevalleyeyecare.example");
-    assert.ok(e.body.includes(inv.url));
+    // The stored copy names the link but not its token: the database can't be used to open it.
+    const token = inv.url.split("/").pop();
+    assert.ok(!e.body.includes(token), "the token isn't kept");
+    assert.ok(e.body.includes(inv.url.replace(token, "••••••")));
   });
   assert.ok(st);
 
