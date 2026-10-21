@@ -3,6 +3,8 @@
 # Each practice is held in memory and saved to Supabase as it changes, so run exactly one machine: fly scale count 1
 app = "domi-live"
 primary_region = "lhr"
+kill_signal = "SIGTERM"
+kill_timeout = 10         # seconds to finish saving to Postgres before the machine is stopped (server/index.js)
 
 [build]
   dockerfile = "Dockerfile"

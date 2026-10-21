@@ -51,12 +51,14 @@ function issue(userId, actor, base, { isNew = false } = {}) {
     db.prepare("INSERT INTO invites (id, user_id, kind, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(hash(token), u.id, kind, actor.name, now, expiresAt);
     const url = `${String(base || "").replace(/\/$/, "")}/invite/${sb.id}/${token}`;
     const practice = sb.settings.practice, first = u.name.split(" ")[0];
+    const text = (link) => kind === "invite"
+        ? `Hi ${first},\n\n${actor.name} has added you to ${practice} on Domi${u.role === "clinician" ? ", where you'll see your round of home visits" : ""}.\n\nOpen this link to choose your password and set up an authenticator app on your phone. It takes about two minutes:\n\n${link}\n\nThe link works once and expires ${dateText(expiresAt)}. If you weren't expecting this, you can ignore it.\n\n${practice}`
+        : `Hi ${first},\n\n${actor.name} has reset your Domi sign-in for ${practice}. Your old password and authenticator codes no longer work.\n\nOpen this link to choose a new password and set up your authenticator app again:\n\n${link}\n\nThe link works once and expires ${dateText(expiresAt)}. If you didn't ask for this, tell the practice office.\n\n${practice}`;
     notify.sendEmail({
       to: u.email, name: u.name, kind: "staff-" + kind,
       subject: kind === "invite" ? `Your Domi sign-in for ${practice}` : `Set up your Domi sign-in again (${practice})`,
-      body: kind === "invite"
-        ? `Hi ${first},\n\n${actor.name} has added you to ${practice} on Domi${u.role === "clinician" ? ", where you'll see your round of home visits" : ""}.\n\nOpen this link to choose your password and set up an authenticator app on your phone. It takes about two minutes:\n\n${url}\n\nThe link works once and expires ${dateText(expiresAt)}. If you weren't expecting this, you can ignore it.\n\n${practice}`
-        : `Hi ${first},\n\n${actor.name} has reset your Domi sign-in for ${practice}. Your old password and authenticator codes no longer work.\n\nOpen this link to choose a new password and set up your authenticator app again:\n\n${url}\n\nThe link works once and expires ${dateText(expiresAt)}. If you didn't ask for this, tell the practice office.\n\n${practice}`,
+      // The stored copy has the link's token blanked: the database (and its backups) can't be used to open it.
+      body: text(url), kept: text(url.replace(/[^/]+$/, "••••••")),
     });
     svc.audit(actor.name, kind === "invite" ? "auth.invite" : "auth.reset", u.id, kind === "invite" ? `Sent ${u.name} an invitation to set up their sign-in` : `Reset ${u.name}'s sign-in and sent a link to set it up again`);
     return { kind, url, expiresAt, email: u.email, emailed: notify.emailProvider === "resend" };

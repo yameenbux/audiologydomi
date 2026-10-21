@@ -10,7 +10,9 @@ const crypto = require("node:crypto");
 const { promisify } = require("node:util");
 const scrypt = promisify(crypto.scrypt);
 
-const DEMO = process.env.DEMO_MODE !== "0";
+// Fails safe: a server with a live database never runs the demo shortcuts (one of them shows the current code),
+// even if DEMO_MODE goes missing from its config. Only an explicit DEMO_MODE=1 turns them on there.
+const DEMO = process.env.DEMO_MODE === "1" || (process.env.DEMO_MODE !== "0" && !process.env.DATABASE_URL);
 const DEMO_PASSWORD = "Leeds-Visits-2026";
 
 /* ---------- Passwords ---------- */

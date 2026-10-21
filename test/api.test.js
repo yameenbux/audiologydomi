@@ -231,6 +231,33 @@ test("patients book online: only efficient slots from tomorrow, nothing about ot
   assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, { ...form, name: "Someone Else", phone: "07700 900778" })).status, 409, "that time has gone");
 });
 
+test("an online booking with an existing patient's mobile but another name never lands on their record; booking can be switched off", async () => {
+  const office = await login("u-admin");
+  const code = office.sandbox;
+  const before = await state(office.token);
+  const victim = before.patients.find((p) => /^07/.test(p.phone));
+  const slots = (await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "repair", avail: "any" })).data.slots;
+  const form = { pc: "LS16 7SN", type: "repair", avail: "any", ref: slots[0].ref, name: "Not Them", phone: victim.phone, addr: "1 Somewhere Road", consent: true, formMs: 20000 };
+  assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, form)).status, 200, "looks the same as any booking");
+  const after = await state(office.token);
+  const v = after.appts.find((a) => a.note && /booked by the patient online/.test(a.note));
+  assert.notStrictEqual(v.patientId, victim.id, "not booked in the existing patient's name");
+  assert.strictEqual(after.patients.find((p) => p.id === v.patientId).name, "Not Them");
+  assert.deepStrictEqual(after.patients.find((p) => p.id === victim.id), victim, "their record is untouched");
+  // The office can switch online booking off: the page then asks patients to phone.
+  assert.strictEqual((await call("PUT", "/api/settings", office.token, { online: [] })).status, 200);
+  assert.deepStrictEqual((await call("GET", `/api/public/${code}`)).data.types, []);
+  assert.strictEqual((await call("POST", `/api/public/${code}/slots`, null, { pc: "LS16 7SN", type: "repair" })).status, 403);
+  assert.strictEqual((await call("POST", `/api/public/${code}/bookings`, null, form)).status, 403);
+});
+
+test("the office's fake text replies and raw table browser are demo tools", async () => {
+  const office = await login("u-admin");
+  // In a demo they work; on a live server (DEMO_MODE=0) both answer 404. Here: the staff sign-in links are hidden.
+  const rows = (await call("GET", "/api/debug/table/emails", office.token)).data.rows;
+  assert.ok(rows.filter((r) => /^staff-/.test(r.kind)).every((r) => /hidden/.test(r.body)));
+});
+
 test("recalls join the refill pool: a cancellation can go to someone due a sight test; texting and removing recalls", async () => {
   const office = await login("u-admin");
   const s = await state(office.token);
@@ -341,7 +368,7 @@ test("settings feed the rest of Domi: contact details, opening hours, online boo
   assert.strictEqual((await put({ dayStart: 8 * 60 })).status, 200, "opening earlier is fine");
   assert.strictEqual((await state(office.token)).settings.dayStart, 480);
   // Online booking offers only what the practice allows
-  assert.match((await put({ online: [] })).data.error, /at least one/);
+  assert.strictEqual((await put({ online: [] })).status, 200, "an empty list switches online booking off");
   await put({ online: ["sight"] });
   assert.deepStrictEqual((await call("GET", "/api/public/" + st.sandbox)).data.types.map((t) => t.key), ["sight"]);
   assert.strictEqual((await call("POST", `/api/public/${st.sandbox}/slots`, null, { type: "repair", pc: "LS6" })).status, 400);

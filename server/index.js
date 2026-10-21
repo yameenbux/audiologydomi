@@ -51,10 +51,10 @@ const handle = (s) => crypto.createHash("sha256").update(s.id).digest("base64url
 // Per-IP limit on failed sign-in attempts, on top of the per-account lockout. Successes don't count,
 // so a busy office behind one connection is never blocked.
 const attempts = new Map();
-// The first X-Forwarded-For entry can be forged, so this limit can be dodged, but it never lumps every
-// visitor behind one proxy address into a single bucket (which would let one attacker block everyone).
-// The per-account lockout is the real protection; this is a second layer.
-const ipOf = (req) => String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+// On Fly, Fly-Client-IP is set by Fly's own proxy, so it can't be forged. Elsewhere (the Render demo) the first
+// X-Forwarded-For entry is used: it can be forged, but never lumps every visitor behind one proxy address into a
+// single bucket (which would let one attacker block everyone). The per-account lockout is the real protection.
+const ipOf = (req) => String(req.headers["fly-client-ip"] || req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
 const recentFailures = (req) => (attempts.get(ipOf(req)) || []).filter((t) => Date.now() - t < 10 * 60e3);
 function limitSignIn(req) {
   if (recentFailures(req).length >= 30) throw new svc.HttpError(429, "Too many failed sign-in attempts from this connection. Wait a few minutes.");
@@ -169,7 +169,8 @@ route("POST", "/api/auth/password", { public: true }, async (req, body) => {
       }
       throw new svc.HttpError(401, "That email and password don't match.");
     }
-    db.prepare("UPDATE users SET failed = 0 WHERE id = ?").run(row.id);
+    // The failure count isn't cleared here, only once the code is right too: wrong codes count against the
+    // account, so a known password can't be used to guess codes over and over.
     return {
       challenge: auth.newChallenge(sb.id, row.id), name: row.name,
       // Demo only: lets a real authenticator app be set up by scanning a QR code. In production this is
@@ -187,14 +188,20 @@ route("POST", "/api/auth/code", { public: true }, (req, body) => {
   if (!c || !sb) throw new svc.HttpError(401, "That sign-in timed out. Enter your password again.");
   return sandbox.run(sb, () => {
     const row = db.prepare("SELECT * FROM users WHERE id = ?").get(c.uid);
+    const now = Date.now();
+    if (row.locked_until > now) { c.expires = 0; throw new svc.HttpError(429, `Too many wrong attempts. This account is locked for ${Math.ceil((row.locked_until - now) / 60e3)} more min.`); }
     const step = auth.matchTotp(row.totp_secret, body.code, row.totp_step);
     if (step == null) {
+      // Counted against the account as well as this sign-in, with wrong passwords: the same lockout covers both.
+      const failed = row.failed + 1, lock = failed >= auth.LOCK_AFTER;
+      db.prepare("UPDATE users SET failed = ?, locked_until = ? WHERE id = ?").run(lock ? 0 : failed, lock ? now + auth.LOCK_MS : 0, row.id);
       c.tries++;
-      svc.audit(row.name, "auth.failed", row.id, `Wrong two-factor code (${c.tries} of ${auth.CHALLENGE_TRIES})`);
-      if (c.tries >= auth.CHALLENGE_TRIES) c.expires = 0; // start again from the password
+      svc.audit(row.name, lock ? "auth.locked" : "auth.failed", row.id, lock ? `Locked for ${auth.LOCK_MS / 60e3} min after ${auth.LOCK_AFTER} wrong attempts` : `Wrong two-factor code (${c.tries} of ${auth.CHALLENGE_TRIES})`);
+      if (lock || c.tries >= auth.CHALLENGE_TRIES) c.expires = 0; // start again from the password
+      if (lock) throw new svc.HttpError(429, `Too many wrong attempts. This account is locked for ${auth.LOCK_MS / 60e3} min.`);
       throw new svc.HttpError(401, c.tries >= auth.CHALLENGE_TRIES ? "Too many wrong codes. Enter your password again." : "That code isn't right, or it's already been used. Codes change every 30 seconds.");
     }
-    db.prepare("UPDATE users SET totp_step = ? WHERE id = ?").run(step, row.id);
+    db.prepare("UPDATE users SET totp_step = ?, failed = 0 WHERE id = ?").run(step, row.id);
     c.expires = 0; // used
     const s = auth.createSession({ sbId: sb.id, uid: row.id, kind: "password", ua: req.headers["user-agent"] });
     req.cookies.push(auth.sessionCookie(req, s.token));
@@ -451,8 +458,13 @@ route("POST", "/api/public/:code/referrals", { public: true }, (req, body, user,
   if (looksLikeBot(body)) return { ok: true };
   return sandbox.run(practice(code), () => svc.submitReferral(body));
 });
-/** The practice's test ad form, with the same spam checks as the other public forms. Connectors use /api/hooks. */
+/**
+ * The practice's test ad form, with the same spam checks as the other public forms. Connectors use /api/hooks.
+ * A live practice's form is for its own office to try: it sends a thank-you email to the address typed in, so
+ * left open it would let anyone send the practice's email to anyone.
+ */
 route("POST", "/api/public/:code/leads", { public: true }, (req, body, user, { code }) => {
+  if (!auth.DEMO && !(req.auth && user && user.role === "admin" && req.auth.sb.id === String(code).toUpperCase())) throw new svc.HttpError(403, "Sign in to the office in this browser to use the test form.");
   limitPublic(req, "leads", 30);
   if (looksLikeBot(body)) return { ok: true };
   return sandbox.run(practice(code), () => leads.receive({ ...body, test: undefined }, { via: "test form" }));
@@ -558,8 +570,10 @@ route("POST", "/api/messages/read", {}, (req, body, user) => {
   return { ok: true };
 });
 
-// Demo only: the office plays the patient's phone. Signed-in office users, own sandbox only.
+// Demo only: the office plays the patient's phone. Signed-in office users, own sandbox only. Never on a live
+// practice, where it would let staff write a reply as if a patient had sent it.
 route("POST", "/api/demo/sms", {}, (req, body, user) => {
+  if (!auth.DEMO) throw new svc.HttpError(404, "No such endpoint.");
   needAdmin(user);
   const patient = svc.getPatient(String(body.patientId || ""));
   if (!patient) throw new svc.HttpError(404, "Patient not found.");
@@ -591,9 +605,10 @@ route("POST", "/api/admin/reset", {}, (req, body, user) => {
   return { ok: true };
 });
 
-/* ---------- "Under the hood" (office only, own sandbox) ---------- */
+/* ---------- "Under the hood" (demo only: office, own sandbox). A live practice's raw tables aren't browsable. */
+const needDemo = () => { if (!auth.DEMO) throw new svc.HttpError(404, "No such endpoint."); };
 route("GET", "/api/debug/overview", {}, (req, body, user) => {
-  needAdmin(user);
+  needDemo(); needAdmin(user);
   const sb = sandbox.current();
   const counts = Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n]));
   return {
@@ -606,12 +621,14 @@ route("GET", "/api/debug/overview", {}, (req, body, user) => {
   };
 });
 route("GET", "/api/debug/table/:name", {}, (req, body, user, { name }) => {
-  needAdmin(user);
+  needDemo(); needAdmin(user);
   if (!TABLES.includes(name)) throw new svc.HttpError(404, "No such table.");
   const cols = db.prepare(`PRAGMA table_info(${name})`).all().map((c) => ({ name: c.name, type: c.type, pk: !!c.pk }));
   const rows = db.prepare(`SELECT * FROM ${name} ORDER BY rowid DESC LIMIT 50`).all().map((r) => ({ ...r }));
   // Never send secrets to the browser, even to the office: show that they exist, not what they are.
   if (name === "users") rows.forEach((r) => { r.pass_hash = r.pass_hash.split("$").slice(0, 4).join("$") + "$…"; r.totp_secret = "•••• (hidden)"; });
+  // Staff emails carry their one-time sign-in link: never shown here, even though the stored copy is redacted.
+  if (name === "emails") rows.forEach((r) => { if (/^staff-/.test(r.kind)) r.body = "•••• (a sign-in link: hidden)"; });
   if (name === "invites") rows.forEach((r) => { r.id = r.id.slice(0, 6) + "… (a hash of the link)"; if (r.pass_hash) r.pass_hash = "•••• (hidden)"; if (r.totp_secret) r.totp_secret = "•••• (hidden)"; });
   return { name, cols, rows };
 });
@@ -760,6 +777,20 @@ if (require.main === module) {
     console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
     console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);
   });
+  // A deploy stops this machine (Fly sends SIGINT, others SIGTERM): stop taking requests, finish writing every
+  // change to Postgres and the sign-ins, then exit. Without this a change made just before a deploy could be lost.
+  let stopping = false;
+  const shutdown = (sig) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`${sig}: saving and stopping`);
+    const force = setTimeout(() => { console.error("Stopped before everything was saved"); process.exit(1); }, 8000);
+    force.unref();
+    server.close();
+    require("./live").stop().then(() => process.exit(0), (e) => { console.error("Couldn't finish saving:", e.message); process.exit(1); });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 module.exports = { server, start };

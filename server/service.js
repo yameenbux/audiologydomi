@@ -1019,6 +1019,7 @@ const ONLINE_MAX_EXTRA = 20;
 
 /** What a patient may choose from: only from tomorrow, and only slots that fit a round efficiently. Never other patients' details. */
 function publicSlotList(input) {
+  if (!onlineNow().length) throw new HttpError(403, "Online booking is switched off. Please call us to book.");
   const type = onlineNow().includes(input.type) ? input.type : null;
   if (!type) throw new HttpError(400, "Choose what the visit is for.");
   const pc = travel.normalise(input.pc);
@@ -1053,7 +1054,12 @@ async function publicBook(input) {
     const choice = publicSlotList(input).find((x) => x.ref === String(input.ref || ""));
     if (!choice) throw new HttpError(409, "Sorry, that time has just been taken. Please choose another.");
     const digits = phone.replace(/^\+44/, "0");
-    const known = all("SELECT * FROM patients").find((r) => r.phone.replace(/\D/g, "") === digits);
+    // Someone booking online is only taken to be an existing patient if both the mobile number and the name match.
+    // Otherwise anyone who knew a patient's number could book visits in their name. A mismatch becomes a new record
+    // (the office merges it if it's the same person), and the answer looks the same either way, so the form can't
+    // be used to find out who is a patient here.
+    const sameName = (a, b) => a.toLowerCase().replace(/[^a-z]/g, "") === b.toLowerCase().replace(/[^a-z]/g, "");
+    const known = all("SELECT * FROM patients WHERE erased = 0").find((r) => r.phone.replace(/\D/g, "") === digits && sameName(r.name, name));
     const draft = known ? map.patient(known) : { id: null, name, pc: travel.normalise(input.pc), addr, phone: digits.replace(/^(\d{5})(\d{6})$/, "$1 $2"), alerts: [] };
     const r = placeVisit({ draft, c: getClinician(choice.clinicianId), type: input.type, day: choice.day, start: choice.start, slot: choice.slot, actor: "Online booking", by: "the patient online" });
     return { dayLabel: r.dayLabel, time: r.label, clinician: choice.clinician, when: when(r.day, r.start) };
@@ -1292,7 +1298,7 @@ function saveSettings(input, user) {
   if (has("online")) {
     const list = Array.isArray(input.online) ? [...new Set(input.online.map(String))] : null;
     if (!list || list.some((k) => !ONLINE_TYPES.includes(k))) throw new HttpError(400, "Choose which visits patients can book online.");
-    if (!list.length) throw new HttpError(400, "Leave at least one visit patients can book online, or take the booking link off your website.");
+    // An empty list switches online booking off: the booking page then asks patients to phone.
     next.online = ONLINE_TYPES.filter((k) => list.includes(k));
   }
   if (has("mode")) { if (!["offer", "instant", "phone"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
