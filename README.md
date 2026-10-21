@@ -8,17 +8,19 @@
 
 The diary for healthcare that comes to the patient's home: eye care, hearing,
 foot care, dental, physio, blood tests, nursing and therapy assessments. When a
-patient cancels, Domi texts the best-matched person on the waiting list and books
-the first yes. It plans each clinician's route and takes referrals without
-paperwork. Nobody in the office has to ring round.
+patient cancels, Domi works out who on the waiting list could take the slot. It
+either hands the office a ranked call list (many home-visit patients never answer
+a text), texts the best match and books the first yes, or books them straight in.
+It plans each clinician's route by real road times, tracks PCSE notice for NHS
+sight tests, and takes referrals without paperwork.
 
 Made by YSB Ventures Ltd · [domi.ysbdesigns.uk](https://domi.ysbdesigns.uk) · demo at [app.domi.ysbdesigns.uk](https://app.domi.ysbdesigns.uk/?brand=domi)
 
 ![Node](https://img.shields.io/badge/Node-22-1E4D40?style=flat-square&labelColor=15241F&color=1E4D40)
 ![Dependencies](https://img.shields.io/badge/npm%20dependencies-none-E07B4F?style=flat-square&labelColor=15241F)
-![Database](https://img.shields.io/badge/database-node%3Asqlite-1E4D40?style=flat-square&labelColor=15241F&color=1E4D40)
-![Status](https://img.shields.io/badge/status-working%20demo-2F7A4F?style=flat-square&labelColor=15241F)
-![Hosting](https://img.shields.io/badge/UK%20hosting-ready%2C%20not%20live-A86A12?style=flat-square&labelColor=15241F)
+![Database](https://img.shields.io/badge/database-node%3Asqlite%20%2B%20Postgres-1E4D40?style=flat-square&labelColor=15241F&color=1E4D40)
+![Status](https://img.shields.io/badge/status-demo%20%2B%20live%20pilot%20environment-2F7A4F?style=flat-square&labelColor=15241F)
+![Hosting](https://img.shields.io/badge/UK%20hosting-London%2C%20live-2F7A4F?style=flat-square&labelColor=15241F)
 ![Licence](https://img.shields.io/badge/licence-all%20rights%20reserved-E07B4F?style=flat-square&labelColor=15241F)
 
 </div>
@@ -57,21 +59,27 @@ about it.
 
 Plenty of systems keep a diary. What Domi does differently is **act on the gap**:
 it works out who fits it (home at that time, close enough, the visit fits the
-time including the drive, and the rules allow it), asks them by text, and books
-the first yes without anyone in the office touching it. It also books new visits **by the road**,
+time including the drive, and the rules allow it), then does what the practice
+has chosen. That's a ranked call list for the office, an offer by text that books
+the first yes, or booking the best match straight in. It also books new visits **by the road**,
 putting them where they add the least driving, weighed against how soon the
 patient needs to be seen.
 
 > [!WARNING]
 > **NHS sight tests can't fill a same-day gap.** In England, an NHS sight test at
-> home needs a pre-visit notification (PVN) to PCSE at least 48 hours ahead
-> (weekends and bank holidays don't count), and swapping a patient in at shorter
-> notice needs the ICB's approval first. So Domi only offers an NHS sight test
-> for a gap 48 hours or more away. A gap today goes to a glasses delivery, a repair,
-> a follow-up or a private exam, none of which need a notification. Each NHS test
-> booked or cancelled goes on a *PCSE notifications* list with its deadline; the
-> office still lodges it in PCSE Online by hand. Scotland, Wales and Northern
-> Ireland have their own rules, which Domi doesn't model yet.
+> home needs a pre-visit notification (PVN) to PCSE. One or two patients at an
+> address need at least 48 hours' notice (weekends and bank holidays don't count).
+> Three or more at one address, such as a care home, need 3 weeks. PCSE won't take
+> a notification more than 8 weeks ahead. Shorter notice needs the ICB's approval
+> first. So Domi never offers an NHS sight test for a gap inside its notice
+> period, and it refuses a booking that can't meet it unless the office records
+> the ICB's approval. A gap today goes to a glasses delivery, a repair, a
+> follow-up or a private exam, none of which need a notification. Each NHS test
+> goes on a *PCSE notifications* list with its deadline and every field PCSE
+> Online asks for, ready to copy. The office still lodges it there by hand and
+> records the PVN reference back in Domi for the GOS 6 claim (`server/pvn.js`).
+> Scotland, Wales and Northern Ireland have their own rules, which Domi doesn't
+> model yet.
 
 > [!TIP]
 > **The practice keeps its own name.** Patients see the practice's name in every
@@ -115,17 +123,20 @@ describe a *Ready to set up* service as built for it.
 
 > [!IMPORTANT]
 > **Everything in green is built, tested and working in the demo. Domi is not yet
-> used by a practice.** The demo keeps its data in memory and resets itself; it
-> holds only invented patients. Before any real patient goes in, it needs the
-> permanent UK database and the paperwork in *Before real patients*, below.
-> Features in sand are shown in the app with a *Soon* badge and say plainly that
-> they aren't built.
+> used by a practice, and has no customers.** The demo keeps its data in memory
+> and resets itself; it holds only invented patients. A live environment is
+> running in London (Fly.io plus Supabase Postgres, see *Two ways to run*), set up
+> for a first pilot practice. It holds no patients until that pilot is signed and
+> the paperwork in *Before real patients* is done. Features in sand are shown in
+> the app with a *Soon* badge and say plainly that they aren't built.
 
 | | |
 | :--- | :--- |
 | **Office view** | Every clinician's diary for any day this week, a week grid showing how full each round is, the waiting list, and every text sent. Cancel any visit, today or later in the week, to start a refill. Fits a laptop or a tablet |
 | **Clinician view** | Phone-first. Today's round with drive times, patient records (alerts, last prescription, glasses, history), quick note chips, *On my way* (texts the patient), *Arrived*, *Complete visit* |
 | **Refill engine** | Hard rules: only an optometrist for eye examinations (not a dispensing optician), NHS sight tests only with 48 hours for PCSE, texts only to patients who take them (those who asked for calls are listed for the office to ring and book in one click), same-day OK, fits the free time, morning/afternoon availability, inside or next to the clinician's area. Ranking: clinical priority, then local, days waiting, preferred clinician. Each candidate shows the reasons |
+| **Three ways to fill a cancellation** | Chosen in Settings. **Phone them** (for practices whose patients don't text; the demo's default is *Text an offer*): the office gets a ranked call list, best match first, with numbers ready, and logs *no answer*, *not interested* or *booked* in one tap. Every call is counted for the pilot. **Text an offer**: patients reply YES, as below. **Book instantly**: the best text-able match is booked straight in and told by text. The text options stay available even when a practice works by phone |
+| **Confirmation calls** | `server/calls.js`. Each visit gets three calls: **CC1** when it's booked (the date only), **CC2** in the week before (a 3-hour arrival window worked out from the planned route), and **CC3** on the working day before (date, time and address). Each can be ticked off, marked *no answer* (it stays on the list) or sent as a text with the same words. A visit that has had its CC3 skips the automatic reminder |
 | **Offers that respect the clock** | Days or hours away: one person at a time (patients who need 24 hours' notice qualify for later days), with room for several rounds. Under an hour of slack: the top three at once, first YES wins, and the others are told it's gone. Too close to confirm anyone: the slot is left open rather than wasted on someone who can't be ready |
 | **Patients cancel by text** | A patient texting CANCEL cancels the visit and starts the refill, with no staff involved. In the demo, the office plays the patient's phone |
 | **Cancellation link for families** | Every reminder carries a private link, and the office can copy one for any booked visit to send to a relative who doesn't text. `/cancel/<practice code>/<token>` shows the visit with the patient's initials only, cancels it once, and starts the refill. Too late (the clinician is on the way) it says to call instead |
@@ -133,7 +144,7 @@ describe a *Ready to set up* service as built for it.
 | **Move a visit** | One step instead of cancel-and-rebook: the same search as booking, with the visit's own time counted as free. The patient gets one text (or a call, if that's what they asked for), each clinician affected is told, and an NHS sight test's PCSE notification is cancelled and lodged again for the new time, never inside 48 hours |
 | **Fill a gap by hand** | Click any free slot in a diary to see everyone who'd fit, best first, including patients who asked to be phoned (their number is right there). Book whoever says yes: they're confirmed, the clinician's phone updates, and anyone with a text offer out hears it's gone |
 | **Record a visit for a clinician** | When a clinician couldn't update the app, the office records *Visit completed* (with a note, raising the invoice, with no "on the way" text) or *Nobody in* (which withdraws the PCSE notification and can put the patient back on the waiting list as *Soon*). Only once the visit's time has passed |
-| **Team & hours** | Office only. Add clinicians and office accounts, who can sign in straight away with two-factor codes. Set each clinician's role, area, postcode areas, starting postcode and working hours per weekday (or a day off): booking, refills, route planning and the utilisation report all stay inside them, and the diary shades the rest. Changes that would strand a booked visit are refused with the visit named. Switching someone off signs them out on every device and keeps their history |
+| **Team & hours** | Office only. Add clinicians and office accounts. On a live practice, each new person is emailed a single-use invitation (7 days) to choose their own password and set up their authenticator, so nobody else ever knows either. *Reset sign-in* stops a lost phone or forgotten password at once, signs that person out everywhere and sends a new link (24 hours). Only a hash of each link is stored (`server/invites.js`). In the demo, people can sign in straight away. Set each clinician's role, area, postcode areas, starting postcode and working hours per weekday (or a day off): booking, refills, route planning and the utilisation report all stay inside them, and the diary shades the rest. Changes that would strand a booked visit are refused with the visit named. Switching someone off signs them out on every device and keeps their history |
 | **Patient data rights (UK GDPR)** | From the record: download everything held about a patient (subject access), or erase their details on request. Erasure is refused while a visit is booked and for anyone already seen, because clinical and NHS claim records must be kept for at least 7 years; otherwise their details go from records, texts and the activity log, and an anonymous row keeps the diaries adding up |
 | **Book a visit** | Pick a patient (or type in a new one), the visit type and when they're home. Domi searches the whole week for every gap where the visit fits, including the drive in and on to the next patient, and ranks them by the extra driving, weighed against how soon it is. Booking texts the patient and appears on the clinician's phone. If nothing fits, one click puts them on the waiting list |
 | **Income panel** | Recovered income, cancellations refilled, average time to refill and income still unfilled, from the office's own fee per visit |
@@ -145,15 +156,18 @@ describe a *Ready to set up* service as built for it.
 | **Route map** | Each clinician's day on a street map (OpenStreetMap, faded so the route stands out): numbered pins in visiting order, the route along the roads when road routing is available (dashed straight lines when not), and a matching numbered list with each drive; tapping a row opens that stop on the map. Offline, the phone shows a simple drawing of the same route instead. Map tiles come from OpenStreetMap's servers, which see the area being viewed but never names; before real patients, use a UK-hosted tile provider under a data processing agreement |
 | **Patient booking page** | `/book/<practice code>`: large text, one question at a time. Only offers times from tomorrow that add 20 minutes of driving or less, and never shows other patients' details. NHS sight tests start two days out, for the PCSE notice. Glasses deliveries stay with the office, because they wait for the lab |
 | **Import patients** | Office only. Upload a CSV saved from Google Sheets or Excel (up to 5,000 rows). Domi recognises the columns (you can change any), tidies names, UK dates, phones and postcodes, and checks every row before anything is saved: rows without a name or a valid postcode are skipped, possible duplicates (same mobile, or name with postcode or date of birth) are skipped, and warnings flag a landline-only patient (phoned, not texted) or a missing or generic home-visit reason. Patients due a sight test within a fortnight join recalls and the refill pool. The file isn't kept, and the audit log records counts, never names. `server/importer.js` |
-| **PCSE notifications** | Every NHS sight test booked adds *Lodge* with the latest time it can go in; every one cancelled adds *Cancel*, so the notification and the GOS 6 claim still match. The office ticks them off. Sending them to PCSE automatically is on the roadmap |
+| **PCSE notifications** | `server/pvn.js`. Each NHS sight test visit (one address on one day) gets its notice rule: 48 working hours, 3 weeks for three or more at one address, never more than 8 weeks ahead. *Lodge* appears with the deadline and the PCSE Online form's fields laid out to copy (premises type, patients, eligibility and early-retest codes). The office records the PVN reference back for the GOS 6 claim. A cancellation or move adds *Cancel* or re-lodges it, so the notification and the claim still match. Bookings that can't meet the notice are refused unless the ICB's approval is recorded. Sending to PCSE automatically waits on PCSE accepting Domi as a connected system |
+| **Working alongside Opticabase** | Opticabase stays the record for eye tests and claims. A daily CSV export imports cleanly, matched by Opticabase ID: new patients are added, changed details updated, and the next exam Opticabase worked out becomes the recall. A row whose ID belongs to someone else is flagged, never merged. Every booking, move and cancellation made in Domi goes on a *Copy to Opticabase* list for the office to copy across and tick off (*Done in Opticabase*, or *Mark all as done*). The two systems can't talk to each other yet, so that copying is done by hand |
+| **Pilot results** | `server/pilot.js`. The practice's own baseline, the targets agreed at signing, and each week since go-live, judged on the last four complete weeks, with before-and-after charts. Measures: cancelled slots refilled (%), phone calls per refill, office hours on scheduling (entered weekly), miles per visit (from mileage claims, not Domi's own routes) and visits per week. Every number comes from the diary or from what the office records, never from an estimate |
+| **The calendar** | `server/calendar.js`. Real UK dates on a live practice: weekends, bank holidays and the practice's closure days are closed, and booking limits keep visits inside the opening days. The demo's "today" is always Monday 12 October 2026 at 10:20 |
 | **Recalls** | Patients due a sight test (yearly from 70) or a pressures recheck join the refill pool, so a cancellation near them goes to someone due anyway. The office can text them the booking page |
 | **Mileage & utilisation** | Per clinician and day: time booked, driving time, estimated miles and their value at HMRC's 45p rate. Downloads as CSV |
 | **Invoicing** | Completing a visit raises an invoice at the practice's price for that visit type (£0 = none: NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered). Mark paid by card, cash or transfer, void, or print. No VAT is added |
 | **Offline clinician app** | A service worker keeps the app on the phone. Today's round and records are saved on the device; notes and visit updates made without signal sync in order when it returns. Signing out wipes the copy |
-| **Sign-in** | Password (scrypt) then a six-digit authenticator code (TOTP). Codes can't be reused; accounts lock after 5 wrong passwords; sessions end after 2 hours idle or 12 hours. The office can see every signed-in device and sign a lost phone out |
+| **Sign-in** | Password (scrypt) then a six-digit authenticator code (TOTP). Codes can't be reused; wrong passwords and wrong codes both count, and 5 lock the account for 15 minutes. Sessions end after 2 hours idle or 12 hours, and survive a restart on a live practice. In the demo, the office can see every signed-in device and sign a lost phone out; on a live practice, use *Reset sign-in* |
 | **Live updates** | Server-Sent Events. A change on the laptop reaches the phone within a second |
 | **What's coming** | Features not built yet sit where they'll live, with a *Soon* badge, and *What's coming* lists them all, split into next and later, with no dates. The list is `ROADMAP` in `public/app.js` |
-| **Under the hood** | Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser |
+| **Under the hood** | Demo only. Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. Switched off on a live practice |
 
 ---
 
@@ -192,13 +206,28 @@ same link can't see or break each other's demo. A phone joins a laptop's demo by
 scanning the QR code under **Open on phone**, a one-time sign-in link. Demos are
 cleared after 3 hours idle or when the server restarts.
 
+### Two ways to run
+
+| | **Demo** (the default) | **Live** (`DEMO_MODE=0` and `DATABASE_URL` set) |
+| :--- | :--- | :--- |
+| Where | Render, at `app.domi.ysbdesigns.uk` | Fly.io London (`domi-live`, `fly.toml`), with Postgres on Supabase in London (eu-west-2) |
+| Data | A private sample practice per visitor, in memory, deleted after 3 hours idle | Real practices: each held in memory and written through to its own Postgres schema (`p_<code>`) before the server answers |
+| Sign-in | Demo shortcuts (shown password, code helper, QR pairing) | No shortcuts. Staff choose their own password and authenticator from an emailed invitation |
+| Machines | Any | Exactly one, because each practice is held in memory |
+
+A server with a database never runs the demo shortcuts, even if `DEMO_MODE` goes
+missing from its settings: only an explicit `DEMO_MODE=1` turns them on there
+(`server/auth.js`). The live set-up, adding a practice and its first admin, new
+columns and backups are in [docs/LIVE-DATABASE.md](docs/LIVE-DATABASE.md).
+
 ### Where patient data goes
 
 <img src="assets/diagrams/05-where-data-goes.svg" alt="In the demo, each visitor's private copy stays in memory and is deleted after 3 hours idle; postcodes only go to postcodes.io and OSRM for drive times; texts go to Twilio only when keys are set; the clinician's phone keeps today's round offline and wipes it on sign-out; a live practice would use a UK database in London after a DPIA" width="100%">
 
 | It leaves when… | What goes | Where |
 | :--- | :--- | :--- |
-| A drive time is worked out | Postcodes only, never names | postcodes.io and the OSRM router |
+| A drive time is worked out | Postcodes only, never names | postcodes.io and the router (OSRM in the demo, openrouteservice on a live practice) |
+| A live practice changes anything | The changed rows | Supabase Postgres, London, over an encrypted connection with the certificate checked |
 | A text is sent, with Twilio set up | The phone number and the message | Twilio. Without keys, texts stay in the demo's outbox |
 | A clinician works offline | Today's round and its records | That phone's browser storage, wiped on sign-out |
 | Someone visits the website | Nothing | No cookies, analytics or third-party requests |
@@ -217,7 +246,7 @@ cleared after 3 hours idle or when the server restarts.
 | **Service worker** | `public/sw.js` keeps the clinician app working without signal |
 | **Drive times** | postcodes.io places postcodes; OSRM gives road times, cached, with a straight-line fallback |
 | **Texts** | `server/notify.js`: a demo outbox, or real Twilio when keys are set |
-| **Render** · Docker · Fly.io | Render runs the demo (`render.yaml`); `Dockerfile` and `fly.toml` are ready for London |
+| **Render** · Fly.io · Supabase | Render runs the demo (`render.yaml`). Fly.io London runs the live service from the `Dockerfile` (`fly.toml`), saving to Supabase Postgres in London (`server/live.js`, `server/pgstore.js`) |
 | **GitHub Actions → Pages** | Builds and publishes the website from `main`, checks it every 6 hours |
 
 ---
@@ -229,10 +258,11 @@ server/          the API, sign-in, booking service, refill rules, drive times, t
 public/          the app: office and clinician screens, patient booking page, service worker
 site/            the marketing website, published to domi.ysbdesigns.uk
 test/            engine, database, API, sign-in, travel and website tests
-docs/HOSTING.md  UK hosting options, and what's needed before real patients
-design/          the Figma build script for the colours and logo
-assets/diagrams/ the diagrams in this file, as source and as SVG
-scripts/         builds the website and the diagrams
+docs/HOSTING.md        UK hosting options, and what's needed before real patients
+docs/LIVE-DATABASE.md  the live service: Postgres layout, security, adding a practice, staff sign-in
+design/                the Figma build script for the colours and logo
+assets/diagrams/       the diagrams in this file, as source and as SVG
+scripts/               builds the website and the diagrams; live-admin.js (practices and admins); restore-test.sh
 ```
 
 Needs **Node 22.5 or newer**. There's nothing to install:
@@ -271,6 +301,21 @@ On the free plan it **sleeps after 15 minutes without visits** and takes about
 30–60 seconds to wake. Open it a few minutes before a meeting. Every wake
 starts the demo story afresh. Pages send `noindex`. For a UK-hosted copy, see
 [docs/HOSTING.md](docs/HOSTING.md): Fly.io London, using `fly.toml` and the `Dockerfile`.
+
+### Deploying the live service
+
+The live service is the Fly.io app **`domi-live`** in London (`lhr`). It does
+**not** deploy from `main` by itself: merging to `main` updates only the demo and
+the website. To ship to live:
+
+1. Build the image from `main` (the build runs the tests, so a failing test stops it) and push it to `registry.fly.io/domi-live`, tagged `pilot-<n>`.
+2. `fly deploy --image registry.fly.io/domi-live:pilot-<n>`, then check `/api/health` reports the database as up.
+3. Run **one machine only** (`fly scale count 1`). On a deploy, the old machine gets SIGTERM and has 10 seconds to finish saving to Postgres.
+
+Secrets (`DATABASE_URL`, `DATABASE_CA_CERT`, `ORS_API_KEY`, Twilio, Resend) are
+Fly secrets, never in `fly.toml`. **Changing a live practice's settings in the
+database** (`domi.practices.settings`) needs a restart straight afterwards.
+Otherwise the running server can write its own copy back over the change.
 
 ### Deploying the website
 
@@ -314,7 +359,14 @@ encoded with `+faststart` so it starts before it has fully downloaded.
 | Passwords, codes, sessions, phone pairing | `server/auth.js` |
 | The sample practice, its patients and diary | `server/db.js` |
 | Demo defaults: practice name, fee, prices, reminder time | `server/sandbox.js` |
-| Visit types, who can do them, and the PCSE 48-hour rule | `server/domain.js` |
+| Visit types and who can do them | `server/domain.js` |
+| PCSE notice rules and the PVN form fields | `server/pvn.js` |
+| Confirmation calls (CC1, CC2, CC3) | `server/calls.js` |
+| Pilot baseline, targets and weekly results | `server/pilot.js` |
+| Dates, bank holidays and closures | `server/calendar.js` |
+| Staff invitations and sign-in resets | `server/invites.js` |
+| Saving live practices to Postgres | `server/live.js`, `server/pgstore.js` |
+| Importing patients (including Opticabase exports) | `server/importer.js` |
 | A practice's own branding, towns and sample diary (opened with `/?brand=<id>`) | `server/brands.js`, `server/regions.js`, `server/seed-nw.js` |
 | Route planning rules | `server/planner.js` |
 | The office and clinician screens | `public/app.js`, `public/app.css` |
@@ -353,7 +405,10 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 | :--- | :--- | :--- |
 | `PORT` | 3000 | |
 | `OFFER_MINUTES` | 20 | How long a patient has to reply |
-| `DEMO_MODE` | `1` | `0` removes the demo shortcuts: no password on screen, no code helper, no QR sign-in |
+| `DEMO_MODE` | `1`, unless `DATABASE_URL` is set | `0` removes the demo shortcuts: no password on screen, no code helper, no QR sign-in, no demo-only endpoints. With a database, the shortcuts are off unless this is exactly `1` |
+| `DATABASE_URL` | none | Postgres (Supabase, London). Turns on live practices (`server/live.js`) |
+| `DATABASE_CA_CERT` | none | The database's CA certificate, so the encrypted connection is checked |
+| `PRACTICE_CODE` | none | On a live server, the practice people sign in to |
 | `MAX_SANDBOXES` | 100 | Private demos kept in memory at once |
 | `ROUTING_PROVIDER` | `estimate` | `osrm` or `ors` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
@@ -371,7 +426,9 @@ The website's build takes the same kind of settings from the repository's Action
 
 ### Security in the demo
 
-- **Sign-in:** password plus authenticator code, with lockout and per-connection limits; server-side sessions in an HttpOnly cookie, with remote sign-out; CSRF protection (an app-only header plus an Origin check).
+- **Sign-in:** password plus authenticator code. Wrong codes count towards the lockout as well as wrong passwords. Per-connection limits use the real client address behind Fly's proxy (`Fly-Client-IP`). Sessions are server-side in an HttpOnly cookie. CSRF protection uses an app-only header plus an Origin check.
+- **Demo-only endpoints:** the text simulator and debug views answer only in the demo. On a live practice, the Facebook-lead endpoint needs an office session for that practice, and the patient booking page shows "switched off" when online booking is off.
+- **Data at rest:** invitation and reset links are never kept in the stored email copy. The phone's offline copy expires after 12 hours. The service worker never caches cancellation or invitation pages. CSV exports are guarded against spreadsheet formulas.
 - **Isolation and access:** a private sandbox per visitor; role checks on every endpoint (a clinician only opens patients on their round or in their patch).
 - **Data integrity:** validated state transitions, a double-booking guard, and texts and live events released only after the database commits.
 - **Audit:** every change and every record a person opens is logged.
@@ -428,12 +485,22 @@ The contact address is `yameen@ysbdesigns.uk`, set as the website's `EMAIL` vari
 > invented patients only, and says so on the website. [docs/HOSTING.md](docs/HOSTING.md)
 > has the detail; the short list is below.
 
-1. **A permanent UK database:** managed Postgres in London, encrypted, with daily backups and a restore that has actually been tested.
-2. **Real accounts:** `DEMO_MODE=0`, each person sets their own password and authenticator, and password reset with recovery codes.
+Done:
+
+- **A permanent UK database:** Supabase Postgres in London (Pro plan, daily backups), with a restore tested by `scripts/restore-test.sh`.
+- **UK hosting:** Fly.io London, one machine, graceful shutdown on deploy.
+- **Real accounts:** `DEMO_MODE=0` on live; staff set their own password and authenticator from an invitation, and *Reset sign-in* replaces a lost phone or password.
+- **Secrets** in Fly's secret store, never in this repo.
+- **Routing** for a live practice set up on openrouteservice (its free plan allows commercial use), with estimates as the fallback. The `ORS_API_KEY` Fly secret still has to be added; until then, live drive times are estimates.
+- **ICO registration.**
+
+Still to do before the first real patient:
+
+1. **The paperwork with the practice:** the DPIA (drafted), the data processing agreement, and a check that their DSPT is in place.
+2. **Data processing agreements** with each processor in use: Supabase, Fly.io, openrouteservice, and Twilio and Resend once texts and emails are switched on.
 3. **Encrypt the offline copy** on clinicians' phones, and require a passcode on those phones.
-4. **Secrets** (Twilio, database) in the host's secret store, never in this repo. Patient details kept out of logs.
-5. **Routing** on a self-hosted OSRM or a paid service under a data processing agreement.
-6. **The paperwork:** a DPIA with the practice, ICO registration and a privacy notice, data processing agreements with the host, Twilio and the router, the NHS Data Security and Protection Toolkit for NHS work, and Cyber Essentials.
+4. **Hardening on the list:** a content security policy, a least-privilege database role, an off-platform backup, and branch protection with CI on `main`.
+5. **For NHS buyers:** Cyber Essentials, and the DSPT if Domi itself holds NHS contracts.
 
 ---
 
@@ -443,7 +510,9 @@ The contact address is `yameen@ysbdesigns.uk`, set as the website's `EMAIL` vari
 > **Never claim a feature that isn't built.** Anything not in the demo is marked
 > *Soon* in the app and *Not built yet* on the website, until it's real. The same
 > goes for customers: Domi has none yet, so no testimonials, logos or "trusted
-> by" lines.
+> by" lines. A practice in a pilot isn't named anywhere public, and its results
+> aren't quoted, until it has agreed in writing. Demo figures (such as the
+> driving a route plan saves on a sample day) must always say they're from the demo.
 
 Three more that catch people out:
 
