@@ -718,8 +718,10 @@ function board(nowM) {
     const filled = new Set(list.map((a) => a.start));
     const gaps = S.appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === UI.day && a.status === "cancelled" && !filled.has(a.start)).map((a) => {
       const t = T(a.type), offers = S.offers.filter((o) => o.slot_id === a.id);
-      const label = offers.length ? `Offer out · replies close ${esc(offers[0].deadline)}` : `Open slot · ${money(S.metrics.fee)} unfilled`;
-      return `<button class="blk gap ${offers.length ? "offering" : ""}" type="button" data-act="gap" data-id="${a.id}" style="top:${(a.start - DS) * PX}px;height:${t.dur * PX - 4}px" aria-label="Free slot at ${hm(a.start)}: choose who fills it"><span class="tm">${hm(a.start)}</span><span class="ty">${label}</span></button>`;
+      const gh = Math.max(t.dur * PX - 4, 36), short = gh < 52;
+      const label = offers.length ? (short ? "Offer out" : `Offer out · replies close ${esc(offers[0].deadline)}`) : short ? `Open · ${money(S.metrics.fee)}` : `Open slot · ${money(S.metrics.fee)} unfilled`;
+      const inner = short ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="ty">${label}</span></span>` : `<span class="tm">${hm(a.start)}</span><span class="ty">${label}</span>`;
+      return `<button class="blk gap ${offers.length ? "offering" : ""}" type="button" data-act="gap" data-id="${a.id}" style="top:${(a.start - DS) * PX}px;height:${gh}px" aria-label="Free slot at ${hm(a.start)}: choose who fills it">${inner}</button>`;
     }).join("");
     return `<div class="lane" style="height:${H}px;background-size:100% ${60 * PX}px">${off}${blocks}${gaps}${UI.day === 0 ? `<div class="now" data-now style="top:${nowY}px">${ci === 0 ? `<span class="now-label mono" data-clock>${hm(nowM)}</span>` : ""}</div>` : ""}</div>`;
   }).join("");
@@ -1000,7 +1002,7 @@ function diaryCsv(rows) {
 function opticabasePage() {
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Copy to Opticabase",
-    lead: "Every visit booked, moved, cancelled or not seen in Domi, listed so the office can make the same change in the Opticabase diary. Tick each one off once it's done. Opticabase and Domi can't talk to each other directly yet, so this keeps the two diaries the same.",
+    lead: "Domi can't update Opticabase itself. Every visit booked, moved, cancelled or not seen in Domi is listed here: make the same change in the Opticabase diary, then tick it off, so the two diaries stay the same.",
     actions: d && d.todo.length ? `<button class="btn secondary" type="button" data-act="diary-csv">${icon("copy")}Download as a spreadsheet</button>` : "" });
   if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
   const tab = g.tab || "todo", list = tab === "todo" ? d.todo : d.done;
@@ -1010,10 +1012,10 @@ function opticabasePage() {
     <td><b>${esc(r.patient || "")}</b><div class="muted mono" style="font-size:12px">${r.obId ? `Opticabase ${esc(r.obId)}` : `<span class="late">No Opticabase ID</span>`}${r.dob ? ` · ${esc(r.dob.split("-").reverse().join("/"))}` : ""}</div></td>
     <td><b>${esc(ukDate(r.visitDate))} ${esc(r.visitTime)}</b><div class="muted">${esc(r.clinician)} · ${esc(r.type)}</div>${r.change === "moved" ? `<div class="muted" style="font-size:12px">Was ${esc(ukDate(r.wasDate))} ${esc(r.wasTime)}${r.wasClinician !== r.clinician ? ` with ${esc(r.wasClinician)}` : ""}</div>` : ""}</td>
     <td class="muted" style="font-size:13px">${esc(r.reason || "")}</td>
-    <td>${tab === "todo" ? `<button class="btn secondary sm" type="button" data-act="diary-copied" data-id="${r.id}">${icon("check")}Copied</button>` : `<span class="muted" style="font-size:12.5px">${esc(r.copiedBy || "")}, ${esc(r.copiedAt.slice(11))}</span>`}</td></tr>`;
+    <td>${tab === "todo" ? `<button class="btn secondary sm" type="button" data-act="diary-copied" data-id="${r.id}">${icon("check")}Done in Opticabase</button>` : `<span class="muted" style="font-size:12.5px">${esc(r.copiedBy || "")}, ${esc(r.copiedAt.slice(11))}</span>`}</td></tr>`;
   return `<div class="pg">${head}${tabs}
     ${list.length ? `<section class="card"><div class="pvn-tw"><table class="pvn-t dl-t"><thead><tr><th>Change</th><th>Patient</th><th>Visit</th><th>Why</th><th></th></tr></thead><tbody>${list.map(row).join("")}</tbody></table></div>
-      ${tab === "todo" && list.length > 1 ? `<div class="form-f" style="padding:12px 0 0"><button class="btn" type="button" data-act="diary-copied-all">${icon("check")}All ${list.length} copied</button></div>` : ""}</section>`
+      ${tab === "todo" && list.length > 1 ? `<div class="form-f" style="padding:12px 0 0"><button class="btn" type="button" data-act="diary-copied-all">${icon("check")}Mark all ${list.length} as done</button></div>` : ""}</section>`
       : `<div class="empty"><b>${tab === "todo" ? "Opticabase is up to date" : "Nothing copied yet"}</b>${tab === "todo" ? "New bookings, moves and cancellations appear here as they happen." : "Changes you tick off appear here."}</div>`}
   </div>`;
 }
@@ -1681,6 +1683,9 @@ function renderDrawer() {
   let inner = "";
   if (d.kind === "appt") inner = apptDrawer(d.id);
   else if (d.kind === "flow") inner = flowDrawer();
+  else if (d.kind === "cancelled") inner = `<div class="drawer-h"><div><div class="caps">Visit cancelled</div><h2 style="margin-top:6px">${esc(d.name)}${d.when ? `, ${esc(d.when)}` : ""}</h2></div>${closeX}</div>
+    <div class="drawer-b"><div class="callout">${icon("check")}<div><b>Cancelled, and the office has been told.</b><div class="muted" style="margin-top:4px">They're filling the slot from the waiting list now. It's gone from your round, and if someone is booked in, they'll appear on it straight away.</div></div></div></div>
+    <div class="drawer-f"><button class="btn block" type="button" data-act="close">Done</button></div>`;
   else if (d.kind === "wl") inner = wlDrawer();
   else if (d.kind === "book") inner = bookDrawer();
   else if (d.kind === "import") inner = importDrawer();
@@ -2578,7 +2583,9 @@ document.addEventListener("click", async (e) => {
         if (B.map && B.map.i === i) { B.map = null; redraw(); break; }
         const x = B.results.slots[i], p = B.results.patient;
         const q = new URLSearchParams({ clinician: x.clinicianId, day: x.day, pc: p.pc, start: x.start, type: B.results.type, name: p.name });
-        B.map = { i, data: await api("GET", "/api/route?" + q) }; redraw(); break;
+        B.map = { i, data: await api("GET", "/api/route?" + q) }; redraw();
+        requestAnimationFrame(() => { const m = document.querySelectorAll(".slot-map")[0]; if (m) m.scrollIntoView({ block: "center", behavior: "smooth" }); });
+        break;
       }
       case "send-reminders": {
         el.disabled = true;
@@ -2657,7 +2664,7 @@ document.addEventListener("click", async (e) => {
         el.disabled = true;
         const ids = el.dataset.act === "diary-copied" ? [Number(el.dataset.id)] : UI.pg.data.todo.map((r) => r.id);
         const r = await api("POST", "/api/diary-changes/copied", { ids });
-        UI.pg.data = await api("GET", "/api/diary-changes"); await load(); toast(`${r.copied} ticked off`); break;
+        UI.pg.data = await api("GET", "/api/diary-changes"); await load(); toast(`${r.copied} marked as done in Opticabase`); break;
       }
       case "diary-csv": {
         const blob = new Blob(["\ufeff" + diaryCsv(UI.pg.data.todo)], { type: "text/csv" });
@@ -2693,7 +2700,11 @@ document.addEventListener("click", async (e) => {
       case "do-cancel": {
         el.disabled = true;
         const r = await api("POST", "/api/appointments/" + el.dataset.id + "/cancel", { reason: $("#reason").value });
-        if (!isAdmin()) { closeDrawer(); UI.pid = null; UI.rec = null; toast("Visit cancelled. The office system is refilling the slot."); await load(); break; }
+        if (!isAdmin()) {
+          const a = S.appts.find((x) => x.id === el.dataset.id), p = a && pat(a.patientId);
+          UI.pid = null; UI.rec = null; await load();
+          openDrawer({ kind: "cancelled", name: p ? p.name : "The visit", when: a ? `${a.day ? dayName(a.day) : "today"} at ${hm(a.start)}` : "" }); break;
+        }
         if (r.outcome === "call-list") { await openCallList(r.slotId); refetch(); break; }
         UI.flow = flowFrom(r); openDrawer({ kind: "flow" }); refetch(); break;
       }
