@@ -1511,10 +1511,10 @@ function settingsPage() {
     body = facebookSection();
   } else {
     const m = UI.pg && UI.pg.msgs;
-    const u = S.textUsage || { texts: 0, parts: 0, pence: 0, pencePerPart: 5 };
+    const u = S.textUsage || { texts: 0 };
     body = !m ? `<p class="muted">Loading…</p>` : `<div class="pg-form">
-      <section class="card usage"><div class="usage-n"><b>${u.texts}</b><span>texts sent to patients</span></div><div class="usage-n"><b>${u.parts}</b><span>billed text parts</span></div><div class="usage-n"><b>£${(u.pence / 100).toFixed(2)}</b><span>at ${u.pencePerPart}p a part</span></div>
-        <p class="set-note" style="grid-column:1 / -1">A text is billed in 160-character parts, so most reminders and offers count as 2 parts. Texts to the clinicians' phones are free. In this demo the count covers everything sent since it started.</p></section>
+      <section class="card usage"><div class="usage-n"><b>${u.texts}</b><span>texts sent to patients</span></div><div class="usage-n"><b>1,000</b><span>included each month in your plan</span></div>
+        <p class="set-note" style="grid-column:1 / -1">Texts are part of your monthly fee, with no separate bill. Texts to the clinicians' phones don't count. The count covers everything sent since ${META.demo ? "this demo started" : "you started on Domi"}.</p></section>
       <section class="card"><div class="card-h"><h2>Texts</h2><p>Worded from your settings, exactly as patients get them. Change the practice name, hours or reminder time and these change too.</p></div>
         <div class="msgs">${m.messages.map((x) => `<article class="msg-p"><header><b>${esc(x.title)}</b><span class="muted">${esc(x.when)}</span></header><div class="bubble">${esc(x.body)}</div></article>`).join("")}</div></section>
       <section class="card"><div class="card-h"><h2>Email to every ad lead</h2><p>Sent the moment someone fills in the form on your Facebook ad. Replies go to ${esc(st.email || "your practice email")}.</p></div>

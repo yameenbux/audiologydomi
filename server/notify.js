@@ -56,11 +56,10 @@ function segments(text) {
   const len = unicode ? chars.length : chars.reduce((n, c) => n + (GSM_EXT.includes(c) ? 2 : 1), 0);
   return len === 0 ? 0 : unicode ? (len <= 70 ? 1 : Math.ceil(len / 67)) : len <= 160 ? 1 : Math.ceil(len / 153);
 }
-/** Texts sent to patients so far (messages to clinicians' phones are free and not counted), in billed parts. */
-function textUsage(pencePerPart = 5) {
+/** Texts sent to patients so far (messages to clinicians' phones aren't counted), and their parts. The office sees the count, never a price: texts are included in the practice's plan. */
+function textUsage() {
   const rows = db.prepare("SELECT body FROM messages WHERE direction = 'out' AND phone IS NOT NULL AND phone != 'clinician'").all();
-  const parts = rows.reduce((n, r) => n + segments(r.body), 0);
-  return { texts: rows.length, parts, pencePerPart, pence: parts * pencePerPart };
+  return { texts: rows.length, parts: rows.reduce((n, r) => n + segments(r.body), 0) };
 }
 
 function recordInbound({ phone, name, body }) {
