@@ -1225,3 +1225,5 @@ button.rm-row:hover { background: var(--subtle) }
 .rep-now { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px } .rep-now b { display: inline-block; min-width: 26px; font-variant-numeric: tabular-nums }
 @media (max-width: 1100px) { .rep-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) } .rep-grid { grid-template-columns: 1fr } }
 @media print { .side, .rep-ctl .seg, .pg-acts, .app-top, header.top { display: none !important } .rep-grid { grid-template-columns: 1fr 1fr } .card { break-inside: avoid } }
+.rep .card-h { position: relative; padding-right: 96px } .rep-x { position: absolute; right: 0; top: 0 }
+@media print { .rep-x, [data-act="rep-csv"] { display: none !important } }
