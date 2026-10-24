@@ -1168,3 +1168,12 @@ button.rm-row:hover { background: var(--subtle) }
 .ccm-key { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap } .ccm-key b { color: var(--ink); font-weight: 600 }
 .ccm-key i { margin-left: 6px } .ccm-key i:first-of-type { margin-left: 2px }
 .blk.has-tc .row1 { padding-right: 30px }
+
+/* When a patient can be seen */
+.twc { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; color: var(--forest); background: var(--forest-soft); border-radius: 99px; padding: 1px 7px 1px 5px; margin-top: 4px; align-self: flex-start; white-space: nowrap }
+.twc .i { width: 11px; height: 11px }
+.twc.bad { color: #fff; background: #CC4B3F }
+.twbox { margin-top: 16px; padding: 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); background: var(--bg) }
+.tw-row { display: flex; gap: 8px; margin: 8px 0 }
+.tw-row select { flex: 1 } .tw-row input { width: 132px }
+.callout.warn { background: var(--warn-soft); color: var(--ink) } .callout.warn > svg { color: var(--warn) }

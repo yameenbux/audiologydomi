@@ -50,3 +50,30 @@ test("problems are flagged: a morning visit pushed past midday, a day running pa
   assert.ok(p.savedMin > 0);
   assert.ok(p.warnings.some((w) => /after midday|after 17:00/.test(w)), p.warnings.join("; "));
 });
+
+test("time restrictions: the planner keeps to them, even when another order drives less", () => {
+  // Without restrictions the best loop is C, B, A (first test). A can only be seen at 09:00, so A goes first.
+  const p = planDay({ base: "H", visits: [V("c", "C", 540), V("a", "A", 600, { tw: { k: "fixed", at: 540 } }), V("b", "B", 660)], drive });
+  const a = p.planned.find((x) => x.id === "a");
+  assert.strictEqual(a.start, 540, "only at 09:00");
+  assert.strictEqual(a.tw, "Only at 09:00");
+  assert.ok(p.planned.every((x, i, all) => i === 0 || x.start >= all[i - 1].start + 30), "no overlaps");
+});
+
+test("time restrictions: a visit booked at a time the patient can't do is put right, even with no saving", () => {
+  // A 10:00 visit for someone who can only do afternoons now (a day centre in the mornings).
+  const p = planDay({ base: "H", visits: [V("a", "A", 540), V("b", "B", 600, { tw: { k: "pm" } })], drive });
+  const b = p.planned.find((x) => x.id === "b");
+  assert.ok(b.start >= 720, "moved into the afternoon");
+  assert.strictEqual(p.fixes, 1);
+  assert.ok(p.changed >= 1);
+  // Not before 14:00 is kept to the minute.
+  const q = planDay({ base: "H", visits: [V("a", "A", 540), V("b", "B", 780, { tw: { k: "after", at: 840 } })], drive });
+  assert.strictEqual(q.planned.find((x) => x.id === "b").start, 840);
+});
+
+test("time restrictions: when no order can keep one, the office is told rather than the patient being moved anyway", () => {
+  // Two visits both only at 09:00 can't both happen.
+  const p = planDay({ base: "H", visits: [V("a", "A", 540, { tw: { k: "fixed", at: 540 } }), V("b", "B", 600, { tw: { k: "fixed", at: 540 } })], drive });
+  assert.ok(p.warnings.some((w) => /can't be fitted/.test(w)), p.warnings.join("; "));
+});

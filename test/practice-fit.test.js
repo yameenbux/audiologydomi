@@ -447,3 +447,28 @@ test("the diary's call markers: the latest outcome per call, who made it, and on
   assert.ok(mine.every((a) => a.cc === undefined && typeof a.confirmed === "boolean"), "clinicians see confirmed, not the office's call log");
   assert.strictEqual(mine.find((a) => a.id === x.id).confirmed, true);
 });
+
+test("patient availability: recorded on a visit or for good, kept by moving, booking and the route planner", async () => {
+  const o = await office();
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const a = st.appts.find((x) => x.day === 2 && x.status === "booked" && x.start < 720);
+  assert.strictEqual((await call("PUT", `/api/appointments/${a.id}/availability`, o.token, { tw: "after", at: 1213 })).status, 400, "outside 07:00-20:00 on the 5 minutes");
+  const r = await call("PUT", `/api/appointments/${a.id}/availability`, o.token, { tw: "pm", always: true });
+  assert.strictEqual(r.status, 200); assert.strictEqual(r.data.label, "Afternoons only");
+  assert.ok(r.data.outside.some((x) => x.id === a.id), "the morning visit is flagged, not moved");
+  // Moving it: only afternoon times are offered, and a morning time is refused.
+  const opts = (await call("POST", `/api/appointments/${a.id}/move-options`, o.token, {})).data;
+  assert.ok(opts.slots && opts.slots.every((s) => s.start >= 720));
+  // The route planner puts it into the afternoon.
+  const plan = (await call("GET", `/api/route/plan?clinician=${a.clinicianId}&day=${a.day}`, o.token)).data;
+  assert.ok(plan.planned, JSON.stringify(plan).slice(0, 200));
+  assert.ok(plan.planned.find((x) => x.id === a.id).start >= 720, "planned into the afternoon");
+  // A new booking for the same patient only offers afternoons, and carries the restriction.
+  const s = (await call("POST", "/api/slots", o.token, { patientId: a.patientId, type: "repair", avail: "any" })).data;
+  assert.ok(s.slots.length && s.slots.every((x) => x.start >= 720));
+  const b = (await call("POST", "/api/bookings", o.token, { patientId: a.patientId, type: "repair", avail: "any", clinicianId: s.slots[0].clinicianId, day: s.slots[0].day, start: s.slots[0].start })).data;
+  const nb = (await call("GET", "/api/state", o.token)).data.appts.find((x) => x.id === b.appointmentId);
+  assert.deepStrictEqual(nb.tw, { k: "pm", at: null });
+  // Back to any time.
+  assert.strictEqual((await call("PUT", `/api/appointments/${a.id}/availability`, o.token, { tw: "any", always: true })).data.label, "Any time");
+});
