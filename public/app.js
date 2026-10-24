@@ -216,7 +216,7 @@ async function load() {
 let refetchT = null;
 const refetch = () => { clearTimeout(refetchT); refetchT = setTimeout(() => load().catch(() => {}), 120); };
 
-const EVENTS = ["patient.updated", "appointment.moved", "team.updated", "refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "lead.updated", "reset"];
+const EVENTS = ["patient.updated", "appointment.moved", "team.updated", "refill.started", "reminders.sent", "recall.updated", "invoice.updated", "appointment.booked", "appointment.updated", "offer.sent", "offer.declined", "offer.expired", "slot.filled", "slot.unfilled", "sms.received", "note.added", "waitlist.added", "settings.updated", "pcse.updated", "patients.imported", "route.planned", "referral.updated", "lead.updated", "sale.recorded", "reset"];
 function connect() {
   if (ES) ES.close();
   ES = new EventSource("/api/events"); // same-origin, so the session cookie goes with it
@@ -240,6 +240,7 @@ function onEvent(type, e) {
     return;
   }
   if (type === "referral.updated" && e.fresh) toast("New referral from the website form");
+  if (type === "sale.recorded") toast(e.sold ? `${e.clinician} sold ${e.what} to ${e.patient}: ${pounds(e.totalPence)}` : `${e.clinician}: nothing sold to ${e.patient} (${String(e.reason || "").toLowerCase()})`);
   if (type === "lead.updated" && e.fresh) toast("New lead from your Facebook ad: thank-you email sent");
   if (type === "appointment.booked" && e.online) toast(`Booked online by the patient: ${e.patient}, ${dayName(e.day)} ${hm(e.start)} (+${e.extraDrive} min driving)`);
   if (type === "refill.started") {
@@ -808,7 +809,8 @@ function weekView() {
 function clinView() {
   const c = S.clinicians[0];
   let body;
-  if (UI.pid && UI.rec) body = record(UI.rec);
+  if (UI.sale) body = saleSheet();
+  else if (UI.pid && UI.rec) body = record(UI.rec);
   else if (UI.tab === "patients") body = patientsTab(c);
   else if (UI.tab === "msgs") body = msgsTab(c);
   else body = todayTab(c);
@@ -832,6 +834,50 @@ function clinView() {
         <button type="button" data-act="tab" data-v="msgs" aria-current="${!UI.pid && UI.tab === "msgs" ? "page" : "false"}">${icon("msg")}Messages${unread ? `<span class="dot">${unread}</span>` : ""}</button>
       </nav>
     </div><div></div></div></div>`;
+}
+/** Move a visit on (on my way, arrived, complete), sending what was sold with a completed one. Queued on the phone offline. */
+async function changeStatus(v, id, note, sale) {
+  const pid = UI.sale ? UI.sale.pid : UI.pid, body = { status: v, ...(sale ? { sale } : {}) };
+  const offline = () => {
+    if (v === "done" && note) queueChange("/api/patients/" + pid + "/notes", { body: note }, () => { if (UI.rec) UI.rec.history.unshift({ label: "Saved offline " + hm(demoNow()), body: note, by: S.user.name }); });
+    queueChange("/api/appointments/" + id + "/status", body, () => { const a = S.appts.find((x) => x.id === id); if (a) a.status = v; });
+    toast(v === "enroute" ? "Saved. The patient will be texted when you have signal." : v === "live" ? "Visit started (saved on the phone)" : "Visit complete (saved on the phone). It syncs when you have signal.");
+    if (v === "done") { UI.pid = null; UI.rec = null; UI.sale = null; render(); }
+  };
+  if (UI.offline) { offline(); return; }
+  let res;
+  try {
+    if (v === "done" && note) await api("POST", "/api/patients/" + pid + "/notes", { body: note });
+    res = await api("POST", "/api/appointments/" + id + "/status", body);
+  } catch (e) { if (!e.offline || !keepsOffline()) throw e; goOffline(); offline(); return; }
+  toast(v === "enroute" ? "Patient texted that you're on the way" : v === "live" ? "Visit started"
+    : res.invoice ? `Visit complete. Invoice ${res.invoice.number} raised (${pounds(res.invoice.totalPence)}).` : "Visit complete. On to the next one.");
+  if (v === "done") { UI.pid = null; UI.rec = null; UI.sale = null; }
+  await load();
+}
+/** The step before completing a visit: what was sold. Frames and lenses, paid on the card reader; or why nothing was. */
+function saleSheet() {
+  const s = UI.sale, a = S.appts.find((x) => x.id === s.id); if (!a) return "";
+  const p = pat(a.patientId);
+  const why = (META.noSale || ["Not needed", "Price", "Wants to think about it", "Has glasses already"]);
+  return `<form class="sale" id="sale-form" novalidate>
+    <div class="sale-h"><button class="icon-btn" type="button" data-act="sale-back" aria-label="Back">${icon("back")}</button><div><div class="caps">Before you finish</div><h2>Anything sold to ${esc(first(p.name))}?</h2></div></div>
+    <div class="sale-yn" role="radiogroup" aria-label="Anything sold">
+      <label class="sale-opt"><input type="radio" name="sold" value="yes" ${s.sold === true ? "checked" : ""}><span>${icon("check")}Yes, glasses sold</span></label>
+      <label class="sale-opt"><input type="radio" name="sold" value="no" ${s.sold === false ? "checked" : ""}><span>${icon("x")}Nothing sold</span></label>
+    </div>
+    <div class="sale-yes" ${s.sold === true ? "" : "hidden"}>
+      <div class="sale-row"><div class="field"><label for="sl-fp">Frames £</label><input class="input mono" id="sl-fp" inputmode="decimal" placeholder="0.00" data-keep></div>
+        <div class="field"><label for="sl-fr">Frame <span class="muted">(brand or code)</span></label><input class="input" id="sl-fr" maxlength="120" placeholder="e.g. Silhouette 5529" data-keep></div></div>
+      <div class="sale-row"><div class="field"><label for="sl-lp">Lenses £</label><input class="input mono" id="sl-lp" inputmode="decimal" placeholder="0.00" data-keep></div>
+        <div class="field"><label for="sl-ld">Lenses</label><select class="input" id="sl-ld" data-keep><option>Single vision</option><option>Varifocals</option><option>Bifocals</option><option>Reading</option></select></div></div>
+      <label class="chk"><input type="checkbox" id="sl-v" data-keep> NHS optical voucher (GOS3) towards it</label>
+      <p class="muted" style="font-size:13px;margin:6px 0 0">${icon("check")} Paid on the card reader. The office enters the order in Opticabase.</p>
+    </div>
+    <div class="sale-no" ${s.sold === false ? "" : "hidden"}><div class="caps" style="margin:4px 0 8px">Why not?</div>
+      <div class="nd-opts" role="radiogroup" aria-label="Why nothing was sold">${why.map((r, i) => `<label class="nd-opt"><input type="radio" name="sl-why" value="${esc(r)}" ${i === 0 ? "checked" : ""}><span>${esc(r)}</span></label>`).join("")}</div></div>
+    <button class="btn block lg" type="submit" style="margin-top:16px">${icon("check")}Complete visit</button>
+  </form>`;
 }
 /** The PCSE notification for an NHS sight test, as the clinician needs it before testing. */
 const pvnChip = (a) => !a || !T(a.type).pvn || a.status === "done" || a.status === "missed" ? ""
@@ -958,7 +1004,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase", "reports"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -998,6 +1044,9 @@ async function syncPage() {
   } else if (r.page === "pvn") {
     const keep = UI.pg && UI.pg.kind === "pvn" ? UI.pg.tab : null;
     UI.pg = { kind: "pvn", tab: keep, data: await api("GET", "/api/pvn").catch(() => (UI.pg && UI.pg.data) || null) };
+  } else if (r.page === "reports") {
+    const keep = UI.pg && UI.pg.kind === "reports" ? UI.pg : { kind: "reports", period: "week", from: "", to: "" };
+    UI.pg = keep; loadReports();
   } else if (r.page === "invoices") {
     UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
   } else if (r.page === "import") {
@@ -1030,7 +1079,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "pilot" ? pilotPage() : p === "opticabase" ? opticabasePage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "pilot" ? pilotPage() : p === "opticabase" ? opticabasePage() : p === "reports" ? reportsPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -1041,12 +1090,12 @@ function sideNav() {
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
     <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("opticabase", "copy", "Copy to Opticabase", S.diaryTodo || 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
-    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("reports", "note", "Reports")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
 }
 /* ---------- Diary changes to copy into Opticabase (until the two systems can sync) ---------- */
-const CHANGE_UI = { booked: ["b-ok", "Booked"], moved: ["b-forest", "Moved"], cancelled: ["b-crit", "Cancelled"], "not-seen": ["b-warn", "Not seen"] };
+const CHANGE_UI = { booked: ["b-ok", "Booked"], moved: ["b-forest", "Moved"], cancelled: ["b-crit", "Cancelled"], "not-seen": ["b-warn", "Not seen"], sold: ["b-apricot", "Glasses sold"] };
 const ukDate = (iso) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "");
 /** A spreadsheet cell as plain text: Excel runs a cell starting with = + - @ as a formula, so those get a leading '. */
 const csvSafe = (v) => { const t = String(v == null ? "" : v); return /^[=+\-@\t\r]/.test(t) ? "'" + t : t; };
@@ -1074,6 +1123,94 @@ function opticabasePage() {
       ${tab === "todo" && list.length > 1 ? `<div class="form-f" style="padding:12px 0 0"><button class="btn" type="button" data-act="diary-copied-all">${icon("check")}Mark all ${list.length} as done</button></div>` : ""}</section>`
       : `<div class="empty"><b>${tab === "todo" ? "Opticabase is up to date" : "Nothing copied yet"}</b>${tab === "todo" ? "New bookings, moves and cancellations appear here as they happen." : "Changes you tick off appear here."}</div>`}
   </div>`;
+}
+
+/* ---------- Reports: any period, for the office ---------- */
+const REPORT_PERIODS = [["today", "Today"], ["week", "This week"], ["lastweek", "Last week"], ["month", "This month"], ["last30", "Last 30 days"], ["custom", "Choose dates"]];
+async function loadReports() {
+  const g = UI.pg; if (!g || g.kind !== "reports") return;
+  if (g.period === "custom" && !(g.from && g.to)) { render(); return; }
+  g.loading = true; render();
+  const q = `period=${g.period}` + (g.period === "custom" ? `&from=${g.from}&to=${g.to}` : "");
+  try { g.data = await api("GET", "/api/reports?" + q); g.error = null; } catch (e) { g.error = e.message; }
+  g.loading = false; if (UI.pg === g) render();
+}
+const pct = (n) => (n == null ? "–" : n + "%");
+function reportsCsv(d) {
+  const q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`, rows = [];
+  const add = (title, head, body) => { rows.push([title], head, ...body, []); };
+  const gbp = (p) => (p == null ? "" : (p / 100).toFixed(2));
+  add(`${S.settings.practice}: report for ${d.period.label} (${d.period.fromIso} to ${d.period.toIso})`, ["Measure", "Value"], [
+    ["Visits done", d.summary.visitsDone], ["Patients seen", d.summary.patientsSeen], ["Nobody in", d.summary.missed], ["Cancelled", d.summary.cancelled], ["Cancelled slots refilled", d.summary.refilled],
+    ["Glasses sales (GBP)", gbp(d.summary.salesPence)], ["Sales", d.summary.sales], ["Visits that led to a sale (%)", d.summary.conversion ?? ""], ["Average sale (GBP)", gbp(d.summary.avgSalePence)],
+    ["Frames (GBP)", gbp(d.finance.framesPence)], ["Lenses (GBP)", gbp(d.finance.lensesPence)], ["NHS vouchers (GOS3) used", d.finance.vouchers],
+    ["Invoices raised (GBP)", gbp(d.finance.invoiced.pence)], ["Invoices paid (GBP)", gbp(d.finance.invoiced.paidPence)], ["Invoices unpaid (GBP)", gbp(d.finance.invoiced.unpaidPence)],
+    ["Miles driven (estimated)", d.summary.miles], [`Mileage at ${d.mileage.ratePence}p a mile (GBP)`, gbp(d.summary.mileagePence)]]);
+  add("By clinician", ["Clinician", "Visits done", "Nobody in", "Sales", "Visits with a sale (%)", "Sales (GBP)", "Average sale (GBP)"], d.byClinician.map((r) => [r.name, r.visits, r.missed, r.sales, r.conversion ?? "", gbp(r.salesPence), gbp(r.avgSalePence)]));
+  add("Day by day", ["Date", "Visits done", "Cancelled", "Sales", "Sales (GBP)"], d.days.map((x) => [x.iso, x.visits, x.cancelled, x.sales, gbp(x.salesPence)]));
+  add("Visits by type", ["Visit type", "Done", "Nobody in", "Cancelled"], d.visits.byType.map((r) => [r.label, r.done, r.missed, r.cancelled]));
+  add("Where visits came from", ["Source", "Visits done"], d.visits.bySource.map((r) => [r.label, r.n]));
+  add("Why visits were cancelled", ["Reason", "Visits"], d.visits.cancelReasons.map((r) => [r.label, r.n]));
+  add("Why nothing was sold", ["Reason", "Visits"], d.finance.noSale.map((r) => [r.label, r.n]));
+  add("Mileage and utilisation", ["Clinician", "Visits", "Driving (min)", "Miles (estimated)", "Mileage (GBP)", "Working day booked (%)"], d.mileage.clinicians.map((r) => [r.name, r.visits, r.driveMin, r.miles, gbp(r.mileagePence), r.utilisation ?? ""]));
+  return rows.map((r) => r.map(q).join(",")).join("\r\n");
+}
+function reportsPage() {
+  const gbp = (p) => "£" + (p / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const gbp0 = (p) => "£" + Math.round(p / 100).toLocaleString("en-GB");
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Reports",
+    lead: "Sales, visits, mileage and the rest, for any period, worked out from the diary as it stands. Download it all as a spreadsheet, or print it.",
+    actions: d ? `<button class="btn secondary" type="button" data-act="rep-print">${icon("note")}Print</button><button class="btn" type="button" data-act="rep-csv">${icon("copy")}Download spreadsheet</button>` : "" });
+  const ctl = `<div class="rep-ctl"><div class="seg" role="group" aria-label="Period">${REPORT_PERIODS.map(([k, l]) => `<button type="button" data-act="rep-period" data-v="${k}" aria-pressed="${g.period === k}">${l}</button>`).join("")}</div>
+    ${g.period === "custom" ? `<form class="rep-dates" id="rep-dates"><label>From <input class="input" type="date" id="rep-from" value="${esc(g.from || "")}" max="${(calDay(0) || {}).iso || ""}" required></label><label>to <input class="input" type="date" id="rep-to" value="${esc(g.to || "")}" max="${(calDay(0) || {}).iso || ""}" required></label><button class="btn secondary sm" type="submit">Show</button></form>` : ""}
+    ${d ? `<span class="muted rep-when">${esc(d.period.label)}${d.period.from !== d.period.to ? `: ${esc(ukDate(d.period.fromIso))} to ${esc(ukDate(d.period.toIso))}` : `: ${esc(ukDate(d.period.toIso))}`}</span>` : ""}</div>`;
+  if (g.error) return `<div class="pg">${head}${ctl}<div class="callout warn">${icon("x")}<div>${esc(g.error)}</div></div></div>`;
+  if (!d) return `<div class="pg">${head}${ctl}<p class="muted">${g.period === "custom" ? "Choose the dates." : "Working it out…"}</p></div>`;
+  const s = d.summary, f = d.finance;
+  const kpi = (v, l, sub = "") => `<div class="rep-kpi"><b>${v}</b><span>${l}</span>${sub ? `<i>${sub}</i>` : ""}</div>`;
+  const bars = (list, max) => list.length ? `<ul class="rep-bars">${list.map((r) => `<li><span>${esc(r.label)}</span><i><em style="width:${max ? Math.round((r.n / max) * 100) : 0}%"></em></i><b>${r.n}</b></li>`).join("")}</ul>` : `<p class="muted">None.</p>`;
+  const maxN = (l) => Math.max(0, ...l.map((r) => r.n));
+  const maxDay = Math.max(1, ...d.days.map((x) => x.salesPence)), maxVis = Math.max(1, ...d.days.map((x) => x.visits));
+  return `<div class="pg rep${g.loading ? " busy" : ""}">${head}${ctl}
+    <section class="rep-kpis">
+      ${kpi(s.visitsDone, "visits done", `${s.patientsSeen} patients · ${s.missed} nobody in`)}
+      ${kpi(gbp0(s.salesPence), "glasses sales", `${s.sales} sale${s.sales === 1 ? "" : "s"}`)}
+      ${kpi(pct(s.conversion), "visits with a sale", s.avgSalePence ? `average ${gbp(s.avgSalePence)}` : "")}
+      ${kpi(s.cancelled, "cancelled", `${s.refilled} refilled`)}
+      ${kpi(Math.round(s.miles).toLocaleString("en-GB"), "miles driven", `${gbp0(s.mileagePence)} at ${d.mileage.ratePence}p`)}
+    </section>
+    <div class="rep-grid">
+      <section class="card"><div class="card-h"><h2>Sales and money</h2></div>
+        <table class="rep-t"><tbody>
+          <tr><td>Frames</td><td class="n">${gbp(f.framesPence)}</td></tr><tr><td>Lenses</td><td class="n">${gbp(f.lensesPence)}</td></tr>
+          <tr class="tot"><td>Glasses sold, paid by card</td><td class="n">${gbp(f.salesPence)}</td></tr>
+          <tr><td>NHS vouchers (GOS3) towards them</td><td class="n">${f.vouchers}</td></tr>
+          <tr><td>Invoices raised</td><td class="n">${gbp(f.invoiced.pence)}</td></tr><tr><td>Invoices paid / unpaid</td><td class="n">${gbp(f.invoiced.paidPence)} / ${gbp(f.invoiced.unpaidPence)}</td></tr>
+          <tr><td>Recovered by refilling cancellations</td><td class="n">${gbp(f.recoveredPence)}</td></tr>
+        </tbody></table>
+        <div class="caps" style="margin:14px 0 6px">Why nothing was sold</div>${bars(f.noSale, maxN(f.noSale))}
+        ${f.notRecorded ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${f.notRecorded} finished visit${f.notRecorded === 1 ? " has" : "s have"} no sale recorded.</p>` : ""}</section>
+      <section class="card"><div class="card-h"><h2>By clinician</h2></div>
+        <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Visits</th><th class="n">With a sale</th><th class="n">Sales</th><th class="n">Average</th></tr></thead><tbody>
+          ${d.byClinician.map((r) => `<tr><td><b>${esc(r.name)}</b>${r.missed ? `<div class="muted" style="font-size:12px">${r.missed} nobody in</div>` : ""}</td><td class="n">${r.visits}</td><td class="n">${r.sales} <span class="muted">(${pct(r.conversion)})</span></td><td class="n">${gbp(r.salesPence)}</td><td class="n">${r.avgSalePence ? gbp(r.avgSalePence) : "–"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No visits in this period.</td></tr>`}
+        </tbody></table></section>
+      <section class="card wide"><div class="card-h"><h2>Day by day</h2><p>Visits done, and glasses sales.</p></div>
+        <div class="rep-days">${d.days.map((x) => `<div class="rep-day" title="${esc(x.label)}: ${x.visits} visits, ${x.sales} sales, ${gbp(x.salesPence)}"><div class="rep-col"><i class="v" style="height:${Math.round((x.visits / maxVis) * 100)}%"></i><i class="s" style="height:${Math.round((x.salesPence / maxDay) * 100)}%"></i></div><span>${esc(x.label.split(" ").slice(0, 2).join(" "))}</span></div>`).join("") || `<p class="muted">No open days in this period.</p>`}</div>
+        <div class="dst-key" style="margin-top:8px"><span><i class="dst-dot" style="background:var(--forest)"></i>Visits done</span><span><i class="dst-dot" style="background:var(--apricot)"></i>Sales (£)</span></div></section>
+      <section class="card"><div class="card-h"><h2>Visits</h2></div>
+        <table class="rep-t"><thead><tr><th>Visit type</th><th class="n">Done</th><th class="n">Nobody in</th><th class="n">Cancelled</th></tr></thead><tbody>
+          ${d.visits.byType.map((r) => `<tr><td>${esc(r.label)}</td><td class="n">${r.done}</td><td class="n">${r.missed}</td><td class="n">${r.cancelled}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">None.</td></tr>`}
+        </tbody></table>
+        <div class="caps" style="margin:14px 0 6px">Where they came from</div>${bars(d.visits.bySource, maxN(d.visits.bySource))}
+        <div class="caps" style="margin:14px 0 6px">Why visits were cancelled</div>${bars(d.visits.cancelReasons, maxN(d.visits.cancelReasons))}</section>
+      <section class="card"><div class="card-h"><h2>Mileage and time</h2><p>Estimated from each day's route, at the HMRC rate.</p></div>
+        <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Miles</th><th class="n">Driving</th><th class="n">Mileage</th><th class="n">Day booked</th></tr></thead><tbody>
+          ${d.mileage.clinicians.map((r) => `<tr><td>${esc(r.name)}</td><td class="n">${r.miles}</td><td class="n">${mins(r.driveMin)}</td><td class="n">${gbp(r.mileagePence)}</td><td class="n">${pct(r.utilisation)}</td></tr>`).join("")}
+        </tbody></table>
+        <div class="caps" style="margin:14px 0 6px">Right now</div>
+        <ul class="rep-now"><li><b>${(d.now.leads.new || 0)}</b> new Facebook leads to call</li><li><b>${d.now.waiting}</b> on the waiting list</li><li><b>${d.now.recallsDue}</b> recalls due</li><li><b>${d.now.pcseToDo}</b> PCSE notices to do</li><li><b>${d.now.toCopy}</b> changes to copy to Opticabase</li></ul></section>
+    </div></div>`;
 }
 
 /* ---------- The pilot: baseline, targets, and what's measured each week ---------- */
@@ -2032,6 +2169,7 @@ function apptDrawer(id) {
         <div class="field"><label for="ap-src">How they came to us</label><select class="input" id="ap-src" data-id="${a.id}">${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}" ${k === a.source ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>
         <div class="field"><label for="ap-count">True count <span class="muted">(how likely they are to be in)</span></label><select class="input" id="ap-count" data-id="${a.id}">${(META.counts || [1, 0.5]).map((n) => `<option value="${n}" ${n === countOf(a) ? "selected" : ""}>${n}${n === ((META.sources || {})[a.source] || { count: 0.5 }).count ? " (usual for this source)" : ""}</option>`).join("")}</select></div></div>` : ""}
       ${isAdmin() && a.status === "booked" ? twForm(a, p, c) : ""}
+      ${isAdmin() && a.status === "done" ? saleBox(a) : ""}
       ${tools}${record}
       ${canCancel ? `<div class="hr" style="margin:20px 0"></div>
         <div class="field"><label for="reason">Why is it cancelled?</label><select class="input" id="reason" data-keep>${META.reasons.map((r) => `<option>${r}</option>`).join("")}</select></div>
@@ -2042,6 +2180,21 @@ function apptDrawer(id) {
     </div>`;
 }
 
+/** On a finished visit: what was sold, and a way for the office to record or correct it. */
+function saleBox(a) {
+  const s = a.sale, edit = UI.saleEdit === a.id || !s;
+  const sum = s ? (s.sold ? `<b>${pounds(s.totalPence)}</b> · ${[s.framesPence && `frames ${pounds(s.framesPence)}${s.frameRef ? ` (${esc(s.frameRef)})` : ""}`, s.lensesPence && `lenses ${pounds(s.lensesPence)}${s.lensDesc ? ` (${esc(s.lensDesc)})` : ""}`].filter(Boolean).join(", ")}${s.voucher ? " · NHS voucher" : ""} · card` : `Nothing sold: ${esc(s.reason || "")}`) : "";
+  return `<div class="twbox"><div class="caps">Sold at this visit</div>
+    ${s && !edit ? `<p style="margin:8px 0 4px">${sum}</p><p class="muted" style="font-size:12.5px;margin:0">Recorded by ${esc(s.by)}, ${esc(s.at.slice(11))}${s.copiedAt ? " · in Opticabase" : ""}</p><button class="btn secondary sm" style="margin-top:10px" type="button" data-act="sale-edit" data-id="${a.id}">Correct it</button>`
+    : `<form id="office-sale" data-id="${a.id}" novalidate style="margin-top:8px">
+      <div class="tw-row"><select class="input" id="os-sold" data-keep aria-label="Anything sold"><option value="yes" ${!s || s.sold ? "selected" : ""}>Glasses sold</option><option value="no" ${s && !s.sold ? "selected" : ""}>Nothing sold</option></select></div>
+      <div class="tw-row"><input class="input mono" id="os-fp" inputmode="decimal" placeholder="Frames £" aria-label="Frames price" value="${s && s.framesPence ? (s.framesPence / 100).toFixed(2) : ""}" data-keep><input class="input" id="os-fr" placeholder="Frame (brand or code)" aria-label="Frame" value="${esc((s && s.frameRef) || "")}" data-keep></div>
+      <div class="tw-row"><input class="input mono" id="os-lp" inputmode="decimal" placeholder="Lenses £" aria-label="Lenses price" value="${s && s.lensesPence ? (s.lensesPence / 100).toFixed(2) : ""}" data-keep><input class="input" id="os-ld" placeholder="Lenses (e.g. varifocals)" aria-label="Lenses" value="${esc((s && s.lensDesc) || "")}" data-keep></div>
+      <div class="tw-row"><select class="input" id="os-why" data-keep aria-label="Why nothing was sold">${(META.noSale || []).map((r) => `<option ${s && s.reason === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></div>
+      <label class="chk"><input type="checkbox" id="os-v" ${s && s.voucher ? "checked" : ""} data-keep> NHS optical voucher (GOS3)</label>
+      <button class="btn secondary sm" style="margin-top:10px" type="submit">${icon("check")}Save</button></form>`}
+  </div>`;
+}
 /** When can they be seen: recorded on this visit, or for every visit from now on. The planner, moving and booking keep to it. */
 function twForm(a, p, c) {
   const k = a.tw ? a.tw.k : "any", at = a.tw && a.tw.at != null ? a.tw.at : 14 * 60;
@@ -2742,7 +2895,7 @@ document.addEventListener("click", async (e) => {
       case "diary-tab": UI.pg.tab = el.dataset.v; render(); break;
       case "diary-copied": case "diary-copied-all": {
         el.disabled = true;
-        const ids = el.dataset.act === "diary-copied" ? [Number(el.dataset.id)] : UI.pg.data.todo.map((r) => r.id);
+        const ids = el.dataset.act === "diary-copied" ? [/^s/.test(el.dataset.id) ? el.dataset.id : Number(el.dataset.id)] : UI.pg.data.todo.map((r) => r.id);
         const r = await api("POST", "/api/diary-changes/copied", { ids });
         UI.pg.data = await api("GET", "/api/diary-changes"); await load(); toast(`${r.copied} marked as done in Opticabase`); break;
       }
@@ -2841,24 +2994,17 @@ document.addEventListener("click", async (e) => {
         n.value = ""; await load(); toast("Saved to " + UI.rec.name + "'s record"); break;
       }
       case "copy": { const v = el.dataset.v; try { await navigator.clipboard.writeText(v); toast("Number copied: " + v); } catch (err) { toast(v); } break; }
+      case "sale-back": UI.sale = null; render(); break;
+      case "rep-period": UI.pg.period = el.dataset.v; if (el.dataset.v !== "custom") UI.pg.data = null; loadReports(); break;
+      case "rep-print": window.print(); break;
+      case "rep-csv": { const d = UI.pg.data; download(`${S.settings.practice.replace(/[^\w]+/g, "-")}-report-${d.period.fromIso}-to-${d.period.toIso}.csv`, "\ufeff" + reportsCsv(d), "text/csv"); break; }
+      case "sale-edit": UI.saleEdit = el.dataset.id; redraw(); break;
       case "status": {
         const v = el.dataset.v, id = el.dataset.id, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";
-        const offline = () => {
-          if (v === "done" && note) { queueChange("/api/patients/" + UI.pid + "/notes", { body: note }, () => UI.rec.history.unshift({ label: "Saved offline " + hm(demoNow()), body: note, by: S.user.name })); n.value = ""; }
-          queueChange("/api/appointments/" + id + "/status", { status: v }, () => { const a = S.appts.find((x) => x.id === id); if (a) a.status = v; });
-          toast(v === "enroute" ? "Saved. The patient will be texted when you have signal." : v === "live" ? "Visit started (saved on the phone)" : "Visit complete (saved on the phone). It syncs when you have signal.");
-          if (v === "done") { UI.pid = null; UI.rec = null; render(); }
-        };
-        if (UI.offline) { offline(); break; }
-        let res;
-        try {
-          if (v === "done" && note) { await api("POST", "/api/patients/" + UI.pid + "/notes", { body: note }); n.value = ""; }
-          res = await api("POST", "/api/appointments/" + id + "/status", { status: v });
-        } catch (e) { if (!e.offline || !keepsOffline()) throw e; goOffline(); offline(); break; }
-        toast(v === "enroute" ? "Patient texted that you're on the way" : v === "live" ? "Visit started"
-          : res.invoice ? `Visit complete. Invoice ${res.invoice.number} raised (${pounds(res.invoice.totalPence)}).` : "Visit complete. On to the next one.");
-        if (v === "done") { UI.pid = null; UI.rec = null; }
-        await load(); break;
+        // Completing a visit first asks what was sold (frames, lenses) or why nothing was.
+        if (v === "done") { UI.sale = { id, note, pid: UI.pid, sold: null }; render(); break; }
+        await changeStatus(v, id, note, null);
+        break;
       }
     }
   } catch (err) { fail(err); el.disabled = false; }
@@ -2866,6 +3012,23 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
+    if (e.target.id === "rep-dates") { UI.pg.from = $("#rep-from").value; UI.pg.to = $("#rep-to").value; UI.pg.data = null; await loadReports(); return; }
+    if (e.target.id === "sale-form") {
+      const s = UI.sale, yes = $('[name="sold"][value="yes"]').checked, no = $('[name="sold"][value="no"]').checked;
+      if (!yes && !no) { toast("Choose whether anything was sold", true); return; }
+      const sale = yes ? { sold: true, frames: $("#sl-fp").value.replace(/[£,\s]/g, ""), frameRef: $("#sl-fr").value, lenses: $("#sl-lp").value.replace(/[£,\s]/g, ""), lensDesc: $("#sl-ld").value, voucher: $("#sl-v").checked }
+        : { sold: false, reason: ($('[name="sl-why"]:checked') || {}).value };
+      if (yes && !(Number(sale.frames) > 0 || Number(sale.lenses) > 0)) { toast("Enter the price of the frames or the lenses", true); return; }
+      const btn = e.target.querySelector("[type=submit]"); btn.disabled = true;
+      try { await changeStatus("done", s.id, s.note, sale); } catch (err) { btn.disabled = false; throw err; }
+      return;
+    }
+    if (e.target.id === "office-sale") {
+      const v = (id) => $("#" + id).value, yes = v("os-sold") === "yes";
+      const body = yes ? { sold: true, frames: v("os-fp").replace(/[£,\s]/g, ""), frameRef: v("os-fr"), lenses: v("os-lp").replace(/[£,\s]/g, ""), lensDesc: v("os-ld"), voucher: $("#os-v").checked } : { sold: false, reason: v("os-why") };
+      await api("PUT", `/api/appointments/${e.target.dataset.id}/sale`, body); UI.saleEdit = null; await load(); redraw(); toast("Sale saved");
+      return;
+    }
     if (e.target.id === "pilot-form") {
       const v = (id) => ($("#" + id) || {}).value || "";
       const keys = Object.keys(UI.pg.data.measures), baseline = {}, targets = [];
@@ -2992,6 +3155,7 @@ document.addEventListener("pointermove", (e) => { if (tipEl && !tipEl.hidden) { 
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.name === "sold" && UI.sale) { UI.sale.sold = e.target.value === "yes"; $(".sale-yes").hidden = !UI.sale.sold; $(".sale-no").hidden = UI.sale.sold; }
     if (e.target.id === "tw-k") $("#tw-at").hidden = !["after", "before", "fixed"].includes(e.target.value);
     if (e.target.classList.contains("pl-entry")) {
       const k = e.target.dataset.k;

@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS invoices (
   status TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','paid','void')), method TEXT,
   issued_at TEXT NOT NULL, issued_day INTEGER NOT NULL DEFAULT 0, paid_at TEXT
 );
+CREATE TABLE IF NOT EXISTS sales (               -- what the clinician sold at a visit (or why nothing was), one row per visit
+  id INTEGER PRIMARY KEY AUTOINCREMENT, appointment_id TEXT NOT NULL UNIQUE REFERENCES appointments(id),
+  patient_id TEXT NOT NULL, clinician_id TEXT NOT NULL, day INTEGER NOT NULL,  -- day: days from today, like appointments
+  sold INTEGER NOT NULL DEFAULT 0,
+  frames_pence INTEGER NOT NULL DEFAULT 0, frame_ref TEXT,      -- the frame: brand, model or code, as the clinician wrote it
+  lenses_pence INTEGER NOT NULL DEFAULT 0, lens_desc TEXT,      -- the lenses: single vision, varifocals, coatings...
+  total_pence INTEGER NOT NULL DEFAULT 0,
+  voucher INTEGER NOT NULL DEFAULT 0,                           -- an NHS optical voucher (GOS3) goes towards it
+  method TEXT,                                                  -- how it was paid: card (the practice's card reader)
+  reason TEXT,                                                  -- nothing sold: why
+  by_name TEXT NOT NULL, at TEXT NOT NULL,                      -- who recorded it, and when (YYYY-MM-DD HH:MM)
+  copied_at TEXT, copied_by TEXT                                -- entered in Opticabase by the office
+);
 CREATE TABLE IF NOT EXISTS recalls (
   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), type TEXT NOT NULL, reason TEXT NOT NULL,
   due_day INTEGER NOT NULL,                       -- days from today; negative = overdue
@@ -202,7 +215,7 @@ const ADDED_COLUMNS = [
   ["patients", "tw", "TEXT"],
   ["patients", "tw_at", "BIGINT"],
 ];
-const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "diary_log", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
+const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "sales", "confirmations", "diary_log", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
 /** A fresh, seeded in-memory database for one sandbox, for its brand: the region and staff emails differ. */
 function openDb(brand = brands.get(), { empty = false } = {}) {
@@ -396,6 +409,43 @@ function seed(db, brand) {
   });
   // NHS numbers for the sample patients (valid check digits, from the range set aside for testing: 999 000 0000+).
   db.prepare("SELECT id FROM patients ORDER BY rowid").all().forEach((r, i) => { const n = testNhsNumber(i); if (n) db.prepare("UPDATE patients SET nhs_no = ? WHERE id = ?").run(n, r.id); });
+  // The last two weeks, so the reports have something to show: each clinician's usual round on each open day, most
+  // visits done, a few cancelled or nobody in, and what was sold at them. Already copied into Opticabase.
+  const cal = require("./calendar");
+  const SOLD_AT = { sight: 2, dispense: 7, repair: 5 }; // one visit in n of each kind sells (sight tests most often)
+  const WHY = ["Not needed", "Price", "Wants to think about it", "Has glasses already"];
+  let h = 0;
+  for (let day = -1; day >= -14 && brand.id === "hvo"; day--) { // the HVO demo only: the other demos start from today
+    if (!cal.isOpen(day)) continue;
+    for (const [ci, cid] of ["c1", "c2", "c3"].entries()) {
+      let prev = bases[cid];
+      (cid === "c2" ? DISPENSER_SLOTS : OPTOM_SLOTS).forEach(([start, type], i) => {
+        const pool = pools[cid], pid = pool[(-day * 5 + i * 3 + ci) % pool.length], k = h++;
+        const status = k % 11 === 3 ? "cancelled" : k % 17 === 5 ? "missed" : "done";
+        const id = `h${-day}${cid}${i}`;
+        ins("appointments", { id, clinician_id: cid, patient_id: pid, type, day, start_min: start, status, drive: driveMinutes(prev, pcOf[pid]) || 10, seen: status === "cancelled" ? 0 : 1,
+          source: MIX[k % MIX.length], reason: status === "cancelled" ? ["Patient unwell", "Admitted to hospital", "Patient asked to rebook", "Carer or family can't be present"][k % 4] : null, cancelled_min: status === "cancelled" ? start - 900 : null });
+        if (status === "cancelled" && k % 2) { // refilled from the call list: someone else seen in that slot
+          const rp = pool[(-day * 7 + i + 11) % pool.length];
+          ins("appointments", { id: id + "r", clinician_id: cid, patient_id: rp, type, day, start_min: start, status: "done", drive: driveMinutes(prev, pcOf[rp]) || 10, seen: 1, moved: 1, filled_from: id, booked_min: start - 870, source: "recall" });
+        }
+        if (status !== "cancelled") prev = pcOf[pid];
+        if (status !== "done" || type === "follow") return;
+        const at = `${cal.iso(day)} ${String(Math.floor(start / 60) + 1).padStart(2, "0")}:05`;
+        const by = (clinOf[cid] || {}).name || "Clinician";
+        if (k % (SOLD_AT[type] || 9) === 0) {
+          const frames = [8900, 12900, 16500, 19900][k % 4], lenses = type === "repair" ? 0 : [4900, 9900, 17900, 22900][(k >> 1) % 4];
+          ins("sales", { appointment_id: id, patient_id: pid, clinician_id: cid, day, sold: 1, frames_pence: frames, frame_ref: ["Silhouette 5529", "Ray-Ban RB5154", "Lindberg Air", "Own brand"][k % 4], lenses_pence: lenses,
+            lens_desc: lenses ? ["Single vision", "Varifocals", "Varifocals, anti-glare", "Bifocals"][(k >> 1) % 4] : null, total_pence: frames + lenses, voucher: k % 3 === 0 ? 1 : 0, method: "card",
+            by_name: by, at, copied_at: at, copied_by: "Sarah Lane" });
+        } else ins("sales", { appointment_id: id, patient_id: pid, clinician_id: cid, day, sold: 0, reason: WHY[k % 4], by_name: by, at });
+      });
+    }
+  }
+  // Today so far: Amira sold glasses at her first visit (still to go into Opticabase).
+  if (brand.id === "hvo") ins("sales", { appointment_id: "a1", patient_id: "p1", clinician_id: "c1", day: 0, sold: 1, frames_pence: 14900, frame_ref: "Silhouette 5529", lenses_pence: 17900, lens_desc: "Varifocals, anti-glare",
+    total_pence: 32800, voucher: 0, method: "card", by_name: (clinOf.c1 || {}).name || "Amira Shah", at: `${cal.iso(0)} 10:02` });
+  if (brand.id === "hvo") ins("sales", { appointment_id: "b1", patient_id: "p6", clinician_id: "c2", day: 0, sold: 0, reason: "Has glasses already", by_name: (clinOf.c2 || {}).name || "Tom Whitfield", at: `${cal.iso(0)} 09:58` });
   // Confirmation calls already made before the demo starts, so the diary's CC markers show a realistic mix: today's
   // visits had all three; tomorrow's have CC1 and CC2, and half their CC3; this week's mostly CC1, some CC2, a few
   // unanswered; later ones only some CC1. What's left is the Calls list's work for today.
@@ -428,6 +478,8 @@ const map = {
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, nhsNo: r.nhs_no || null, premises: r.premises || "home", venue: r.venue || null, venueContact: r.venue_contact || null, erased: !!r.erased , tw: r.tw ? { k: r.tw, at: r.tw_at } : null }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, pvnIcb: r.pvn_icb || null, ert: r.ert || null, pvnEarly: !!r.pvn_early, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count), tw: r.tw ? { k: r.tw, at: r.tw_at } : null }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
+  sale: (r) => ({ id: r.id, appointmentId: r.appointment_id, patientId: r.patient_id, clinicianId: r.clinician_id, day: r.day, sold: !!r.sold, framesPence: r.frames_pence, frameRef: r.frame_ref,
+    lensesPence: r.lenses_pence, lensDesc: r.lens_desc, totalPence: r.total_pence, voucher: !!r.voucher, method: r.method, reason: r.reason, by: r.by_name, at: r.at, copiedAt: r.copied_at }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),
   msg: (r) => ({ id: r.id, dir: r.direction, name: r.to_name, phone: r.phone, body: r.body, kind: r.kind, toClin: r.to_clinician_id, fromClin: r.from_clinician_id, read: !!r.read, at: r.created_at, providerId: r.provider_id }),

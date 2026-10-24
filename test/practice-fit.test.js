@@ -472,3 +472,46 @@ test("patient availability: recorded on a visit or for good, kept by moving, boo
   // Back to any time.
   assert.strictEqual((await call("PUT", `/api/appointments/${a.id}/availability`, o.token, { tw: "any", always: true })).data.label, "Any time");
 });
+
+test("sales at the visit: recorded when the clinician completes it, seen by the office, listed for Opticabase", async () => {
+  const o = await office();
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  // a2 is under way (live): completing it carries the sale. A bad price stops both.
+  assert.strictEqual((await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true, frames: "abc" } })).status, 400);
+  assert.strictEqual((await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true } })).status, 400, "a price is needed");
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.appts.find((a) => a.id === "a2").status, "live", "still open");
+  const r = await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true, frames: "129.00", frameRef: "Ray-Ban RB5154", lenses: "99", lensDesc: "Varifocals", voucher: true } });
+  assert.strictEqual(r.status, 200);
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const s = st.appts.find((a) => a.id === "a2").sale;
+  assert.deepStrictEqual([s.sold, s.framesPence, s.lensesPence, s.totalPence, s.voucher, s.method], [true, 12900, 9900, 22800, true, "card"]);
+  assert.ok((await call("GET", "/api/state", amira.token)).data.appts.every((a) => a.sale === undefined), "clinicians don't get the office's sales figures");
+  // It's on the Copy to Opticabase list, and can be ticked off.
+  const d = (await call("GET", "/api/diary-changes", o.token)).data;
+  const row = d.todo.find((x) => x.change === "sold" && x.appointmentId === "a2");
+  assert.ok(row && /Frames £129\.00 \(Ray-Ban RB5154\); Lenses £99\.00 \(Varifocals\); NHS voucher/.test(row.reason), row && row.reason);
+  assert.strictEqual((await call("POST", "/api/diary-changes/copied", o.token, { ids: [row.id] })).status, 200);
+  assert.ok(!(await call("GET", "/api/diary-changes", o.token)).data.todo.some((x) => x.id === row.id));
+  // The office can correct it: nothing sold, with a reason. Only on a finished visit.
+  assert.strictEqual((await call("PUT", "/api/appointments/a2/sale", o.token, { sold: false, reason: "Price" })).status, 200);
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.appts.find((a) => a.id === "a2").sale.reason, "Price");
+  assert.strictEqual((await call("PUT", "/api/appointments/a3/sale", o.token, { sold: false, reason: "Price" })).status, 409);
+  assert.strictEqual((await call("PUT", "/api/appointments/a2/sale", amira.token, { sold: false, reason: "Price" })).status, 403);
+});
+
+test("reports: any period, with visits, sales by clinician, mileage and the reasons nothing was sold", async () => {
+  const o = await office();
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true, frames: "120", lenses: "80" } });
+  const r = (await call("GET", "/api/reports?period=today", o.token)).data;
+  assert.strictEqual(r.period.key, "today"); assert.strictEqual(r.period.from, 0);
+  assert.ok(r.summary.visitsDone >= 4, "a1, b1, d1 and a2 are done");
+  assert.strictEqual(r.finance.salesPence, 20000); assert.strictEqual(r.summary.sales, 1);
+  const am = r.byClinician.find((x) => x.clinicianId === "c1");
+  assert.strictEqual(am.salesPence, 20000); assert.strictEqual(am.sales, 1);
+  assert.ok(r.mileage.clinicians.length >= 3 && r.mileage.clinicians.every((c) => c.miles >= 0));
+  assert.ok(r.days.length === 1 && r.days[0].salesPence === 20000);
+  assert.strictEqual((await call("GET", "/api/reports?period=custom&from=2026-10-20&to=2026-10-25", o.token)).status, 400, "not past today");
+  assert.strictEqual((await call("GET", "/api/reports?period=custom&from=2026-10-09&to=2026-10-01", o.token)).status, 400);
+  assert.strictEqual((await call("GET", "/api/reports?period=week", amira.token)).status, 403, "office only");
+});

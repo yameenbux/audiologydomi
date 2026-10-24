@@ -32,6 +32,7 @@ function roll(sb) {
       d.prepare("UPDATE recalls SET due_day = due_day - ?").run(delta);
       d.prepare("UPDATE pcse SET day = day - ?").run(delta);
       d.prepare("UPDATE invoices SET issued_day = issued_day - ?").run(delta);
+      d.prepare("UPDATE sales SET day = day - ?").run(delta);
       d.prepare("UPDATE waitlist SET days = days + ? WHERE status != 'booked'").run(delta);
       d.prepare("INSERT INTO audit (ts, actor, action, entity, detail) VALUES (?, 'system', 'calendar.roll', ?, ?)").run(sandbox.stamp(sb), cal.londonToday(), `Moved on ${delta} day${delta === 1 ? "" : "s"}`);
       d.exec("COMMIT");

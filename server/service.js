@@ -248,16 +248,26 @@ function diaryLog(change, a, { was = null, reason = null } = {}) {
 function diaryChanges() {
   const row = (r) => { const p = getPatient(r.patient_id) || {}; return { id: r.id, appointmentId: r.appointment_id, change: r.change, at: r.at, obId: p.obId || null, patient: p.name, dob: p.dob || null, pc: p.pc,
     visitDate: r.visit_date, visitTime: r.visit_time, clinician: r.clinician, type: r.type, wasDate: r.was_date, wasTime: r.was_time, wasClinician: r.was_clinician, reason: r.reason, copiedAt: r.copied_at, copiedBy: r.copied_by }; };
-  return { todo: all("SELECT * FROM diary_log WHERE copied_at IS NULL ORDER BY id").map(row), done: all("SELECT * FROM diary_log WHERE copied_at IS NOT NULL ORDER BY id DESC LIMIT 50").map(row) };
+  // Glasses sold at a visit go into Opticabase too (the order and any voucher claim are made there).
+  const sale = (r) => { const p = getPatient(r.patient_id) || {}, a = getAppt(r.appointment_id) || {}, c = getClinician(r.clinician_id) || {};
+    return { id: "s" + r.id, appointmentId: r.appointment_id, change: "sold", at: r.at, obId: p.obId || null, patient: p.name, dob: p.dob || null, pc: p.pc,
+      visitDate: cal.iso(a.day || 0), visitTime: hm(a.start || 0), clinician: c.name, type: TYPES[a.type] ? TYPES[a.type].name : "",
+      reason: [r.frames_pence && `Frames £${(r.frames_pence / 100).toFixed(2)}${r.frame_ref ? ` (${r.frame_ref})` : ""}`, r.lenses_pence && `Lenses £${(r.lenses_pence / 100).toFixed(2)}${r.lens_desc ? ` (${r.lens_desc})` : ""}`, r.voucher && "NHS voucher (GOS3)", "paid by card"].filter(Boolean).join("; "),
+      copiedAt: r.copied_at, copiedBy: r.copied_by }; };
+  const byAt = (x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0);
+  return { todo: all("SELECT * FROM diary_log WHERE copied_at IS NULL ORDER BY id").map(row).concat(all("SELECT * FROM sales WHERE sold = 1 AND copied_at IS NULL").map(sale)).sort(byAt),
+    done: all("SELECT * FROM diary_log WHERE copied_at IS NOT NULL ORDER BY id DESC LIMIT 50").map(row).concat(all("SELECT * FROM sales WHERE sold = 1 AND copied_at IS NOT NULL ORDER BY id DESC LIMIT 20").map(sale)).sort(byAt).reverse() };
 }
 /** The office has put these changes into Opticabase: tick them off. */
 function markDiaryCopied(ids, user) {
   return tx(() => {
-    const list = Array.isArray(ids) ? ids.map(Number).filter(Number.isInteger) : [];
-    if (!list.length) throw new HttpError(400, "Choose the changes you've copied.");
+    const raw = Array.isArray(ids) ? ids.map(String) : [];
+    const list = raw.filter((x) => /^\d+$/.test(x)).map(Number), sold = raw.filter((x) => /^s\d+$/.test(x)).map((x) => Number(x.slice(1)));
+    if (!list.length && !sold.length) throw new HttpError(400, "Choose the changes you've copied.");
     const at = `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`;
     let n = 0;
     for (const id of list) n += run("UPDATE diary_log SET copied_at = ?, copied_by = ? WHERE id = ? AND copied_at IS NULL", at, user.name, id).changes;
+    for (const id of sold) n += run("UPDATE sales SET copied_at = ?, copied_by = ? WHERE id = ? AND copied_at IS NULL", at, user.name, id).changes;
     audit(user.name, "diary.copied", "diary_log", `${n} diary change${n === 1 ? "" : "s"} copied to Opticabase`);
     bus.emit({ type: "appointment.updated" });
     return { copied: n };
@@ -484,7 +494,45 @@ function sweepExpired() {
   });
 }
 
-function setStatus(id, status, user) {
+/* ---------- Sales at the visit: frames and lenses ---------- */
+const NO_SALE = ["Not needed", "Price", "Wants to think about it", "Has glasses already"];
+const pence = (v, what) => {
+  if (v == null || v === "") return 0;
+  const n = Math.round(Number(v) * 100);
+  if (!Number.isFinite(n) || n < 0 || n > 500000) throw new HttpError(400, `Enter the ${what} price in pounds, up to £5,000.`);
+  return n;
+};
+/** What was sold at a visit (frames, lenses, paid by card, an NHS voucher towards it), or why nothing was. One per visit. */
+function recordSale(a, input, user) {
+  if (!input || typeof input !== "object") throw new HttpError(400, "Say whether anything was sold.");
+  const sold = input.sold === true;
+  const frames = sold ? pence(input.frames, "frames") : 0, lenses = sold ? pence(input.lenses, "lenses") : 0;
+  if (sold && !frames && !lenses) throw new HttpError(400, "Enter the price of the frames or the lenses.");
+  const reason = sold ? null : NO_SALE.includes(input.reason) ? input.reason : null;
+  if (!sold && !reason) throw new HttpError(400, "Choose why nothing was sold.");
+  const clip = (v) => (v == null ? null : String(v).trim().slice(0, 120) || null);
+  run("DELETE FROM sales WHERE appointment_id = ?", a.id);
+  run(`INSERT INTO sales (appointment_id, patient_id, clinician_id, day, sold, frames_pence, frame_ref, lenses_pence, lens_desc, total_pence, voucher, method, reason, by_name, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.id, a.patientId, a.clinicianId, a.day, sold ? 1 : 0, frames, sold ? clip(input.frameRef) : null,
+    lenses, sold ? clip(input.lensDesc) : null, frames + lenses, sold && input.voucher === true ? 1 : 0, sold ? "card" : null, reason, user.name, `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`);
+  const p = getPatient(a.patientId), c = getClinician(a.clinicianId);
+  const what = [frames && "frames", lenses && "lenses"].filter(Boolean).join(" and ");
+  audit(user.name, sold ? "sale.recorded" : "sale.none", a.id, sold ? `${p.name}: ${what}, £${((frames + lenses) / 100).toFixed(2)}` : `${p.name}: nothing sold (${reason})`);
+  bus.emit({ type: "sale.recorded", appointmentId: a.id, clinicianId: c.id, clinician: c.first, patient: p.name, sold, what, totalPence: frames + lenses, reason });
+  return saleOf(a.id);
+}
+const saleOf = (apptId) => { const r = one("SELECT * FROM sales WHERE appointment_id = ?", apptId); return r && map.sale(r); };
+/** The office records or corrects the sale on a finished visit (when the clinician couldn't). */
+function saveSale(id, input, user) {
+  return tx(() => {
+    const a = getAppt(String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    if (a.status !== "done") throw new HttpError(409, "Sales are recorded once the visit is complete.");
+    return recordSale(a, input, user);
+  });
+}
+
+function setStatus(id, status, user, sale = null) {
   return tx(() => {
     const a = getAppt(id);
     if (!a) throw new HttpError(404, "That visit no longer exists.");
@@ -492,6 +540,7 @@ function setStatus(id, status, user) {
     if (a.day !== 0) throw new HttpError(409, `That visit is on ${cal.label(a.day)}, not today.`);
     const flow = { booked: ["enroute"], enroute: ["live"], live: ["done"] };
     if (!(flow[a.status] || []).includes(status)) throw new HttpError(409, `A visit that is ${a.status} can't move to ${status}.`);
+    if (status === "done" && sale) recordSale(a, sale, user); // checked before the visit is closed, so a bad price stops both
     run("UPDATE appointments SET status = ?, seen = 1 WHERE id = ?", status, id);
     const p = getPatient(a.patientId);
     const c = getClinician(a.clinicianId);
@@ -656,6 +705,90 @@ function invoiceList() {
   return { invoices: list, totals: { unpaidPence: sum("unpaid"), paidPence: sum("paid"), count: list.length } };
 }
 
+/* ---------- Reports: any period, everything the office is asked about ---------- */
+/** The period a report covers, as day numbers (0 is today). Reports look back: nothing after today. */
+function reportPeriod(input) {
+  const today = 0, wd = cal.weekday(0), dom = Number(cal.iso(0).slice(8, 10));
+  const P = { today: [0, 0, "Today"], week: [-Math.min(wd, 4), 0, "This week"], lastweek: [-wd - 7, -wd - 3, "Last week"], month: [-(dom - 1), 0, "This month"], last30: [-29, 0, "Last 30 days"] };
+  if (input.period === "custom") {
+    const f = cal.dayOf(String(input.from || "")), to = cal.dayOf(String(input.to || ""));
+    if (!Number.isFinite(f) || !Number.isFinite(to) || f > to) throw new HttpError(400, "Choose a start date before the end date.");
+    if (to > today) throw new HttpError(400, "Reports cover up to today.");
+    if (to - f > 366) throw new HttpError(400, "Choose a year or less.");
+    return { from: f, to, label: `${cal.label(f)} to ${cal.label(to)}`, key: "custom" };
+  }
+  const k = P[input.period] ? input.period : "week", [from, to, label] = P[k];
+  return { from, to, label, key: k };
+}
+async function reports(input = {}) {
+  const per = reportPeriod(input), { from, to } = per;
+  const clinicians = all("SELECT * FROM clinicians ORDER BY rowid").map(map.clinician);
+  const cname = Object.fromEntries(clinicians.map((c) => [c.id, c.name]));
+  const appts = all("SELECT * FROM appointments WHERE day BETWEEN ? AND ?", from, to).map(map.appt);
+  const sales = all("SELECT * FROM sales WHERE day BETWEEN ? AND ?", from, to).map(map.sale);
+  const invoices = all("SELECT * FROM invoices WHERE issued_day BETWEEN ? AND ?", from, to).map(map.invoice);
+  const done = appts.filter((a) => a.status === "done"), sold = sales.filter((s) => s.sold);
+  const sum = (xs, k) => xs.reduce((n, x) => n + (x[k] || 0), 0);
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : null);
+  const count = (xs, key) => { const m = {}; xs.forEach((x) => { const k = key(x) || "Not recorded"; m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((x, y) => y[1] - x[1]).map(([label, n]) => ({ label, n })); };
+
+  // Mileage: each clinician's planned route on each open day of the period (estimates from postcodes and road times).
+  const miles = [], first = (one("SELECT MIN(day) AS d FROM appointments") || {}).d;
+  for (const c of clinicians) {
+    let driveMin = 0, m = 0, visits = 0, bookedMin = 0, workingMin = 0;
+    for (let d = Math.max(from, first == null ? from : first); d <= to; d++) { // days before the diary began don't count as empty days
+      if (!cal.isOpen(d)) continue;
+      const h = hoursOn(c, d); workingMin += h ? h[1] - h[0] : 0;
+      if (!appts.some((a) => a.clinicianId === c.id && a.day === d && a.status !== "cancelled")) continue;
+      const r = await routeFor(c.id, d, null, { withPath: false });
+      driveMin += r.totals.driveMin; m += r.totals.miles; visits += r.totals.visits; bookedMin += r.stops.reduce((t, s) => t + (s.end - s.start), 0);
+    }
+    if (!visits && !c.active) continue;
+    miles.push({ clinicianId: c.id, name: c.name, visits, driveMin, miles: Math.round(m * 10) / 10, mileagePence: Math.round(m * HMRC_PENCE_PER_MILE), utilisation: pct(bookedMin, workingMin) });
+  }
+
+  const byClin = clinicians.map((c) => {
+    const d = done.filter((a) => a.clinicianId === c.id), s = sold.filter((x) => x.clinicianId === c.id);
+    return { clinicianId: c.id, name: c.name, visits: d.length, missed: appts.filter((a) => a.clinicianId === c.id && a.status === "missed").length,
+      sales: s.length, conversion: pct(s.length, d.length), salesPence: sum(s, "totalPence"), avgSalePence: s.length ? Math.round(sum(s, "totalPence") / s.length) : null };
+  }).filter((r) => r.visits || r.sales || r.missed);
+
+  const days = [];
+  for (let d = from; d <= to; d++) {
+    if (!cal.isOpen(d)) continue;
+    const ds = sold.filter((s) => s.day === d);
+    days.push({ day: d, iso: cal.iso(d), label: cal.label(d), visits: done.filter((a) => a.day === d).length, cancelled: appts.filter((a) => a.day === d && a.status === "cancelled").length, sales: ds.length, salesPence: sum(ds, "totalPence") });
+  }
+  const leads = all("SELECT status, COUNT(*) AS n FROM leads GROUP BY status").reduce((m, r) => ({ ...m, [r.status]: r.n }), {});
+  return {
+    period: { ...per, fromIso: cal.iso(from), toIso: cal.iso(to) },
+    summary: {
+      visitsDone: done.length, patientsSeen: new Set(done.map((a) => a.patientId)).size, missed: appts.filter((a) => a.status === "missed").length,
+      cancelled: appts.filter((a) => a.status === "cancelled").length, refilled: appts.filter((a) => a.moved).length,
+      salesPence: sum(sold, "totalPence"), sales: sold.length, conversion: pct(sold.length, done.length), avgSalePence: sold.length ? Math.round(sum(sold, "totalPence") / sold.length) : null,
+      miles: Math.round(sum(miles, "miles") * 10) / 10, mileagePence: sum(miles, "mileagePence"), driveMin: sum(miles, "driveMin"),
+    },
+    finance: {
+      salesPence: sum(sold, "totalPence"), framesPence: sum(sold, "framesPence"), lensesPence: sum(sold, "lensesPence"), sales: sold.length, vouchers: sold.filter((s) => s.voucher).length,
+      noSale: count(sales.filter((s) => !s.sold), (s) => s.reason), notRecorded: done.filter((a) => !sales.some((s) => s.appointmentId === a.id) && a.type !== "follow").length,
+      invoiced: { n: invoices.filter((i) => i.status !== "void").length, pence: sum(invoices.filter((i) => i.status !== "void"), "totalPence"),
+        paidPence: sum(invoices.filter((i) => i.status === "paid"), "totalPence"), unpaidPence: sum(invoices.filter((i) => i.status === "unpaid"), "totalPence") },
+      recoveredPence: appts.filter((a) => a.moved).length * Number(settings().fee || 0) * 100,
+    },
+    byClinician: byClin,
+    visits: {
+      byType: Object.keys(TYPES).map((k) => ({ type: k, label: TYPES[k].name, done: done.filter((a) => a.type === k).length, missed: appts.filter((a) => a.type === k && a.status === "missed").length, cancelled: appts.filter((a) => a.type === k && a.status === "cancelled").length })).filter((r) => r.done || r.missed || r.cancelled),
+      bySource: count(done, (a) => (SOURCES[a.source] || SOURCES.new).label),
+      cancelReasons: count(appts.filter((a) => a.status === "cancelled"), (a) => a.reason),
+      nhsSightTests: done.filter((a) => TYPES[a.type].pvn).length,
+    },
+    mileage: { ratePence: HMRC_PENCE_PER_MILE, clinicians: miles },
+    days,
+    now: { leads, waiting: one("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'waiting'").n, recallsDue: one("SELECT COUNT(*) AS n FROM recalls WHERE status IN ('due','texted') AND due_day <= 0").n,
+      pcseToDo: one("SELECT COUNT(*) AS n FROM pcse WHERE status = 'todo'").n, toCopy: one("SELECT COUNT(*) AS n FROM diary_log WHERE copied_at IS NULL").n + one("SELECT COUNT(*) AS n FROM sales WHERE sold = 1 AND copied_at IS NULL").n },
+  };
+}
+
 /* ---------- Mileage and utilisation ---------- */
 const HMRC_PENCE_PER_MILE = 45; // HMRC approved mileage rate for cars (first 10,000 business miles a year)
 
@@ -734,8 +867,9 @@ function dismissRecall(id, user) {
 /** What the office's income panel shows. Fee is the office's own figure, set in settings. */
 function metrics() {
   const fee = settings().fee;
-  const cancelled = all("SELECT * FROM appointments WHERE status = 'cancelled'").map(map.appt);
-  const filled = all("SELECT * FROM appointments WHERE moved = 1").map(map.appt);
+  const since = -cal.weekday(0); // "this week": from Monday (day numbers count from today)
+  const cancelled = all("SELECT * FROM appointments WHERE status = 'cancelled' AND day >= ?", since).map(map.appt);
+  const filled = all("SELECT * FROM appointments WHERE moved = 1 AND day >= ?", since).map(map.appt);
   const byId = Object.fromEntries(cancelled.map((a) => [a.id, a]));
   const times = filled.map((f) => byId[f.filledFrom] ? f.bookedMin - byId[f.filledFrom].cancelledMin : null).filter((x) => x != null);
   const open = cancelled.filter((a) => !filled.some((f) => f.filledFrom === a.id));
@@ -1809,4 +1943,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { reports, reportPeriod, recordSale, saveSale, saleOf, NO_SALE, setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
