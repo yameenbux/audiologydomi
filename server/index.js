@@ -119,7 +119,7 @@ route("GET", "/api/health", { public: true }, async () => {
   return { ok: true, db: db ? "ok" : "none", ms: db ? db.ms : undefined };
 });
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
-  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
+  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
@@ -289,6 +289,19 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const clinicians = db.prepare("SELECT * FROM clinicians ORDER BY rowid").all().map(map.clinician);
   const isAdmin = user.role === "admin";
   const appts = (isAdmin ? db.prepare("SELECT * FROM appointments ORDER BY start_min").all() : db.prepare("SELECT * FROM appointments WHERE clinician_id = ? ORDER BY start_min").all(user.clinicianId)).map(map.appt);
+  // Confirmation calls on each visit, for the diary's CC markers: the latest outcome per call (a call that was made
+  // isn't undone by a later no-answer), who made it and when, and which call is due now. Clinicians only see "confirmed".
+  const conf = new Map();
+  for (const r of db.prepare("SELECT appointment_id, stage, outcome, by_name, at FROM confirmations ORDER BY id").all()) {
+    const m = conf.get(r.appointment_id) || {}, prev = m[r.stage];
+    if (!prev || prev.o === "no-answer") m[r.stage] = { o: r.outcome, by: r.by_name, at: r.at, tries: (prev ? prev.tries : 0) + (r.outcome === "no-answer" ? 1 : 0) };
+    conf.set(r.appointment_id, m);
+  }
+  for (const a of appts) {
+    const m = conf.get(a.id) || {}, made = (s) => !!m[s] && m[s].o !== "no-answer";
+    if (isAdmin) { a.cc = m; a.ccDue = calls.stageDue(a, { 1: made(1), 2: made(2), 3: made(3) }); }
+    else a.confirmed = made(3);
+  }
   const me = !isAdmin && clinicians.find((c) => c.id === user.clinicianId);
   const patients = db.prepare("SELECT * FROM patients ORDER BY name").all().map(map.patient)
     .filter((p) => isAdmin || appts.some((a) => a.patientId === p.id) || me.patch.includes(D.district(p.pc)));
@@ -357,6 +370,7 @@ route("GET", "/api/patients/:id/export", {}, (req, body, user, { id }) => { need
 route("POST", "/api/patients/:id/erase", {}, (req, body, user, { id }) => { needAdmin(user); return svc.erasePatient(id, body, user); });
 route("POST", "/api/appointments/:id/move-options", {}, (req, body, user, { id }) => { needAdmin(user); return svc.moveOptions(id, body); });
 route("POST", "/api/appointments/:id/move", {}, (req, body, user, { id }) => { needAdmin(user); return svc.moveAppointment(id, body, user); });
+route("PUT", "/api/appointments/:id/availability", {}, (req, body, user, { id }) => { needAdmin(user); return svc.setAvailability(id, body, user); });
 route("POST", "/api/appointments/:id/record", {}, (req, body, user, { id }) => { needAdmin(user); return svc.recordOutcome(id, body, user); });
 route("POST", "/api/appointments/:id/cancel-link", {}, (req, body, user, { id }) => { needAdmin(user); return svc.officeCancelLink(id, user); });
 // A freed slot: who could take it, and booking the person the office has just rung.

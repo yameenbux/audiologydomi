@@ -95,6 +95,9 @@ const hoursFor = (c, d) => { const x = calDay(d); if (x && !x.open) return null;
 const dayByIso = (iso) => { const x = S && S.cal ? S.cal.days.find((y) => y.iso === iso) : null; return x ? x.day : null; };
 const whenLabel = (day, start) => (day === 0 ? "" : dayName(day) + " · ") + hm(start);
 const demoNow = () => S ? S.now + (Date.now() - fetchedAt) / 60000 : 620;
+/** When a patient can be seen (server/domain.js TW): "Afternoons only", "Not before 14:00". */
+const twText = (tw) => (!tw || !(META.tw || {})[tw.k] ? "" : tw.k === "am" || tw.k === "pm" ? META.tw[tw.k] : `${META.tw[tw.k]} ${hm(tw.at)}`);
+const twOk = (tw, start) => !tw ? true : tw.k === "am" ? start < 720 : tw.k === "pm" ? start >= 720 : tw.k === "after" ? start >= tw.at : tw.k === "before" ? start <= tw.at : start === tw.at;
 const money = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
 
 function toast(msg, bad) {
@@ -425,8 +428,10 @@ function officeView() {
         <div class="panel-h"><h2>Diaries</h2>
           ${dayNav()}
         </div>
+        ${statusStrip()}
         ${UI.view === "week" ? weekView() : `<div class="panel-h" style="padding-top:0"><span class="sub">${UI.day === 0 ? "Today, " + esc(dayLong(0)) : esc(dayLong(UI.day))}${calDay(UI.day) && !calDay(UI.day).open ? ` · <b>Closed: ${esc(calDay(UI.day).why)}</b>` : ""}</span>
-          <div class="legend"><span><i class="sw" style="background:var(--surface)"></i>Booked</span><span><i class="sw" style="background:var(--warn-soft)"></i>On the way</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--subtle)"></i>Done</span><span><i class="sw" style="background:var(--apricot-soft)"></i>Moved forward</span><span><i class="sw" style="background:var(--forest-soft)"></i>New booking</span></div>
+          <div class="legend"><span><i class="sw" style="background:var(--surface)"></i>Booked</span><span><i class="sw" style="background:var(--warn-soft)"></i>On the way</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--subtle)"></i>Done</span><span><i class="sw" style="background:var(--apricot-soft)"></i>Moved forward</span><span><i class="sw" style="background:var(--forest-soft)"></i>New booking</span>
+            <span class="ccp-key"><b>Calls</b><span class="ccp"><i class="s-done">CC</i></span>Done<span class="ccp"><i class="s-texted">CC</i></span>Texted<span class="ccp"><i class="s-na">CC</i></span>No answer<span class="ccp"><i class="s-due">CC</i></span>Due today<span class="ccp"><i class="s-later">CC</i></span>Not yet<span class="ccp"><i class="ccp-rem">${icon("msg")}</i></span>Reminder sent</span></div>
         </div>
         <div class="board-wrap" data-scroll="board">${board(nowM)}</div>`}
       </section>
@@ -685,6 +690,54 @@ function dayNav() {
   </div>`;
 }
 
+/** The confirmation calls on a visit, as three small markers by the patient's name, plus the reminder text. Office only. */
+function ccState(a, s) {
+  const m = (a.cc || {})[s];
+  if (m && m.o === "done") return ["done", `CC${s} done by ${m.by}, ${m.at}`];
+  if (m && m.o === "texted") return ["texted", `CC${s} sent as a text by ${m.by}, ${m.at}`];
+  if (m && m.o === "no-answer") return ["na", `CC${s}: no answer (${m.tries} tr${m.tries === 1 ? "y" : "ies"}, last ${m.at})`];
+  if (a.ccDue === s) return ["due", `CC${s} due today`];
+  return ["later", `CC${s} not due yet`];
+}
+function ccMarks(a) {
+  if (!a.cc || a.status === "missed") return "";
+  const marks = [1, 2, 3].map((s) => ccState(a, s));
+  const made3 = a.cc[3] && a.cc[3].o !== "no-answer";
+  const rem = a.reminded && !made3 ? `<i class="ccp-rem" title="Day-before reminder text sent">${icon("msg")}</i>` : "";
+  const label = marks.map(([, why]) => why).join(". ") + (rem ? ". Reminder text sent" : "");
+  return `<span class="ccp" title="${esc(label)}" aria-label="${esc(label)}">${marks.map(([cls], i) => `<i class="s-${cls}">CC${i + 1}</i>`).join("")}${rem}</span>`;
+}
+
+/** How full a clinician's day is: visit time plus driving, against their working hours. null on a day off. */
+function dayLoad(c, d) {
+  const h = hoursFor(c, d), list = dayAppts(c.id, d);
+  if (!h) return list.length ? { pct: 100, n: list.length } : null;
+  const mins = list.reduce((t, a) => t + T(a.type).dur + (a.drive || 0), 0);
+  return { pct: Math.min(100, Math.round(mins / (h[1] - h[0]) * 100)), n: list.length };
+}
+const LIGHTS = [[85, "full", "Full"], [50, "some", "Some space"], [0, "low", "Needs filling"]];
+const lightOf = (pct) => LIGHTS.find(([min]) => pct >= min);
+/** The traffic lights along the top of the diary: each clinician's next two weeks at a glance. Tap a day to open it. */
+function statusStrip() {
+  const days = openAhead(0, 10), team = S.clinicians.filter((c) => c.active !== false);
+  if (!days.length || !team.length) return "";
+  const on = (d) => UI.view === "day" && UI.day === d;
+  // A small gap where a new week starts, so the two weeks read apart.
+  const wk = (d, i) => (i > 0 && weekStart(d) !== weekStart(days[i - 1]) ? " nw" : "");
+  const head = days.map((d, i) => { const x = calDay(d), [wd, dn] = x.label.split(" ");
+    return `<div class="dst-d${on(d) ? " on" : ""}${wk(d, i)}">${d === 0 ? "<b>Today</b>" : `${esc(wd)} <b>${esc(dn)}</b>`}</div>`; }).join("");
+  const rows = team.map((c) => `<div class="dst-name"><span class="avatar xs" style="background:${c.color}">${initials(c.name)}</span><span>${esc(c.first || c.name)}</span></div>` + days.map((d, i) => {
+    const L = dayLoad(c, d), x = calDay(d);
+    if (!L) return `<div class="dst-cell off${wk(d, i)}" title="${esc(c.first)}, ${esc(x.long)}: day off">–</div>`;
+    const [, cls, word] = lightOf(L.pct);
+    return `<button class="dst-cell ${cls}${on(d) ? " on" : ""}${wk(d, i)}" type="button" data-act="day" data-v="${d}" title="${esc(c.first)}, ${esc(x.long)}: ${word}. ${L.pct}% booked, ${L.n} visit${L.n === 1 ? "" : "s"}" aria-label="${esc(c.name)}, ${esc(x.long)}: ${word}, ${L.pct}% booked">${L.pct}%<i style="width:${L.pct}%"></i></button>`;
+  }).join("")).join("");
+  return `<div class="dstat" aria-label="How full each diary is">
+    <div class="dst-top"><div><b>Diary status</b><span>Next 2 weeks · tap a day to open it</span></div>
+      <div class="dst-key"><span><i class="dst-dot full"></i>Full</span><span><i class="dst-dot some"></i>Some space</span><span><i class="dst-dot low"></i>Needs filling</span></div></div>
+    <div class="dst-grid" style="grid-template-columns:88px repeat(${days.length},minmax(40px,1fr))"><div></div>${head}${rows}</div></div>`;
+}
+
 /** Clinicians on the diary: everyone working, plus anyone who has left but still has visits that day. */
 const onBoard = (day) => S.clinicians.filter((c) => c.active !== false || S.appts.some((a) => a.clinicianId === c.id && (a.day || 0) === day && active(a)));
 function board(nowM) {
@@ -700,20 +753,23 @@ function board(nowM) {
     const h = hoursFor(c, UI.day), shut = calDay(UI.day) && !calDay(UI.day).open;
     const off = !h ? `<div class="off-hours" style="top:0;height:${H}px"><span>${shut ? "Closed" : "Day off"}</span></div>`
       : (h[0] > DS ? `<div class="off-hours" style="top:0;height:${(h[0] - DS) * PX}px"></div>` : "") + (h[1] < DE ? `<div class="off-hours" style="top:${(h[1] - DS) * PX}px;height:${(DE - h[1]) * PX}px"></div>` : "");
-    const blocks = list.map((a) => {
+    const blocks = list.map((a, i) => {
       const p = pat(a.patientId), t = T(a.type), top = (a.start - DS) * PX, h = Math.max(t.dur * PX - 4, 36);
+      const prev = list[i - 1], room = prev ? (a.start - prev.start - T(prev.type).dur) * PX : Infinity; // space above for the drive label
       const cls = a.moved ? "moved" : a.bookedMin != null && a.status === "booked" ? "fresh" : a.status;
-      const drive = a.drive >= 10 ? `<div class="drive" style="top:${top - a.drive * PX + 3}px">${icon("car")}${a.drive} min</div>` : "";
+      const drive = a.drive >= 10 && room >= 16 ? `<div class="drive" style="top:${top - Math.min(a.drive * PX, room) + 3}px">${icon("car")}${a.drive} min</div>` : "";
+      const marks = ccMarks(a);
+      const twc = a.tw ? `<span class="twc ${twOk(a.tw, a.start) ? "" : "bad"}" title="Can be seen: ${esc(twText(a.tw))}${twOk(a.tw, a.start) ? "" : ". Booked outside this: plan the route or move the visit"}">${icon("clock")}${esc(twText(a.tw))}</span>` : "";
       const head = h < 52
-        ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="pn">${esc(p.name)}</span></span>`
-        : `<span class="tm">${hm(a.start)}–${hm(a.start + t.dur)}</span><span class="pn">${esc(p.name)}</span>`;
-      const extra = (h > 62 ? `<span class="ty">${t.name}</span>` : "")
+        ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="pn">${esc(p.name)}</span></span>${marks ? `<span class="ccline">${marks}</span>` : ""}`
+        : `<span class="tm">${hm(a.start)}–${hm(a.start + t.dur)}</span><span class="pn">${esc(p.name)}</span>${marks ? `<span class="ccline">${marks}</span>` : ""}`;
+      const extra = (h > 62 ? `<span class="ty">${t.name}</span>` : "") + twc
         + (h > 84 && a.moved ? `<span class="badge b-apricot" style="margin-top:4px">${icon("bolt")}Moved forward</span>` : "")
         + (h > 60 && !a.moved && a.bookedMin != null ? `<span class="badge b-forest" style="margin-top:4px">${icon("plus")}New booking</span>` : "")
         + (h > 84 && a.status === "enroute" ? `<span class="badge b-warn" style="margin-top:4px">${icon("car")}On the way</span>` : "")
         + (a.status === "missed" ? `<span class="badge b-plain" style="margin-top:4px">Not seen</span>` : "");
       const tc = countOf(a) < 1 && ["booked", "enroute"].includes(a.status) ? `<span class="tcount ${countOf(a) <= 0.25 ? "low" : ""}" title="True count ${fmtCount(countOf(a))}: may not be in">${fmtCount(countOf(a))}</span>` : "";
-      return `${drive}<button class="blk ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}${tc ? `, true count ${fmtCount(countOf(a))}` : ""}">${tc}${head}${extra}</button>`;
+      return `${drive}<button class="blk ${cls}${tc ? " has-tc" : ""}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}${tc ? `, true count ${fmtCount(countOf(a))}` : ""}">${tc}${head}${extra}</button>`;
     }).join("");
     const filled = new Set(list.map((a) => a.start));
     const gaps = S.appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === UI.day && a.status === "cancelled" && !filled.has(a.start)).map((a) => {
@@ -827,7 +883,7 @@ function todayTab(c) {
       <button class="v ${a.moved ? "moved" : a.status === "done" ? "done" : ""}" type="button" data-act="open-p" data-id="${p.id}" data-appt="${a.id}">
         <div class="tl"><span class="t">${hm(a.start)}</span><span class="ln"></span></div>
         <div class="card"><div class="row"><span class="type-chip">${t.name}</span>${st}</div>
-          <div class="pn">${esc(p.name)}</div>
+          <div class="pn">${esc(p.name)}${a.confirmed && ["booked", "enroute"].includes(a.status) ? ` <span class="badge b-ok" style="font-size:11px;vertical-align:2px">${icon("check")}Confirmed</span>` : ""}</div>
           <div class="ad">${icon("pin")}<span>${esc(p.addr)}, ${esc(p.pc)}</span></div>
           ${p.alerts.length && a.status !== "done" ? `<div class="ad" style="color:var(--warn)">${icon("users")}<span>${esc(p.alerts[0])}</span></div>` : ""}
           ${pvnChip(a) ? `<div class="ad">${pvnChip(a)}</div>` : ""}
@@ -1511,10 +1567,10 @@ function settingsPage() {
     body = facebookSection();
   } else {
     const m = UI.pg && UI.pg.msgs;
-    const u = S.textUsage || { texts: 0, parts: 0, pence: 0, pencePerPart: 5 };
+    const u = S.textUsage || { texts: 0 };
     body = !m ? `<p class="muted">Loading…</p>` : `<div class="pg-form">
-      <section class="card usage"><div class="usage-n"><b>${u.texts}</b><span>texts sent to patients</span></div><div class="usage-n"><b>${u.parts}</b><span>billed text parts</span></div><div class="usage-n"><b>£${(u.pence / 100).toFixed(2)}</b><span>at ${u.pencePerPart}p a part</span></div>
-        <p class="set-note" style="grid-column:1 / -1">A text is billed in 160-character parts, so most reminders and offers count as 2 parts. Texts to the clinicians' phones are free. In this demo the count covers everything sent since it started.</p></section>
+      <section class="card usage"><div class="usage-n"><b>${u.texts}</b><span>texts sent to patients</span></div><div class="usage-n"><b>1,500</b><span>included each month in your plan</span></div>
+        <p class="set-note" style="grid-column:1 / -1">Texts are part of your monthly fee, with no separate bill. Texts to the clinicians' phones don't count. The count covers everything sent since ${META.demo ? "this demo started" : "you started on Domi"}.</p></section>
       <section class="card"><div class="card-h"><h2>Texts</h2><p>Worded from your settings, exactly as patients get them. Change the practice name, hours or reminder time and these change too.</p></div>
         <div class="msgs">${m.messages.map((x) => `<article class="msg-p"><header><b>${esc(x.title)}</b><span class="muted">${esc(x.when)}</span></header><div class="bubble">${esc(x.body)}</div></article>`).join("")}</div></section>
       <section class="card"><div class="card-h"><h2>Email to every ad lead</h2><p>Sent the moment someone fills in the form on your Facebook ad. Replies go to ${esc(st.email || "your practice email")}.</p></div>
@@ -1876,14 +1932,15 @@ function routeDrawer(r) {
 }
 /** The proposed order: what it saves, who moves, and anything to check before applying. */
 function planView(p) {
-  if (!p.changed) return `<div class="callout" style="margin-bottom:14px">${icon("check")}<div><b>This is already a good order</b><div style="margin-top:2px">No other order saves ten minutes or more of driving, so nobody needs a new time.</div></div></div>`;
+  if (!p.changed) return p.warnings.length ? `<div class="callout warn" style="margin-bottom:14px">${icon("clock")}<div><b>A patient's time can't be kept on this day</b>${p.warnings.map((w) => `<div style="margin-top:4px">${esc(w)}</div>`).join("")}</div></div>`
+    : `<div class="callout" style="margin-bottom:14px">${icon("check")}<div><b>This is already a good order</b><div style="margin-top:2px">No other order saves ten minutes or more of driving, so nobody needs a new time.</div></div></div>`;
   return `<section class="plan-card">
-    <div class="plan-head"><div><div class="caps">Proposed order</div><b>${mins(p.savedMin)} less driving${p.savedMiles > 0 ? `, ${p.savedMiles} fewer miles` : ""}</b></div>
+    <div class="plan-head"><div><div class="caps">Proposed order</div><b>${p.fixes && !p.savedMin ? `Fits ${p.fixes} patient${p.fixes === 1 ? "'s" : "s'"} time${p.fixes === 1 ? "" : "s"}${p.extraMin ? `, ${mins(p.extraMin)} more driving` : ""}` : `${mins(p.savedMin)} less driving${p.savedMiles > 0 ? `, ${p.savedMiles} fewer miles` : ""}${p.fixes ? ` and fits ${p.fixes} patient${p.fixes === 1 ? "'s" : "s'"} time` : ""}`}</b></div>
       <div class="plan-tot"><span>Now <b>${mins(p.before.driveMin)}</b></span><span>Planned <b>${mins(p.after.driveMin)}</b></span></div></div>
     <ol class="plan-list">${p.fixed.map((f) => `<li class="fixed"><span class="mono">${hm(f.start)}</span><span>${esc(f.name)}</span><span class="muted">${f.status === "done" ? "Done" : "Under way"}: stays</span></li>`).join("")}
-      ${p.planned.map((x) => `<li class="${x.moved ? "moved" : ""}"><span class="mono">${hm(x.start)}</span><span>${esc(x.name)}</span><span class="muted">${x.moved ? `was ${hm(x.from)}` : "same time"}</span></li>`).join("")}</ol>
+      ${p.planned.map((x) => `<li class="${x.moved ? "moved" : ""}"><span class="mono">${hm(x.start)}</span><span>${esc(x.name)}</span><span class="muted">${x.moved ? `was ${hm(x.from)}` : "same time"}${x.tw ? ` · <span class="twc">${icon("clock")}${esc(x.tw)}</span>` : ""}</span></li>`).join("")}</ol>
     ${p.warnings.length ? `<div class="ir-m" style="margin:8px 0 0">${p.warnings.map((w) => `<span>${esc(w)}</span>`).join("")}</div>` : ""}
-    <p class="muted" style="font-size:12.5px;margin:10px 0 0">Mornings stay mornings and afternoons stay afternoons. Each patient whose time changes gets a text with the new time and can reply NO.</p>
+    <p class="muted" style="font-size:12.5px;margin:10px 0 0">Mornings stay mornings and afternoons stay afternoons, and each patient's own times are kept. Each patient whose time changes gets a text with the new time and can reply NO.</p>
     <div class="plan-actions"><button class="btn ghost sm" type="button" data-act="plan-cancel">Keep it as it is</button><button class="btn sm" type="button" data-act="plan-apply" data-c="${p.clinicianId}" data-d="${p.day}">${icon("check")}Apply and text ${p.changed} patient${p.changed === 1 ? "" : "s"}</button></div>
   </section>`;
 }
@@ -1974,6 +2031,7 @@ function apptDrawer(id) {
       ${isAdmin() && ["booked", "enroute"].includes(a.status) ? `<div class="likely">
         <div class="field"><label for="ap-src">How they came to us</label><select class="input" id="ap-src" data-id="${a.id}">${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}" ${k === a.source ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>
         <div class="field"><label for="ap-count">True count <span class="muted">(how likely they are to be in)</span></label><select class="input" id="ap-count" data-id="${a.id}">${(META.counts || [1, 0.5]).map((n) => `<option value="${n}" ${n === countOf(a) ? "selected" : ""}>${n}${n === ((META.sources || {})[a.source] || { count: 0.5 }).count ? " (usual for this source)" : ""}</option>`).join("")}</select></div></div>` : ""}
+      ${isAdmin() && a.status === "booked" ? twForm(a, p, c) : ""}
       ${tools}${record}
       ${canCancel ? `<div class="hr" style="margin:20px 0"></div>
         <div class="field"><label for="reason">Why is it cancelled?</label><select class="input" id="reason" data-keep>${META.reasons.map((r) => `<option>${r}</option>`).join("")}</select></div>
@@ -1982,6 +2040,23 @@ function apptDrawer(id) {
           <button class="btn ghost sm" style="margin-top:10px" type="button" data-act="patient-cancel" data-id="${p.id}">${icon("send")}Text CANCEL as ${esc(first(p.name))}</button></div></div>`
         : recordable ? "" : `<p class="muted" style="margin-top:20px">${a.status === "done" ? "This visit is complete." : a.status === "missed" ? "Nobody was in." : "The clinician is with this patient now."}</p>`}
     </div>`;
+}
+
+/** When can they be seen: recorded on this visit, or for every visit from now on. The planner, moving and booking keep to it. */
+function twForm(a, p, c) {
+  const k = a.tw ? a.tw.k : "any", at = a.tw && a.tw.at != null ? a.tw.at : 14 * 60;
+  const always = !!p.tw && a.tw && p.tw.k === a.tw.k && p.tw.at === a.tw.at;
+  const opts = [["any", "Any time"], ...Object.entries(META.tw || {})].map(([v, l]) => `<option value="${v}" ${v === k ? "selected" : ""}>${esc(l)}</option>`).join("");
+  const bad = a.tw && !twOk(a.tw, a.start);
+  return `<div class="twbox">
+    <div class="caps">When can they be seen?</div>
+    <div class="tw-row"><select class="input" id="tw-k" data-keep aria-label="When can they be seen">${opts}</select>
+      <input class="input mono" type="time" id="tw-at" data-keep step="300" min="07:00" max="20:00" value="${hm(at)}" aria-label="Time" ${["after", "before", "fixed"].includes(k) ? "" : "hidden"}></div>
+    <label class="chk"><input type="checkbox" id="tw-always" data-keep ${always ? "checked" : ""}> Always for ${esc(first(p.name))} (a carer, day centre or transport that doesn't change)</label>
+    ${bad ? `<div class="callout warn" style="margin:10px 0 0">${icon("clock")}<div><b>Booked at ${hm(a.start)}, outside this</b><div style="margin-top:2px">Plan ${esc(c.first)}'s route for ${a.day ? esc(dayName(a.day)) : "today"} and it'll be fitted in, or move the visit.</div>
+      <button class="btn secondary sm" style="margin-top:8px" type="button" data-act="route" data-c="${c.id}" data-d="${a.day || 0}">${icon("pin")}Plan ${esc(c.first)}'s route</button></div></div>` : ""}
+    <button class="btn secondary sm" style="margin-top:10px" type="button" data-act="save-tw" data-id="${a.id}">${icon("check")}Save</button>
+  </div>`;
 }
 
 /* The refill story. Built from the API response, then kept current by live events. */
@@ -2622,6 +2697,11 @@ document.addEventListener("click", async (e) => {
         await load(); toast("Their details have been erased"); break;
       }
       case "book-for": UI.book = { patientId: el.dataset.id }; openDrawer({ kind: "book" }); break;
+      case "save-tw": {
+        const k = $("#tw-k").value, at = $("#tw-at").value.split(":").map(Number);
+        const r = await api("PUT", `/api/appointments/${el.dataset.id}/availability`, { tw: k, at: at[0] * 60 + at[1], always: $("#tw-always").checked });
+        toast(`Saved: ${r.label}${r.outside.length ? `. ${r.outside.length === 1 ? "A visit is" : r.outside.length + " visits are"} booked outside it` : ""}`); await load(); redraw(); break;
+      }
       case "move": { const d = { kind: "move", id: el.dataset.id, data: null }; openDrawer(d); d.data = await api("POST", `/api/appointments/${el.dataset.id}/move-options`, {}); if (UI.drawer === d) redraw(); break; }
       case "move-to": {
         el.disabled = true;
@@ -2912,6 +2992,7 @@ document.addEventListener("pointermove", (e) => { if (tipEl && !tipEl.hidden) { 
 document.addEventListener("change", async (e) => {
   try {
     if (e.target.id === "wl-p") $("#wl-new").hidden = e.target.value !== "new";
+    if (e.target.id === "tw-k") $("#tw-at").hidden = !["after", "before", "fixed"].includes(e.target.value);
     if (e.target.classList.contains("pl-entry")) {
       const k = e.target.dataset.k;
       await api("PUT", "/api/pilot/week", { week: Number(e.target.dataset.week), [k]: e.target.value.trim() });

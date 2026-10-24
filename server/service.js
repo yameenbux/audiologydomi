@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 // Booking service: every change to the diary goes through here, inside a transaction, with an audit entry,
 // texts and live events that are released only once the transaction commits.
 const { db, map } = require("./db");
-const { SOURCES, COUNTS, TYPES, DEFAULT_DUR, PVN_NOTICE_MIN, REASONS, hm, first, district } = require("./domain");
+const { SOURCES, COUNTS, TYPES, DEFAULT_DUR, PVN_NOTICE_MIN, REASONS, hm, first, district, twAllows, twLabel, twParse } = require("./domain");
 const cal = require("./calendar");
 const { rankCandidates, parseReply, planOffer, suggestSlots, hoursOn } = require("./refill");
 const travel = require("./travel");
@@ -143,7 +143,7 @@ function checkNhsLine(p, type, day, early) {
 }
 /** The day-before reminder. Also shown on the Settings page, so the office sees exactly what patients get. */
 const reminderText = (name, clinFirst, day, start, type, link) =>
-  `Hi ${first(name)}, a reminder from ${practice()}: ${clinFirst} visits you ${when(day, start)} for your ${lowerName(TYPES[type].name)}. Can't make it? Reply CANCEL${link ? ` or cancel online at ${link}` : ""} and we'll offer the time to someone waiting.`;
+  `Hi ${first(name)}, a reminder from ${practice()}: ${clinFirst} visits you ${when(day, start)} for your ${lowerName(TYPES[type].name)}. Can't make it? Reply CANCEL${link ? ` or go to ${link}` : ""}.`;
 /** The text offering a cancelled visit to someone waiting. When the visit is close, the first YES wins. */
 const offerText = (name, visit, deadline, firstWins) => firstWins
   ? `Hi ${first(name)}, it's ${practice()}. A home visit has opened up ${visit}. The first person to reply YES gets it, replies close at ${deadline}. Reply NO to keep your place on the list.`
@@ -579,7 +579,7 @@ async function planRoute(cid, day) {
   if (!c) throw new HttpError(404, "No such clinician.");
   bookableDay(day);
   const visits = all("SELECT a.*, p.name, p.pc FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", c.id, day)
-    .map((r) => ({ id: r.id, name: r.name, pc: r.pc, dur: TYPES[r.type].dur, start: r.start_min, status: r.status, type: r.type }));
+    .map((r) => ({ id: r.id, name: r.name, pc: r.pc, dur: TYPES[r.type].dur, start: r.start_min, status: r.status, type: r.type, tw: r.tw ? { k: r.tw, at: r.tw_at } : null }));
   await travel.prepare([c.base, ...visits.map((v) => v.pc)]);
   const drive = (a, b) => (a === b ? 0 : travel.driveMinutes(a, b) || 15);
   const [dayStart, dayEnd] = hoursOn(c, day) || [settings().dayStart, settings().dayEnd];
@@ -601,7 +601,7 @@ async function applyRoute(cid, day, user) {
       run("UPDATE appointments SET start_min = ?, drive = ? WHERE id = ?", p.start, p.drive || 0, p.id);
       if (!p.moved) continue;
       const a = getAppt(p.id), pt = getPatient(a.patientId);
-      sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. To fit our round, your home visit ${cal.phrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit and we'll rearrange.` });
+      sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. Your home visit ${cal.phrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit.` });
     }
     sendSms({ to: "clinician", name: plan.clinician, kind: "diary-change", toClinicianId: plan.clinicianId, body: `Your route ${cal.phrase(day)} has been re-planned: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved, about ${plan.savedMin} min less driving. The new order is in the app.` });
     audit(user.name, "route.planned", `${plan.clinicianId}:${day}`, `${plan.clinician} ${cal.label(day)}: ${plan.changed} moved, ${plan.savedMin} min and ${plan.savedMiles} miles saved`);
@@ -768,7 +768,7 @@ function bookingPatient(input) {
 }
 
 /** Where a visit could go this week. `exclude`: a visit being moved, so its current time counts as free. */
-function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, max = cal.ahead("bookAheadDays"), pvnApproved = false } = {}) {
+function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, max = cal.ahead("bookAheadDays"), pvnApproved = false, tw } = {}) {
   if (!TYPES[type]) throw new HttpError(400, "Choose a visit type.");
   const clinicians = all("SELECT * FROM clinicians WHERE active = 1 ORDER BY id").map(map.clinician);
   const appts = all(`SELECT a.*, p.pc, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.id IS NOT ?`, exclude)
@@ -778,7 +778,10 @@ function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, 
   const f = TYPES[type].pvn && patient.id && !patient.early ? nhsFrom(patient) : null;
   if (f && f.day > from) from = f.day; // not before their recall line
   const days = cal.openDays(from, count, max);
-  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine", pvnApproved });
+  // Only times the patient can do: the visit's own restriction when it's being moved, otherwise the patient's standing one.
+  if (tw === undefined) tw = patient.id ? (getPatient(patient.id) || {}).tw || null : null;
+  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine", pvnApproved })
+    .filter((s) => twAllows(tw, s.start));
 }
 
 /**
@@ -845,6 +848,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
   run("INSERT INTO appointments (id, clinician_id, patient_id, type, day, start_min, drive, status, note, booked_min, source) VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?, ?)",
     id, c.id, p.id, type, day, start, slot.driveIn, note, sandbox.nowMin(), sourceFor(draft.id ? p.id : null, source || (by === "the patient online" ? "new" : null)));
   if (problem || early) run("UPDATE appointments SET pvn_icb = ?, pvn_early = ? WHERE id = ?", problem ? icb : null, early ? 1 : 0, id);
+  if (p.tw) run("UPDATE appointments SET tw = ?, tw_at = ? WHERE id = ?", p.tw.k, p.tw.at, id); // their standing restriction comes with them
   if (problem) audit(actor, "pcse.short-notice", id, `${p.name}: inside PCSE's ${problem.rule} notice, approved by ${icb} (ICB)`);
   // The visit after this one is now reached from the new patient's house.
   const after = one("SELECT id FROM appointments WHERE clinician_id = ? AND day = ? AND status != 'cancelled' AND start_min > ? ORDER BY start_min LIMIT 1", c.id, day, start);
@@ -854,7 +858,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
   run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
   addNote(p.id, `Booked by ${by} for ${cal.label(day)} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
-  sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${practice()} is booked ${when(day, start)} (${lowerName(t.name)}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
+  sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit from ${practice()} is booked ${when(day, start)} with ${c.first}. Reply CANCEL if you can't make it.` });
   sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit${by === "the office" ? "" : " (booked online)"}: ${p.name}, ${lowerName(t.name)}, ${cal.label(day)} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
   audit(actor, "appointment.book", id, `${p.name} ${cal.label(day)} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
   bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, day, start, extraDrive: slot.extraDrive, online: by !== "the office" });
@@ -1421,12 +1425,38 @@ function movable(id) {
   if (a.status !== "booked") throw new HttpError(409, "Only visits that haven't started can be moved.");
   return a;
 }
+/**
+ * Record when a patient can be seen for a visit (domain TW), and with `always`, for every visit from now on. Visits
+ * already booked outside it are flagged, not moved: the office re-plans the route or moves the visit.
+ */
+function setAvailability(id, input, user) {
+  return tx(() => {
+    const a = getAppt(String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    let tw;
+    try { tw = twParse(input.tw, input.at); } catch (e) { throw new HttpError(400, e.message); }
+    const p = getPatient(a.patientId);
+    run("UPDATE appointments SET tw = ?, tw_at = ? WHERE id = ?", tw ? tw.k : null, tw ? tw.at : null, a.id);
+    if (input.always === true) {
+      run("UPDATE patients SET tw = ?, tw_at = ? WHERE id = ?", tw ? tw.k : null, tw ? tw.at : null, p.id);
+      // Their other visits not yet started follow the standing arrangement too.
+      run("UPDATE appointments SET tw = ?, tw_at = ? WHERE patient_id = ? AND status = 'booked' AND id != ?", tw ? tw.k : null, tw ? tw.at : null, p.id, a.id);
+    }
+    const label = tw ? twLabel(tw) : "Any time";
+    addNote(p.id, `Can be seen: ${label}${input.always === true ? " (from now on)" : ` (for ${cal.label(a.day)})`}.`, user, { silent: true });
+    audit(user.name, "appointment.availability", a.id, `${p.name}: ${label}${input.always === true ? ", always" : ""}`);
+    const clash = all("SELECT * FROM appointments WHERE patient_id = ? AND status = 'booked'", p.id).map(map.appt).filter((x) => !twAllows(x.tw, x.start));
+    bus.emit({ type: "appointment.updated", clinicianId: a.clinicianId, appointmentId: a.id });
+    return { ok: true, label, outside: clash.map((x) => ({ id: x.id, day: x.day, dayLabel: cal.label(x.day), start: x.start, clinicianId: x.clinicianId })) };
+  });
+}
+
 /** Where this visit could go instead: the same search as booking, with its current time counted as free. */
 async function moveOptions(id, input) {
   const a = movable(id), p = getPatient(a.patientId);
   await warmRoutes({ patientId: p.id });
   const from = searchFrom(input);
-  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id, from, pvnApproved: !!icbOf(input) })
+  const slots = slotsFor(p, a.type, input.avail, { exclude: a.id, from, pvnApproved: !!icbOf(input), tw: a.tw })
     .filter((s) => !(s.clinicianId === a.clinicianId && s.day === a.day && s.start === a.start)).slice(0, 6);
   return { appointmentId: a.id, patient: { id: p.id, name: p.name, pc: p.pc }, type: a.type, from: { clinicianId: a.clinicianId, day: a.day, start: a.start }, searchFrom: from, fromLabel: cal.label(from), slots };
 }
@@ -1447,7 +1477,8 @@ async function moveAppointment(id, input, user) {
       if (!icb) throw new HttpError(409, `PCSE needs 48 hours' notice of a change to a notified NHS visit, before the old date too, and ${cal.label(a.day)} ${hm(a.start_min)} is too soon. Record the ICB's approval to move it.`);
       problem = problem || { rule: "48 hours" };
     }
-    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1, pvnApproved: !!icb }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
+    if (!twAllows(a.tw, start)) throw new HttpError(409, `${p.name} can only be seen "${twLabel(a.tw)}". Change their availability on the visit first if that's changed.`);
+    const slot = slotsFor(p, a.type, input.avail, { exclude: a.id, from: day, count: 1, pvnApproved: !!icb, tw: a.tw }).find((s) => s.clinicianId === c.id && s.day === day && s.start === start);
     if (!slot) throw new HttpError(409, "That time has just gone, or doesn't fit. Search again for the latest options.");
     const old = getClinician(a.clinicianId);
     run("UPDATE appointments SET clinician_id = ?, day = ?, start_min = ?, drive = ?, reminded = 0, seen = 0 WHERE id = ?", c.id, day, start, slot.driveIn, a.id);
@@ -1778,4 +1809,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

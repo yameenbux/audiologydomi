@@ -1134,3 +1134,58 @@ button.rm-row:hover { background: var(--subtle) }
 @media (max-width: 700px) { .pl-set thead { display: none } .pl-set tr { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line) } .pl-set td { border: 0; padding: 2px 0 } }
 .dl-t td { white-space: normal; vertical-align: top }
 .dl-t td:first-child { white-space: nowrap }
+
+/* Diary status along the top of the diary: each clinician's next two weeks, as soft heat cells */
+.dstat { margin: 0 18px 12px; padding: 10px 12px 12px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line) }
+.dst-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px }
+.dst-top b { font-size: 13px; color: var(--ink) } .dst-top > div > span { font-size: 12px; color: var(--muted); margin-left: 8px }
+.dst-key { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted) } .dst-key span { display: inline-flex; align-items: center; gap: 5px }
+.dst-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block }
+.dst-dot.full { background: #2F8A57 } .dst-dot.some { background: #D9952B } .dst-dot.low { background: #C9483C }
+.dst-grid { display: grid; column-gap: 3px; row-gap: 4px; align-items: center; overflow-x: auto }
+.dst-d { font-size: 10.5px; color: var(--muted); text-align: center; white-space: nowrap; padding-bottom: 2px }
+.dst-d b { color: var(--ink); font-weight: 600 } .dst-d.on b { color: var(--forest) }
+.dst-name { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden }
+.avatar.xs { width: 18px; height: 18px; font-size: 8.5px; flex: none }
+.dst-cell { position: relative; overflow: hidden; height: 24px; border: 0; border-radius: 6px; font: 600 10.5px/1 var(--f-ui, inherit); font-variant-numeric: tabular-nums; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: filter .12s, box-shadow .12s }
+.dst-cell i { position: absolute; left: 0; bottom: 0; height: 2px; opacity: .9 }
+.dst-cell:hover { filter: brightness(.96) } .dst-cell.on { box-shadow: 0 0 0 1.5px var(--forest) }
+.dst-cell.full { background: #E2F2E8; color: #1F6B3F } .dst-cell.full i { background: #2F8A57 }
+.dst-cell.some { background: #FBEFD9; color: #85560A } .dst-cell.some i { background: #D9952B }
+.dst-cell.low { background: #FAE3E0; color: #A3342A } .dst-cell.low i { background: #C9483C }
+.dst-cell.off { background: var(--subtle); color: var(--muted); cursor: default; font-weight: 500 }
+.dst-d.nw, .dst-cell.nw { margin-left: 6px }
+:root[data-theme="dark"] .dst-cell.full { background: rgba(47,138,87,.22); color: #8FD6AB }
+:root[data-theme="dark"] .dst-cell.some { background: rgba(217,149,43,.2); color: #F0C27A }
+:root[data-theme="dark"] .dst-cell.low { background: rgba(201,72,60,.22); color: #F2A097 }
+/* Confirmation-call markers: CC1, CC2, CC3 as one small segmented pill, and the reminder text */
+.ccline { display: flex; margin-top: 3px }
+.ccp { display: inline-flex; align-items: stretch; flex: none; border-radius: 5px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); background: var(--surface); vertical-align: middle }
+.ccp i { font: 700 9px/1 var(--f-ui, inherit); font-style: normal; letter-spacing: .02em; padding: 3px 4px; display: inline-flex; align-items: center; gap: 2px }
+.ccp i + i { box-shadow: -1px 0 0 var(--line) }
+.ccp .s-done { background: #E2F2E8; color: #1F6B3F }
+.ccp .s-texted { background: #E1ECF8; color: #24548A }
+.ccp .s-na { background: #FBEFD9; color: #85560A }
+.ccp .s-due { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink) }
+.ccp .s-later { background: var(--surface); color: var(--muted); opacity: .75 }
+.ccp .ccp-rem { background: var(--forest-soft); color: var(--forest); padding: 2px 4px } .ccp .ccp-rem .i { width: 10px; height: 10px }
+.ccp-key { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap } .ccp-key b { color: var(--ink); font-weight: 600; margin-right: 2px }
+.ccp-key .ccp { margin-left: 6px } .ccp-key .ccp:first-of-type { margin-left: 0 }
+:root[data-theme="dark"] .ccp .s-done { background: rgba(47,138,87,.25); color: #8FD6AB }
+:root[data-theme="dark"] .ccp .s-texted { background: rgba(47,111,179,.28); color: #9CC3F0 }
+:root[data-theme="dark"] .ccp .s-na { background: rgba(217,149,43,.22); color: #F0C27A }
+.blk.has-tc .row1 { padding-right: 30px }
+.blk .row1 + .ccline { margin-top: 2px }
+
+/* When a patient can be seen */
+.twc { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; color: var(--forest); background: var(--forest-soft); border-radius: 99px; padding: 1px 7px 1px 5px; margin-top: 4px; align-self: flex-start; white-space: nowrap }
+.twc .i { width: 11px; height: 11px }
+.twc.bad { color: #fff; background: #CC4B3F }
+.twbox { margin-top: 16px; padding: 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); background: var(--bg) }
+.tw-row { display: flex; gap: 8px; margin: 8px 0 }
+.tw-row select { flex: 1 } .tw-row input { width: 132px }
+.callout.warn { background: var(--warn-soft); color: var(--ink) } .callout.warn > svg { color: var(--warn) }
+/* A 30-minute visit with its call markers: two tight lines so the markers aren't clipped */
+.blk:has(> .row1 + .ccline) { padding-top: 4px; padding-bottom: 3px; gap: 0 }
+.blk:has(> .row1 + .ccline) .row1 { line-height: 1.15 }
+.blk:has(> .row1 + .ccline) .ccp i { padding-top: 2px; padding-bottom: 2px }

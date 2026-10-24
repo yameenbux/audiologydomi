@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS patients (
   premises TEXT,                                  -- where they're seen: home, residential, nursing, day (centre), sheltered; NULL = home
   venue TEXT,                                     -- the care home or day centre's name, so residents seen together are one visit
   venue_contact TEXT,                             -- who to ask for at the premises (PCSE's form asks for it)
-  erased INTEGER NOT NULL DEFAULT 0               -- personal details removed on request (the visit history stays, anonymised)
+  erased INTEGER NOT NULL DEFAULT 0,              -- personal details removed on request (the visit history stays, anonymised)
+  tw TEXT, tw_at INTEGER                          -- a standing restriction on when they can be seen, copied onto new bookings
 );
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id TEXT NOT NULL REFERENCES patients(id), label TEXT NOT NULL,
@@ -93,7 +94,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   pvn_icb TEXT,                                    -- an NHS sight test inside PCSE's notice period: who at the ICB approved it
   pvn_early INTEGER NOT NULL DEFAULT 0,            -- booked as an early retest (before the recall line): the PVN needs a reason code
   ert TEXT,                                        -- that early retest code (PCSE's list: 1, 2, 3.1-3.3, 4.1, 4.2, 5.1-5.3, 6)
-  cancel_token TEXT UNIQUE                         -- secret for the family cancellation link (/cancel/<practice>/<token>)
+  cancel_token TEXT UNIQUE,                        -- secret for the family cancellation link (/cancel/<practice>/<token>)
+  tw TEXT, tw_at INTEGER                           -- when the patient can be seen for this visit (domain TW); NULL = any time
 );
 CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY, number TEXT NOT NULL UNIQUE, appointment_id TEXT UNIQUE REFERENCES appointments(id),
@@ -195,6 +197,10 @@ const ADDED_COLUMNS = [
   ["leads", "addr", "TEXT"],
   ["leads", "dob", "TEXT"],
   ["leads", "pc_from", "TEXT"],
+  ["appointments", "tw", "TEXT"],
+  ["appointments", "tw_at", "BIGINT"],
+  ["patients", "tw", "TEXT"],
+  ["patients", "tw_at", "BIGINT"],
 ];
 const TABLES = ["audit", "emails", "leads", "pcse", "referrals", "messages", "offers", "notes", "invoices", "confirmations", "diary_log", "appointments", "recalls", "waitlist", "invites", "users", "patients", "clinicians"];
 
@@ -390,6 +396,18 @@ function seed(db, brand) {
   });
   // NHS numbers for the sample patients (valid check digits, from the range set aside for testing: 999 000 0000+).
   db.prepare("SELECT id FROM patients ORDER BY rowid").all().forEach((r, i) => { const n = testNhsNumber(i); if (n) db.prepare("UPDATE patients SET nhs_no = ? WHERE id = ?").run(n, r.id); });
+  // Confirmation calls already made before the demo starts, so the diary's CC markers show a realistic mix: today's
+  // visits had all three; tomorrow's have CC1 and CC2, and half their CC3; this week's mostly CC1, some CC2, a few
+  // unanswered; later ones only some CC1. What's left is the Calls list's work for today.
+  const STAFF = ["Sarah Lane", "Sarah Lane", "Mo Patel"];
+  const cc = (id, stage, outcome, at) => ins("confirmations", { appointment_id: id, stage, outcome, by_name: STAFF[(stage + id.length) % 3], at });
+  db.prepare("SELECT a.id, a.day, p.contact FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.day BETWEEN 0 AND 21 ORDER BY a.day, a.id").all().forEach((a, i) => {
+    const how = a.contact !== "Call" && i % 5 === 0 ? "texted" : "done";
+    if (a.day === 0) { cc(a.id, 1, how, "Earlier"); cc(a.id, 2, "done", "Last week"); cc(a.id, 3, "done", "Yesterday"); return; }
+    if (a.day === 1) { cc(a.id, 1, how, "Earlier"); cc(a.id, 2, "done", "Last week"); if (i % 2) cc(a.id, 3, "done", "Today 09:20"); return; }
+    if (a.day <= 7) { cc(a.id, 1, how, "Earlier"); if (i % 3 === 0) cc(a.id, 2, "done", "Yesterday"); else if (i % 3 === 1) cc(a.id, 2, "no-answer", "Yesterday"); return; }
+    if (i % 3) cc(a.id, 1, how, "Earlier");
+  });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
@@ -407,8 +425,8 @@ const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { retu
 const map = {
   clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0, office: r.role === "admin" || !!r.office }),
-  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, nhsNo: r.nhs_no || null, premises: r.premises || "home", venue: r.venue || null, venueContact: r.venue_contact || null, erased: !!r.erased }),
-  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, pvnIcb: r.pvn_icb || null, ert: r.ert || null, pvnEarly: !!r.pvn_early, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count) }),
+  patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, nhsNo: r.nhs_no || null, premises: r.premises || "home", venue: r.venue || null, venueContact: r.venue_contact || null, erased: !!r.erased , tw: r.tw ? { k: r.tw, at: r.tw_at } : null }),
+  appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, pvnIcb: r.pvn_icb || null, ert: r.ert || null, pvnEarly: !!r.pvn_early, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count), tw: r.tw ? { k: r.tw, at: r.tw_at } : null }),
   wait: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, prio: r.prio, days: r.days, avail: r.avail, shortNotice: !!r.short_notice, prefClinicianId: r.pref_clinician_id, status: r.status, source: r.source || "list", note: r.note || null }),
   invoice: (r) => ({ id: r.id, number: r.number, appointmentId: r.appointment_id, patientId: r.patient_id, items: J(r.items, []), totalPence: r.total_pence, status: r.status, method: r.method, issuedAt: r.issued_at, issuedDay: r.issued_day, paidAt: r.paid_at }),
   recall: (r) => ({ id: r.id, patientId: r.patient_id, type: r.type, reason: r.reason, dueDay: r.due_day, status: r.status, waitlistId: r.waitlist_id, textedAt: r.texted_at }),

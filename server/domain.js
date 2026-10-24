@@ -57,6 +57,24 @@ const PRIO = {
 
 const AVAIL = { any: "Home all day", am: "Mornings only", pm: "Afternoons only" };
 
+// When a patient can be seen, as the office records it on a visit (and, for a standing arrangement, on the patient):
+// a day centre in the mornings, a carer only after two, a hospital transport at 11. The route planner, moving a
+// visit and booking all keep to it. `at` is minutes from midnight.
+const TW = { am: "Mornings only", pm: "Afternoons only", after: "Not before", before: "No later than", fixed: "Only at" };
+const NOON = 12 * 60;
+const twLabel = (tw) => (!tw || !TW[tw.k] ? "" : tw.k === "am" || tw.k === "pm" ? TW[tw.k] : `${TW[tw.k]} ${hm(tw.at)}`);
+const twAllows = (tw, start) => !tw || !TW[tw.k] ? true
+  : tw.k === "am" ? start < NOON : tw.k === "pm" ? start >= NOON : tw.k === "after" ? start >= tw.at : tw.k === "before" ? start <= tw.at : start === tw.at;
+/** A restriction from user input: null for "any time"; throws a message for anything else that doesn't make sense. */
+function twParse(k, at) {
+  if (!k || k === "any") return null;
+  if (!TW[k]) throw new Error("Choose when the patient can be seen.");
+  if (k === "am" || k === "pm") return { k, at: null };
+  const n = Number(at);
+  if (!Number.isInteger(n) || n % 5 || n < 7 * 60 || n > 20 * 60) throw new Error("Choose a time between 07:00 and 20:00, on the 5 minutes.");
+  return { k, at: n };
+}
+
 const REASONS = ["Patient unwell", "Admitted to hospital", "Patient asked to rebook", "Carer or family can't be present"];
 
 // Dates, weekends and bank holidays: server/calendar.js. Clinicians' hours are set per weekday, Monday to Friday.
@@ -66,4 +84,4 @@ const hm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m %
 const district = (pc) => String(pc).trim().split(" ")[0].toUpperCase();
 const first = (n) => String(n).split(" ")[0];
 
-module.exports = { SOURCES, COUNTS, trueCount, DEFAULT_DUR, DAY_START, DAY_END, WORK_WEEKDAYS, TYPES, PVN_NOTICE_MIN, canDo, PRIO, AVAIL, REASONS, hm, district, first };
+module.exports = { TW, twLabel, twAllows, twParse, SOURCES, COUNTS, trueCount, DEFAULT_DUR, DAY_START, DAY_END, WORK_WEEKDAYS, TYPES, PVN_NOTICE_MIN, canDo, PRIO, AVAIL, REASONS, hm, district, first };
