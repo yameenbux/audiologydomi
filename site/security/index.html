@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security and your data · Domi</title>
+<meta name="description" content="Where Domi keeps your patients' data, who can see it, how it's backed up, which companies process it, and how you get it all back if you leave.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0C1412">
+<!--ICONS-->
+<link rel="stylesheet" href="/page.css">
+<!--SOCIAL-->
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"%%SITE_URL%%/"},{"@type":"ListItem","position":2,"name":"Security and your data","item":"%%SITE_URL%%/security/"}]}</script>
+<!--ANALYTICS-->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+  <nav class="top" aria-label="Main"><a class="brand" href="/"><img src="/logo.svg" alt="" width="40" height="40">Domi</a><a class="btn btn-line" href="/#contact">Contact us</a></nav>
+</div>
+<main id="main" class="wrap doc">
+  <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li><span aria-current="page">Security and your data</span></li></ol></nav>
+  <h1>Security and your data</h1>
+  <p class="updated">Last updated 24 October 2026.</p>
+  <p class="summary">In short: your practice's data stays in London, every user signs in with a password and a code from their phone, every view and change is logged, backups run daily and are tested, and if you leave you get everything back.</p>
+
+  <h2>Where your data is kept</h2>
+  <ul>
+    <li>The Domi server runs in a London data centre, and your practice's database is held in London too.</li>
+    <li>Data is encrypted when it is sent and when it is stored.</li>
+    <li>Each practice's data is kept separate from every other practice's. The database can't be reached from outside Domi's own server.</li>
+    <li>The live demo is a separate system that holds invented patients only.</li>
+  </ul>
+
+  <h2>Who can see it</h2>
+  <ul>
+    <li><strong>Everyone has their own account.</strong> Passwords are at least 12 characters and checked against lists of common passwords.</li>
+    <li><strong>Two-step sign-in for every user.</strong> A code from an authenticator app at every sign-in. Accounts lock after repeated wrong attempts.</li>
+    <li><strong>People see what their job needs.</strong> Clinicians see their own round and the patients in their area; office staff see the practice; only the office sees sales totals.</li>
+    <li><strong>Sessions end on their own.</strong> After 2 hours without use, and after 12 hours at most. The office can see every signed-in device and sign anyone out everywhere.</li>
+    <li><strong>A lost phone is wiped by signing it out.</strong> The clinician app keeps the day's round on the phone so it works without signal, and deletes it on sign-out.</li>
+  </ul>
+
+  <h2>What's recorded</h2>
+  <p>Every record viewed and every change made is written to an audit log: who, what and when. Patient details are kept out of the system's technical logs.</p>
+
+  <h2>Backups and monitoring</h2>
+  <ul>
+    <li>The database is backed up every day, and each backup is kept for 7 days.</li>
+    <li>We test that backups can be restored. The most recent test was on 18 October 2026.</li>
+    <li>The system and its database are checked every 5 minutes, with an alert to us if either stops answering.</li>
+  </ul>
+
+  <h2>If something goes wrong</h2>
+  <p>If there is ever a personal data breach affecting your practice, we tell you without undue delay and within 24 hours of becoming aware of it, with what we know, and keep you updated. That's in the data processing agreement, and leaves you well inside the 72 hours you have to report a breach to the ICO.</p>
+
+  <h2>The paperwork</h2>
+  <ul>
+    <li>Before any real patient is added, we sign a data processing agreement with you. Your practice is the controller of its patients' data; we process it only on your instructions.</li>
+    <li>We complete a data protection impact assessment with you, and help with your NHS Data Security and Protection Toolkit.</li>
+    <li>Ask us for a copy of the data processing agreement before you decide. It's the same one every practice signs.</li>
+  </ul>
+
+  <h2>Companies that process data for us</h2>
+  <p>These are the only companies that handle your patients' data, and what each one sees. We give you 30 days' written notice before adding or changing one, and you can object.</p>
+  <table class="table">
+    <thead><tr><th>Company</th><th>What it does</th><th>What it sees</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>Supabase</td><td>The database</td><td>Your practice's data</td><td>London</td></tr>
+      <tr><td>Fly.io</td><td>Runs the Domi server</td><td>Your practice's data, while it's being used</td><td>London</td></tr>
+      <tr><td>Twilio</td><td>Sends and receives texts, only if you switch texts on</td><td>Patient's name, mobile number and the message</td><td>EU and US</td></tr>
+      <tr><td>Resend</td><td>Sends email: staff invitations and password resets, thank-you emails to enquiries</td><td>The recipient's name and email address, and the message</td><td>EU (Ireland)</td></tr>
+      <tr><td>openrouteservice (HeiGIT, Heidelberg)</td><td>Works out driving times between postcodes</td><td>Map points for postcode centres only: never names, addresses or house numbers</td><td>Germany</td></tr>
+      <tr><td>postcodes.io</td><td>Finds where a postcode is</td><td>Postcodes only</td><td>UK</td></tr>
+    </tbody>
+  </table>
+  <p>Supabase, Fly.io, Twilio and Resend are US companies. Where data leaves the UK, it's protected by the safeguards in each company's data processing terms, such as the UK International Data Transfer Addendum.</p>
+
+  <h2>If you leave</h2>
+  <ul>
+    <li>When a subscription ends, for any reason, you get a full export of your practice's data within 14 days.</li>
+    <li>We then delete it, including from backups, within 30 days, and confirm the deletion to you in writing.</li>
+    <li>Any time before that, the office can export or erase a single patient's record from Domi, and download its reports, visits, sales and invoices as spreadsheets.</li>
+  </ul>
+  <p>These are commitments in the data processing agreement, so they apply whether you leave or Domi stops.</p>
+
+  <h2>What we're still working on</h2>
+  <p>Domi is new and made by a small company, so here is where we stand. We are working towards Cyber Essentials certification and an entry on the NHS Data Security and Protection Toolkit, and will list both here once they are in place. Until then, the measures above are written into every practice's data processing agreement, and we'll answer any security questionnaire you send us.</p>
+
+  <h2>Reporting a security problem</h2>
+  <p>If you think you've found a security problem in Domi, email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. Please don't test it on a practice's live system or on real patients' data.</p>
+
+  <div class="actions"><a class="btn btn-main" href="/#contact">Ask us a question</a><a class="btn btn-line" href="/privacy/">Privacy policy</a></div>
+</main>
+<footer><div class="wrap"><p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p><p><a href="/security/">Security</a> · <a href="/privacy/">Privacy policy</a> · <a href="/terms/">Terms and conditions</a> · <a href="/#contact">Contact</a></p></div></footer>
+</body>
+</html>
