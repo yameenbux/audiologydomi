@@ -72,8 +72,9 @@ const anchor = (v) => (v.tw && v.tw.at != null ? v.tw.at : v.start);
 function halfOf(v) {
   const k = v.tw && v.tw.k;
   if (k === "am" || k === "pm") return k;
-  if ((k === "after" || k === "fixed") && v.tw.at >= NOON) return "pm";
+  if ((k === "after" || k === "fixed" || k === "between") && v.tw.at >= NOON) return "pm";
   if ((k === "before" || k === "fixed") && v.tw.at < NOON) return "am";
+  if (k === "between" && v.tw.to < NOON) return "am";
   return v.start < NOON ? "am" : "pm";
 }
 
@@ -112,7 +113,7 @@ function planDay({ base, visits, drive, miles = () => 0, now = null, dayStart = 
       const reach = at === base && !lastFixed && t === dayStart ? dayStart : t + d;
       let start = ROUND5(Math.max(reach, half === "pm" ? NOON : dayStart, slots[i] == null ? 0 : slots[i]));
       if (now != null) start = Math.max(start, ROUND5(now + NOTICE));
-      if (v.tw && (v.tw.k === "after" || v.tw.k === "fixed")) start = Math.max(start, v.tw.at);
+      if (v.tw && (v.tw.k === "after" || v.tw.k === "fixed" || v.tw.k === "between")) start = Math.max(start, v.tw.at);
       if (!twAllows(v.tw, start)) ok = false;
       rows.push({ v, start, drive: d });
       t = start + v.dur; at = v.pc;
@@ -160,4 +161,43 @@ function planDay({ base, visits, drive, miles = () => 0, now = null, dayStart = 
   };
 }
 
-module.exports = { planDay, bestOrder };
+/**
+ * The office's own order for a clinician's day: the visits not yet started go in `order` (their ids), each
+ * taking the day's time slots in turn, later only when the clinician can't get there by then or the patient can't
+ * be seen until later. Same shape as planDay, so the same screen shows it and the same code applies it.
+ */
+function orderDay({ base, visits, order, drive, miles = () => 0, now = null, dayStart = DAY_START, dayEnd = DAY_END }) {
+  const byTime = visits.slice().sort((a, b) => a.start - b.start);
+  const fixed = byTime.filter((v) => v.status !== "booked"), free = byTime.filter((v) => v.status === "booked");
+  const seq = order.map((id) => free.find((v) => v.id === id));
+  if (seq.some((v) => !v) || seq.length !== free.length) throw new Error("The order must list every visit that hasn't started, once.");
+  const slots = free.map((v) => v.start).sort((a, b) => a - b), lastFixed = fixed[fixed.length - 1];
+  let at = lastFixed ? lastFixed.pc : base, t = lastFixed ? lastFixed.start + lastFixed.dur : dayStart;
+  if (now != null) t = Math.max(t, now + NOTICE);
+  const planned = [], warnings = [];
+  const end = `${String(Math.floor(dayEnd / 60)).padStart(2, "0")}:${String(dayEnd % 60).padStart(2, "0")}`;
+  seq.forEach((v, i) => {
+    const d = drive(at, v.pc);
+    const reach = at === base && !lastFixed && t === dayStart ? dayStart : t + d;
+    let start = ROUND5(Math.max(reach, dayStart, slots[i]));
+    if (now != null) start = Math.max(start, ROUND5(now + NOTICE));
+    if (v.tw && (v.tw.k === "after" || v.tw.k === "fixed" || v.tw.k === "between")) start = Math.max(start, v.tw.at);
+    if (!twAllows(v.tw, start)) warnings.push(`${v.name} can only be seen "${twLabel(v.tw)}"`);
+    if (start + v.dur > dayEnd) warnings.push(`${v.name} would finish after ${end}`);
+    planned.push({ id: v.id, name: v.name, pc: v.pc, dur: v.dur, from: v.start, start, drive: d, moved: start !== v.start, tw: v.tw ? twLabel(v.tw) : null });
+    t = start + v.dur; at = v.pc;
+  });
+  const totals = (list) => {
+    const stops = fixed.concat(list);
+    let mins = 0, dist = 0, a = base;
+    for (const v of stops) { mins += drive(a, v.pc); dist += miles(a, v.pc); a = v.pc; }
+    if (stops.length) { mins += drive(a, base); dist += miles(a, base); }
+    return { driveMin: mins, miles: Math.round(dist * 10) / 10 };
+  };
+  const before = totals(free), after = totals(seq);
+  return { fixed: fixed.map((v) => ({ id: v.id, name: v.name, start: v.start, status: v.status })), planned, before, after,
+    savedMin: Math.max(0, before.driveMin - after.driveMin), extraMin: Math.max(0, after.driveMin - before.driveMin), savedMiles: Math.round((before.miles - after.miles) * 10) / 10,
+    changed: planned.filter((x) => x.moved).length, warnings, fixes: 0, manual: true };
+}
+
+module.exports = { planDay, orderDay, bestOrder };

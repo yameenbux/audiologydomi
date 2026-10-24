@@ -62,8 +62,10 @@ const AVAIL = { any: "Home all day", am: "Mornings only", pm: "Afternoons only" 
 // visit and booking all keep to it. `at` is minutes from midnight.
 const TW = { am: "Mornings only", pm: "Afternoons only", after: "Not before", before: "No later than", fixed: "Only at" };
 const NOON = 12 * 60;
-const twLabel = (tw) => (!tw || !TW[tw.k] ? "" : tw.k === "am" || tw.k === "pm" ? TW[tw.k] : `${TW[tw.k]} ${hm(tw.at)}`);
-const twAllows = (tw, start) => !tw || !TW[tw.k] ? true
+// "between" isn't offered to the office: it's the arrival window a patient has already been given (CC2), which an
+// automatic re-plan keeps to.
+const twLabel = (tw) => (!tw ? "" : tw.k === "between" ? `Told ${hm(tw.at)}–${hm(tw.to)}` : !TW[tw.k] ? "" : tw.k === "am" || tw.k === "pm" ? TW[tw.k] : `${TW[tw.k]} ${hm(tw.at)}`);
+const twAllows = (tw, start) => !tw ? true : tw.k === "between" ? start >= tw.at && start <= tw.to : !TW[tw.k] ? true
   : tw.k === "am" ? start < NOON : tw.k === "pm" ? start >= NOON : tw.k === "after" ? start >= tw.at : tw.k === "before" ? start <= tw.at : start === tw.at;
 /** A restriction from user input: null for "any time"; throws a message for anything else that doesn't make sense. */
 function twParse(k, at) {

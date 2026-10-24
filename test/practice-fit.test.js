@@ -515,3 +515,39 @@ test("reports: any period, with visits, sales by clinician, mileage and the reas
   assert.strictEqual((await call("GET", "/api/reports?period=custom&from=2026-10-09&to=2026-10-01", o.token)).status, 400);
   assert.strictEqual((await call("GET", "/api/reports?period=week", amira.token)).status, 403, "office only");
 });
+
+test("route modes: add to the end puts today's bookings after the last visit; text and re-plan texts the waiting list", async () => {
+  const o = await office();
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { routeMode: "sideways" })).status, 400);
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { routeMode: "end" })).status, 200);
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const s = (await call("POST", "/api/slots", o.token, { patientId: "p9", type: "repair", avail: "any" })).data.slots;
+  const soon = s.filter((x) => x.day <= 1);
+  assert.ok(soon.length, "some last-minute options");
+  for (const x of soon) {
+    const last = Math.max(...st.appts.filter((a) => a.clinicianId === x.clinicianId && a.day === x.day && a.status !== "cancelled").map((a) => a.start));
+    assert.ok(x.start > last, `${x.clinicianId} ${x.start} after ${last}`); assert.ok(x.why.some((w) => /End of the round/.test(w)));
+  }
+  // Text and re-plan switches a phone-first practice to texting the waiting list.
+  await call("PUT", "/api/settings", o.token, { mode: "phone" });
+  assert.strictEqual((await call("PUT", "/api/settings", o.token, { routeMode: "replan" })).status, 200);
+  const set = (await call("GET", "/api/state", o.token)).data.settings;
+  assert.strictEqual(set.routeMode, "replan"); assert.strictEqual(set.mode, "offer");
+});
+
+test("changing the order of a round by hand: previewed first, then applied with texts to the patients moved", async () => {
+  const o = await office();
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const mine = st.appts.filter((a) => a.clinicianId === "c1" && a.day === 2 && a.status === "booked").sort((a, b) => a.start - b.start);
+  const ids = mine.map((a) => a.id).reverse();
+  assert.strictEqual((await call("POST", "/api/route/order", o.token, { clinicianId: "c1", day: 2, ids: ids.slice(1) })).status, 400);
+  const prev = (await call("POST", "/api/route/order", o.token, { clinicianId: "c1", day: 2, ids })).data;
+  assert.deepStrictEqual(prev.planned.map((x) => x.id), ids); assert.ok(prev.manual && prev.changed > 0);
+  const before = (await call("GET", "/api/state", o.token)).data.messages.length;
+  const done = (await call("POST", "/api/route/order", o.token, { clinicianId: "c1", day: 2, ids, apply: true })).data;
+  assert.strictEqual(done.applied, true);
+  const after = (await call("GET", "/api/state", o.token)).data;
+  const order = after.appts.filter((a) => a.clinicianId === "c1" && a.day === 2 && a.status === "booked").sort((a, b) => a.start - b.start).map((a) => a.id);
+  assert.deepStrictEqual(order, ids, "the diary follows the office's order");
+  assert.ok(after.messages.length > before, "patients whose time changed are texted");
+});
