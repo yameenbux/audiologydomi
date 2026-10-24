@@ -498,3 +498,20 @@ test("sales at the visit: recorded when the clinician completes it, seen by the 
   assert.strictEqual((await call("PUT", "/api/appointments/a3/sale", o.token, { sold: false, reason: "Price" })).status, 409);
   assert.strictEqual((await call("PUT", "/api/appointments/a2/sale", amira.token, { sold: false, reason: "Price" })).status, 403);
 });
+
+test("reports: any period, with visits, sales by clinician, mileage and the reasons nothing was sold", async () => {
+  const o = await office();
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true, frames: "120", lenses: "80" } });
+  const r = (await call("GET", "/api/reports?period=today", o.token)).data;
+  assert.strictEqual(r.period.key, "today"); assert.strictEqual(r.period.from, 0);
+  assert.ok(r.summary.visitsDone >= 4, "a1, b1, d1 and a2 are done");
+  assert.strictEqual(r.finance.salesPence, 20000); assert.strictEqual(r.summary.sales, 1);
+  const am = r.byClinician.find((x) => x.clinicianId === "c1");
+  assert.strictEqual(am.salesPence, 20000); assert.strictEqual(am.sales, 1);
+  assert.ok(r.mileage.clinicians.length >= 3 && r.mileage.clinicians.every((c) => c.miles >= 0));
+  assert.ok(r.days.length === 1 && r.days[0].salesPence === 20000);
+  assert.strictEqual((await call("GET", "/api/reports?period=custom&from=2026-10-20&to=2026-10-25", o.token)).status, 400, "not past today");
+  assert.strictEqual((await call("GET", "/api/reports?period=custom&from=2026-10-09&to=2026-10-01", o.token)).status, 400);
+  assert.strictEqual((await call("GET", "/api/reports?period=week", amira.token)).status, 403, "office only");
+});

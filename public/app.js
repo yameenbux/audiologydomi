@@ -1004,7 +1004,7 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
-  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase"].includes(page)) return { page };
+  if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase", "reports"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
   return { page: "today" };
@@ -1044,6 +1044,9 @@ async function syncPage() {
   } else if (r.page === "pvn") {
     const keep = UI.pg && UI.pg.kind === "pvn" ? UI.pg.tab : null;
     UI.pg = { kind: "pvn", tab: keep, data: await api("GET", "/api/pvn").catch(() => (UI.pg && UI.pg.data) || null) };
+  } else if (r.page === "reports") {
+    const keep = UI.pg && UI.pg.kind === "reports" ? UI.pg : { kind: "reports", period: "week", from: "", to: "" };
+    UI.pg = keep; loadReports();
   } else if (r.page === "invoices") {
     UI.pg = { kind: "invoices", data: await api("GET", "/api/invoices").catch(() => null) };
   } else if (r.page === "import") {
@@ -1076,7 +1079,7 @@ const rerender = (d) => (UI.drawer && UI.drawer === d ? renderDrawer() : render(
 
 function officeShell() {
   const p = UI.route.page;
-  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "pilot" ? pilotPage() : p === "opticabase" ? opticabasePage() : p === "team" || p === "person" ? teamPage() : officeView();
+  const body = p === "patients" ? patientsPage() : p === "patient" ? patientPage() : p === "newpatient" ? newPatientPage() : p === "settings" ? settingsPage() : p === "leads" ? leadsPage() : p === "coming-soon" ? comingSoonPage() : p === "routes" ? toolPage("plans") : p === "mileage" ? toolPage("report") : p === "invoices" ? toolPage("invoices") : p === "import" ? toolPage("import") : p === "lead" ? leadPage() : p === "calls" ? callsPage() : p === "pvn" ? pvnPage() : p === "pilot" ? pilotPage() : p === "opticabase" ? opticabasePage() : p === "reports" ? reportsPage() : p === "team" || p === "person" ? teamPage() : officeView();
   return `<div class="app-shell">${sideNav()}<div class="app-main">${body}</div></div>`;
 }
 function sideNav() {
@@ -1087,7 +1090,7 @@ function sideNav() {
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
     <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("opticabase", "copy", "Copy to Opticabase", S.diaryTodo || 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
-    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
+    <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("reports", "note", "Reports")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
 }
@@ -1120,6 +1123,94 @@ function opticabasePage() {
       ${tab === "todo" && list.length > 1 ? `<div class="form-f" style="padding:12px 0 0"><button class="btn" type="button" data-act="diary-copied-all">${icon("check")}Mark all ${list.length} as done</button></div>` : ""}</section>`
       : `<div class="empty"><b>${tab === "todo" ? "Opticabase is up to date" : "Nothing copied yet"}</b>${tab === "todo" ? "New bookings, moves and cancellations appear here as they happen." : "Changes you tick off appear here."}</div>`}
   </div>`;
+}
+
+/* ---------- Reports: any period, for the office ---------- */
+const REPORT_PERIODS = [["today", "Today"], ["week", "This week"], ["lastweek", "Last week"], ["month", "This month"], ["last30", "Last 30 days"], ["custom", "Choose dates"]];
+async function loadReports() {
+  const g = UI.pg; if (!g || g.kind !== "reports") return;
+  if (g.period === "custom" && !(g.from && g.to)) { render(); return; }
+  g.loading = true; render();
+  const q = `period=${g.period}` + (g.period === "custom" ? `&from=${g.from}&to=${g.to}` : "");
+  try { g.data = await api("GET", "/api/reports?" + q); g.error = null; } catch (e) { g.error = e.message; }
+  g.loading = false; if (UI.pg === g) render();
+}
+const pct = (n) => (n == null ? "–" : n + "%");
+function reportsCsv(d) {
+  const q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`, rows = [];
+  const add = (title, head, body) => { rows.push([title], head, ...body, []); };
+  const gbp = (p) => (p == null ? "" : (p / 100).toFixed(2));
+  add(`${S.settings.practice}: report for ${d.period.label} (${d.period.fromIso} to ${d.period.toIso})`, ["Measure", "Value"], [
+    ["Visits done", d.summary.visitsDone], ["Patients seen", d.summary.patientsSeen], ["Nobody in", d.summary.missed], ["Cancelled", d.summary.cancelled], ["Cancelled slots refilled", d.summary.refilled],
+    ["Glasses sales (GBP)", gbp(d.summary.salesPence)], ["Sales", d.summary.sales], ["Visits that led to a sale (%)", d.summary.conversion ?? ""], ["Average sale (GBP)", gbp(d.summary.avgSalePence)],
+    ["Frames (GBP)", gbp(d.finance.framesPence)], ["Lenses (GBP)", gbp(d.finance.lensesPence)], ["NHS vouchers (GOS3) used", d.finance.vouchers],
+    ["Invoices raised (GBP)", gbp(d.finance.invoiced.pence)], ["Invoices paid (GBP)", gbp(d.finance.invoiced.paidPence)], ["Invoices unpaid (GBP)", gbp(d.finance.invoiced.unpaidPence)],
+    ["Miles driven (estimated)", d.summary.miles], [`Mileage at ${d.mileage.ratePence}p a mile (GBP)`, gbp(d.summary.mileagePence)]]);
+  add("By clinician", ["Clinician", "Visits done", "Nobody in", "Sales", "Visits with a sale (%)", "Sales (GBP)", "Average sale (GBP)"], d.byClinician.map((r) => [r.name, r.visits, r.missed, r.sales, r.conversion ?? "", gbp(r.salesPence), gbp(r.avgSalePence)]));
+  add("Day by day", ["Date", "Visits done", "Cancelled", "Sales", "Sales (GBP)"], d.days.map((x) => [x.iso, x.visits, x.cancelled, x.sales, gbp(x.salesPence)]));
+  add("Visits by type", ["Visit type", "Done", "Nobody in", "Cancelled"], d.visits.byType.map((r) => [r.label, r.done, r.missed, r.cancelled]));
+  add("Where visits came from", ["Source", "Visits done"], d.visits.bySource.map((r) => [r.label, r.n]));
+  add("Why visits were cancelled", ["Reason", "Visits"], d.visits.cancelReasons.map((r) => [r.label, r.n]));
+  add("Why nothing was sold", ["Reason", "Visits"], d.finance.noSale.map((r) => [r.label, r.n]));
+  add("Mileage and utilisation", ["Clinician", "Visits", "Driving (min)", "Miles (estimated)", "Mileage (GBP)", "Working day booked (%)"], d.mileage.clinicians.map((r) => [r.name, r.visits, r.driveMin, r.miles, gbp(r.mileagePence), r.utilisation ?? ""]));
+  return rows.map((r) => r.map(q).join(",")).join("\r\n");
+}
+function reportsPage() {
+  const gbp = (p) => "£" + (p / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const gbp0 = (p) => "£" + Math.round(p / 100).toLocaleString("en-GB");
+  const g = UI.pg || {}, d = g.data;
+  const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Reports",
+    lead: "Sales, visits, mileage and the rest, for any period, worked out from the diary as it stands. Download it all as a spreadsheet, or print it.",
+    actions: d ? `<button class="btn secondary" type="button" data-act="rep-print">${icon("note")}Print</button><button class="btn" type="button" data-act="rep-csv">${icon("copy")}Download spreadsheet</button>` : "" });
+  const ctl = `<div class="rep-ctl"><div class="seg" role="group" aria-label="Period">${REPORT_PERIODS.map(([k, l]) => `<button type="button" data-act="rep-period" data-v="${k}" aria-pressed="${g.period === k}">${l}</button>`).join("")}</div>
+    ${g.period === "custom" ? `<form class="rep-dates" id="rep-dates"><label>From <input class="input" type="date" id="rep-from" value="${esc(g.from || "")}" max="${(calDay(0) || {}).iso || ""}" required></label><label>to <input class="input" type="date" id="rep-to" value="${esc(g.to || "")}" max="${(calDay(0) || {}).iso || ""}" required></label><button class="btn secondary sm" type="submit">Show</button></form>` : ""}
+    ${d ? `<span class="muted rep-when">${esc(d.period.label)}${d.period.from !== d.period.to ? `: ${esc(ukDate(d.period.fromIso))} to ${esc(ukDate(d.period.toIso))}` : `: ${esc(ukDate(d.period.toIso))}`}</span>` : ""}</div>`;
+  if (g.error) return `<div class="pg">${head}${ctl}<div class="callout warn">${icon("x")}<div>${esc(g.error)}</div></div></div>`;
+  if (!d) return `<div class="pg">${head}${ctl}<p class="muted">${g.period === "custom" ? "Choose the dates." : "Working it out…"}</p></div>`;
+  const s = d.summary, f = d.finance;
+  const kpi = (v, l, sub = "") => `<div class="rep-kpi"><b>${v}</b><span>${l}</span>${sub ? `<i>${sub}</i>` : ""}</div>`;
+  const bars = (list, max) => list.length ? `<ul class="rep-bars">${list.map((r) => `<li><span>${esc(r.label)}</span><i><em style="width:${max ? Math.round((r.n / max) * 100) : 0}%"></em></i><b>${r.n}</b></li>`).join("")}</ul>` : `<p class="muted">None.</p>`;
+  const maxN = (l) => Math.max(0, ...l.map((r) => r.n));
+  const maxDay = Math.max(1, ...d.days.map((x) => x.salesPence)), maxVis = Math.max(1, ...d.days.map((x) => x.visits));
+  return `<div class="pg rep${g.loading ? " busy" : ""}">${head}${ctl}
+    <section class="rep-kpis">
+      ${kpi(s.visitsDone, "visits done", `${s.patientsSeen} patients · ${s.missed} nobody in`)}
+      ${kpi(gbp0(s.salesPence), "glasses sales", `${s.sales} sale${s.sales === 1 ? "" : "s"}`)}
+      ${kpi(pct(s.conversion), "visits with a sale", s.avgSalePence ? `average ${gbp(s.avgSalePence)}` : "")}
+      ${kpi(s.cancelled, "cancelled", `${s.refilled} refilled`)}
+      ${kpi(Math.round(s.miles).toLocaleString("en-GB"), "miles driven", `${gbp0(s.mileagePence)} at ${d.mileage.ratePence}p`)}
+    </section>
+    <div class="rep-grid">
+      <section class="card"><div class="card-h"><h2>Sales and money</h2></div>
+        <table class="rep-t"><tbody>
+          <tr><td>Frames</td><td class="n">${gbp(f.framesPence)}</td></tr><tr><td>Lenses</td><td class="n">${gbp(f.lensesPence)}</td></tr>
+          <tr class="tot"><td>Glasses sold, paid by card</td><td class="n">${gbp(f.salesPence)}</td></tr>
+          <tr><td>NHS vouchers (GOS3) towards them</td><td class="n">${f.vouchers}</td></tr>
+          <tr><td>Invoices raised</td><td class="n">${gbp(f.invoiced.pence)}</td></tr><tr><td>Invoices paid / unpaid</td><td class="n">${gbp(f.invoiced.paidPence)} / ${gbp(f.invoiced.unpaidPence)}</td></tr>
+          <tr><td>Recovered by refilling cancellations</td><td class="n">${gbp(f.recoveredPence)}</td></tr>
+        </tbody></table>
+        <div class="caps" style="margin:14px 0 6px">Why nothing was sold</div>${bars(f.noSale, maxN(f.noSale))}
+        ${f.notRecorded ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${f.notRecorded} finished visit${f.notRecorded === 1 ? " has" : "s have"} no sale recorded.</p>` : ""}</section>
+      <section class="card"><div class="card-h"><h2>By clinician</h2></div>
+        <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Visits</th><th class="n">With a sale</th><th class="n">Sales</th><th class="n">Average</th></tr></thead><tbody>
+          ${d.byClinician.map((r) => `<tr><td><b>${esc(r.name)}</b>${r.missed ? `<div class="muted" style="font-size:12px">${r.missed} nobody in</div>` : ""}</td><td class="n">${r.visits}</td><td class="n">${r.sales} <span class="muted">(${pct(r.conversion)})</span></td><td class="n">${gbp(r.salesPence)}</td><td class="n">${r.avgSalePence ? gbp(r.avgSalePence) : "–"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No visits in this period.</td></tr>`}
+        </tbody></table></section>
+      <section class="card wide"><div class="card-h"><h2>Day by day</h2><p>Visits done, and glasses sales.</p></div>
+        <div class="rep-days">${d.days.map((x) => `<div class="rep-day" title="${esc(x.label)}: ${x.visits} visits, ${x.sales} sales, ${gbp(x.salesPence)}"><div class="rep-col"><i class="v" style="height:${Math.round((x.visits / maxVis) * 100)}%"></i><i class="s" style="height:${Math.round((x.salesPence / maxDay) * 100)}%"></i></div><span>${esc(x.label.split(" ").slice(0, 2).join(" "))}</span></div>`).join("") || `<p class="muted">No open days in this period.</p>`}</div>
+        <div class="dst-key" style="margin-top:8px"><span><i class="dst-dot" style="background:var(--forest)"></i>Visits done</span><span><i class="dst-dot" style="background:var(--apricot)"></i>Sales (£)</span></div></section>
+      <section class="card"><div class="card-h"><h2>Visits</h2></div>
+        <table class="rep-t"><thead><tr><th>Visit type</th><th class="n">Done</th><th class="n">Nobody in</th><th class="n">Cancelled</th></tr></thead><tbody>
+          ${d.visits.byType.map((r) => `<tr><td>${esc(r.label)}</td><td class="n">${r.done}</td><td class="n">${r.missed}</td><td class="n">${r.cancelled}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">None.</td></tr>`}
+        </tbody></table>
+        <div class="caps" style="margin:14px 0 6px">Where they came from</div>${bars(d.visits.bySource, maxN(d.visits.bySource))}
+        <div class="caps" style="margin:14px 0 6px">Why visits were cancelled</div>${bars(d.visits.cancelReasons, maxN(d.visits.cancelReasons))}</section>
+      <section class="card"><div class="card-h"><h2>Mileage and time</h2><p>Estimated from each day's route, at the HMRC rate.</p></div>
+        <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Miles</th><th class="n">Driving</th><th class="n">Mileage</th><th class="n">Day booked</th></tr></thead><tbody>
+          ${d.mileage.clinicians.map((r) => `<tr><td>${esc(r.name)}</td><td class="n">${r.miles}</td><td class="n">${mins(r.driveMin)}</td><td class="n">${gbp(r.mileagePence)}</td><td class="n">${pct(r.utilisation)}</td></tr>`).join("")}
+        </tbody></table>
+        <div class="caps" style="margin:14px 0 6px">Right now</div>
+        <ul class="rep-now"><li><b>${(d.now.leads.new || 0)}</b> new Facebook leads to call</li><li><b>${d.now.waiting}</b> on the waiting list</li><li><b>${d.now.recallsDue}</b> recalls due</li><li><b>${d.now.pcseToDo}</b> PCSE notices to do</li><li><b>${d.now.toCopy}</b> changes to copy to Opticabase</li></ul></section>
+    </div></div>`;
 }
 
 /* ---------- The pilot: baseline, targets, and what's measured each week ---------- */
@@ -2904,6 +2995,9 @@ document.addEventListener("click", async (e) => {
       }
       case "copy": { const v = el.dataset.v; try { await navigator.clipboard.writeText(v); toast("Number copied: " + v); } catch (err) { toast(v); } break; }
       case "sale-back": UI.sale = null; render(); break;
+      case "rep-period": UI.pg.period = el.dataset.v; if (el.dataset.v !== "custom") UI.pg.data = null; loadReports(); break;
+      case "rep-print": window.print(); break;
+      case "rep-csv": { const d = UI.pg.data; download(`${S.settings.practice.replace(/[^\w]+/g, "-")}-report-${d.period.fromIso}-to-${d.period.toIso}.csv`, "\ufeff" + reportsCsv(d), "text/csv"); break; }
       case "sale-edit": UI.saleEdit = el.dataset.id; redraw(); break;
       case "status": {
         const v = el.dataset.v, id = el.dataset.id, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";
@@ -2918,6 +3012,7 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
+    if (e.target.id === "rep-dates") { UI.pg.from = $("#rep-from").value; UI.pg.to = $("#rep-to").value; UI.pg.data = null; await loadReports(); return; }
     if (e.target.id === "sale-form") {
       const s = UI.sale, yes = $('[name="sold"][value="yes"]').checked, no = $('[name="sold"][value="no"]').checked;
       if (!yes && !no) { toast("Choose whether anything was sold", true); return; }

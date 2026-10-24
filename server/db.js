@@ -423,7 +423,12 @@ function seed(db, brand) {
         const pool = pools[cid], pid = pool[(-day * 5 + i * 3 + ci) % pool.length], k = h++;
         const status = k % 11 === 3 ? "cancelled" : k % 17 === 5 ? "missed" : "done";
         const id = `h${-day}${cid}${i}`;
-        ins("appointments", { id, clinician_id: cid, patient_id: pid, type, day, start_min: start, status, drive: driveMinutes(prev, pcOf[pid]) || 10, seen: status === "cancelled" ? 0 : 1 });
+        ins("appointments", { id, clinician_id: cid, patient_id: pid, type, day, start_min: start, status, drive: driveMinutes(prev, pcOf[pid]) || 10, seen: status === "cancelled" ? 0 : 1,
+          source: MIX[k % MIX.length], reason: status === "cancelled" ? ["Patient unwell", "Admitted to hospital", "Patient asked to rebook", "Carer or family can't be present"][k % 4] : null, cancelled_min: status === "cancelled" ? start - 900 : null });
+        if (status === "cancelled" && k % 2) { // refilled from the call list: someone else seen in that slot
+          const rp = pool[(-day * 7 + i + 11) % pool.length];
+          ins("appointments", { id: id + "r", clinician_id: cid, patient_id: rp, type, day, start_min: start, status: "done", drive: driveMinutes(prev, pcOf[rp]) || 10, seen: 1, moved: 1, filled_from: id, booked_min: start - 870, source: "recall" });
+        }
         if (status !== "cancelled") prev = pcOf[pid];
         if (status !== "done" || type === "follow") return;
         const at = `${cal.iso(day)} ${String(Math.floor(start / 60) + 1).padStart(2, "0")}:05`;

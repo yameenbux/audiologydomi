@@ -346,6 +346,7 @@ route("POST", "/api/patients/:id/notes", {}, (req, body, user, { id }) => {
 });
 
 route("POST", "/api/appointments/:id/status", {}, (req, body, user, { id }) => svc.setStatus(id, body.status, user, body.sale || null));
+route("GET", "/api/reports", {}, (req, body, user) => { needAdmin(user); const q = new URL(req.url, "http://x").searchParams; return svc.reports({ period: q.get("period"), from: q.get("from"), to: q.get("to") }); });
 route("PUT", "/api/appointments/:id/sale", {}, (req, body, user, { id }) => { needAdmin(user); return svc.saveSale(id, body, user); });
 route("POST", "/api/appointments/:id/not-done", {}, (req, body, user, { id }) => svc.notDone(id, body, user));
 

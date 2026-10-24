@@ -705,6 +705,90 @@ function invoiceList() {
   return { invoices: list, totals: { unpaidPence: sum("unpaid"), paidPence: sum("paid"), count: list.length } };
 }
 
+/* ---------- Reports: any period, everything the office is asked about ---------- */
+/** The period a report covers, as day numbers (0 is today). Reports look back: nothing after today. */
+function reportPeriod(input) {
+  const today = 0, wd = cal.weekday(0), dom = Number(cal.iso(0).slice(8, 10));
+  const P = { today: [0, 0, "Today"], week: [-Math.min(wd, 4), 0, "This week"], lastweek: [-wd - 7, -wd - 3, "Last week"], month: [-(dom - 1), 0, "This month"], last30: [-29, 0, "Last 30 days"] };
+  if (input.period === "custom") {
+    const f = cal.dayOf(String(input.from || "")), to = cal.dayOf(String(input.to || ""));
+    if (!Number.isFinite(f) || !Number.isFinite(to) || f > to) throw new HttpError(400, "Choose a start date before the end date.");
+    if (to > today) throw new HttpError(400, "Reports cover up to today.");
+    if (to - f > 366) throw new HttpError(400, "Choose a year or less.");
+    return { from: f, to, label: `${cal.label(f)} to ${cal.label(to)}`, key: "custom" };
+  }
+  const k = P[input.period] ? input.period : "week", [from, to, label] = P[k];
+  return { from, to, label, key: k };
+}
+async function reports(input = {}) {
+  const per = reportPeriod(input), { from, to } = per;
+  const clinicians = all("SELECT * FROM clinicians ORDER BY rowid").map(map.clinician);
+  const cname = Object.fromEntries(clinicians.map((c) => [c.id, c.name]));
+  const appts = all("SELECT * FROM appointments WHERE day BETWEEN ? AND ?", from, to).map(map.appt);
+  const sales = all("SELECT * FROM sales WHERE day BETWEEN ? AND ?", from, to).map(map.sale);
+  const invoices = all("SELECT * FROM invoices WHERE issued_day BETWEEN ? AND ?", from, to).map(map.invoice);
+  const done = appts.filter((a) => a.status === "done"), sold = sales.filter((s) => s.sold);
+  const sum = (xs, k) => xs.reduce((n, x) => n + (x[k] || 0), 0);
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : null);
+  const count = (xs, key) => { const m = {}; xs.forEach((x) => { const k = key(x) || "Not recorded"; m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((x, y) => y[1] - x[1]).map(([label, n]) => ({ label, n })); };
+
+  // Mileage: each clinician's planned route on each open day of the period (estimates from postcodes and road times).
+  const miles = [], first = (one("SELECT MIN(day) AS d FROM appointments") || {}).d;
+  for (const c of clinicians) {
+    let driveMin = 0, m = 0, visits = 0, bookedMin = 0, workingMin = 0;
+    for (let d = Math.max(from, first == null ? from : first); d <= to; d++) { // days before the diary began don't count as empty days
+      if (!cal.isOpen(d)) continue;
+      const h = hoursOn(c, d); workingMin += h ? h[1] - h[0] : 0;
+      if (!appts.some((a) => a.clinicianId === c.id && a.day === d && a.status !== "cancelled")) continue;
+      const r = await routeFor(c.id, d, null, { withPath: false });
+      driveMin += r.totals.driveMin; m += r.totals.miles; visits += r.totals.visits; bookedMin += r.stops.reduce((t, s) => t + (s.end - s.start), 0);
+    }
+    if (!visits && !c.active) continue;
+    miles.push({ clinicianId: c.id, name: c.name, visits, driveMin, miles: Math.round(m * 10) / 10, mileagePence: Math.round(m * HMRC_PENCE_PER_MILE), utilisation: pct(bookedMin, workingMin) });
+  }
+
+  const byClin = clinicians.map((c) => {
+    const d = done.filter((a) => a.clinicianId === c.id), s = sold.filter((x) => x.clinicianId === c.id);
+    return { clinicianId: c.id, name: c.name, visits: d.length, missed: appts.filter((a) => a.clinicianId === c.id && a.status === "missed").length,
+      sales: s.length, conversion: pct(s.length, d.length), salesPence: sum(s, "totalPence"), avgSalePence: s.length ? Math.round(sum(s, "totalPence") / s.length) : null };
+  }).filter((r) => r.visits || r.sales || r.missed);
+
+  const days = [];
+  for (let d = from; d <= to; d++) {
+    if (!cal.isOpen(d)) continue;
+    const ds = sold.filter((s) => s.day === d);
+    days.push({ day: d, iso: cal.iso(d), label: cal.label(d), visits: done.filter((a) => a.day === d).length, cancelled: appts.filter((a) => a.day === d && a.status === "cancelled").length, sales: ds.length, salesPence: sum(ds, "totalPence") });
+  }
+  const leads = all("SELECT status, COUNT(*) AS n FROM leads GROUP BY status").reduce((m, r) => ({ ...m, [r.status]: r.n }), {});
+  return {
+    period: { ...per, fromIso: cal.iso(from), toIso: cal.iso(to) },
+    summary: {
+      visitsDone: done.length, patientsSeen: new Set(done.map((a) => a.patientId)).size, missed: appts.filter((a) => a.status === "missed").length,
+      cancelled: appts.filter((a) => a.status === "cancelled").length, refilled: appts.filter((a) => a.moved).length,
+      salesPence: sum(sold, "totalPence"), sales: sold.length, conversion: pct(sold.length, done.length), avgSalePence: sold.length ? Math.round(sum(sold, "totalPence") / sold.length) : null,
+      miles: Math.round(sum(miles, "miles") * 10) / 10, mileagePence: sum(miles, "mileagePence"), driveMin: sum(miles, "driveMin"),
+    },
+    finance: {
+      salesPence: sum(sold, "totalPence"), framesPence: sum(sold, "framesPence"), lensesPence: sum(sold, "lensesPence"), sales: sold.length, vouchers: sold.filter((s) => s.voucher).length,
+      noSale: count(sales.filter((s) => !s.sold), (s) => s.reason), notRecorded: done.filter((a) => !sales.some((s) => s.appointmentId === a.id) && a.type !== "follow").length,
+      invoiced: { n: invoices.filter((i) => i.status !== "void").length, pence: sum(invoices.filter((i) => i.status !== "void"), "totalPence"),
+        paidPence: sum(invoices.filter((i) => i.status === "paid"), "totalPence"), unpaidPence: sum(invoices.filter((i) => i.status === "unpaid"), "totalPence") },
+      recoveredPence: appts.filter((a) => a.moved).length * Number(settings().fee || 0) * 100,
+    },
+    byClinician: byClin,
+    visits: {
+      byType: Object.keys(TYPES).map((k) => ({ type: k, label: TYPES[k].name, done: done.filter((a) => a.type === k).length, missed: appts.filter((a) => a.type === k && a.status === "missed").length, cancelled: appts.filter((a) => a.type === k && a.status === "cancelled").length })).filter((r) => r.done || r.missed || r.cancelled),
+      bySource: count(done, (a) => (SOURCES[a.source] || SOURCES.new).label),
+      cancelReasons: count(appts.filter((a) => a.status === "cancelled"), (a) => a.reason),
+      nhsSightTests: done.filter((a) => TYPES[a.type].pvn).length,
+    },
+    mileage: { ratePence: HMRC_PENCE_PER_MILE, clinicians: miles },
+    days,
+    now: { leads, waiting: one("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'waiting'").n, recallsDue: one("SELECT COUNT(*) AS n FROM recalls WHERE status IN ('due','texted') AND due_day <= 0").n,
+      pcseToDo: one("SELECT COUNT(*) AS n FROM pcse WHERE status = 'todo'").n, toCopy: one("SELECT COUNT(*) AS n FROM diary_log WHERE copied_at IS NULL").n + one("SELECT COUNT(*) AS n FROM sales WHERE sold = 1 AND copied_at IS NULL").n },
+  };
+}
+
 /* ---------- Mileage and utilisation ---------- */
 const HMRC_PENCE_PER_MILE = 45; // HMRC approved mileage rate for cars (first 10,000 business miles a year)
 
@@ -1859,4 +1943,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { recordSale, saveSale, saleOf, NO_SALE, setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { reports, reportPeriod, recordSale, saveSale, saleOf, NO_SALE, setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
