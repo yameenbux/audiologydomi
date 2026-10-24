@@ -149,7 +149,7 @@ test("the family cancellation link: initials only, cancels once, starts the refi
   assert.strictEqual((await call("GET", `/api/public/${m[1]}/visit/not-a-real-token-at-all`)).status, 404);
   await call("POST", "/api/reminders/send", o.token);
   const reminder = (await texts(o.token)).find((x) => x.kind === "reminder");
-  assert.match(reminder.body, /Reply CANCEL or cancel online at http:\/\/127\.0\.0\.1:\d+\/cancel\/[A-Z0-9]{6}\//);
+  assert.match(reminder.body, /Reply CANCEL or go to http:\/\/127\.0\.0\.1:\d+\/cancel\/[A-Z0-9]{6}\//);
 });
 
 test("the team: add a part-time clinician, who sets up their own sign-in from an invitation; hours shape bookings; leavers are signed out", async () => {

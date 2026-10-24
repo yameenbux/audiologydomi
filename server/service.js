@@ -143,7 +143,7 @@ function checkNhsLine(p, type, day, early) {
 }
 /** The day-before reminder. Also shown on the Settings page, so the office sees exactly what patients get. */
 const reminderText = (name, clinFirst, day, start, type, link) =>
-  `Hi ${first(name)}, a reminder from ${practice()}: ${clinFirst} visits you ${when(day, start)} for your ${lowerName(TYPES[type].name)}. Can't make it? Reply CANCEL${link ? ` or cancel online at ${link}` : ""} and we'll offer the time to someone waiting.`;
+  `Hi ${first(name)}, a reminder from ${practice()}: ${clinFirst} visits you ${when(day, start)} for your ${lowerName(TYPES[type].name)}. Can't make it? Reply CANCEL${link ? ` or go to ${link}` : ""}.`;
 /** The text offering a cancelled visit to someone waiting. When the visit is close, the first YES wins. */
 const offerText = (name, visit, deadline, firstWins) => firstWins
   ? `Hi ${first(name)}, it's ${practice()}. A home visit has opened up ${visit}. The first person to reply YES gets it, replies close at ${deadline}. Reply NO to keep your place on the list.`
@@ -601,7 +601,7 @@ async function applyRoute(cid, day, user) {
       run("UPDATE appointments SET start_min = ?, drive = ? WHERE id = ?", p.start, p.drive || 0, p.id);
       if (!p.moved) continue;
       const a = getAppt(p.id), pt = getPatient(a.patientId);
-      sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. To fit our round, your home visit ${cal.phrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit and we'll rearrange.` });
+      sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. Your home visit ${cal.phrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit.` });
     }
     sendSms({ to: "clinician", name: plan.clinician, kind: "diary-change", toClinicianId: plan.clinicianId, body: `Your route ${cal.phrase(day)} has been re-planned: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved, about ${plan.savedMin} min less driving. The new order is in the app.` });
     audit(user.name, "route.planned", `${plan.clinicianId}:${day}`, `${plan.clinician} ${cal.label(day)}: ${plan.changed} moved, ${plan.savedMin} min and ${plan.savedMiles} miles saved`);
@@ -858,7 +858,7 @@ function placeVisit({ draft, c, type, day, start, slot, actor, by, source, icb =
   run("UPDATE waitlist SET status = 'booked' WHERE patient_id = ? AND status = 'waiting'", p.id);
   run("UPDATE recalls SET status = 'booked' WHERE patient_id = ? AND status IN ('due','texted')", p.id);
   addNote(p.id, `Booked by ${by} for ${cal.label(day)} at ${hm(start)} with ${c.name}.`, { name: actor }, { silent: true });
-  sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit with ${c.first} from ${practice()} is booked ${when(day, start)} (${lowerName(t.name)}). We'll text when ${c.first} is on the way. Reply CANCEL if you can't make it.` });
+  sendSms({ to: p.phone, name: p.name, kind: "confirmation", body: `Hi ${first(p.name)}, your home visit from ${practice()} is booked ${when(day, start)} with ${c.first}. Reply CANCEL if you can't make it.` });
   sendSms({ to: "clinician", name: c.name, kind: "diary-change", toClinicianId: c.id, body: `New visit${by === "the office" ? "" : " (booked online)"}: ${p.name}, ${lowerName(t.name)}, ${cal.label(day)} ${hm(start)} at ${p.addr} ${p.pc}. About ${slot.driveIn} min from your previous visit.` });
   audit(actor, "appointment.book", id, `${p.name} ${cal.label(day)} ${hm(start)} with ${c.name} (+${slot.extraDrive} min driving)`);
   bus.emit({ type: "appointment.booked", clinicianId: c.id, appointmentId: id, patient: p.name, day, start, extraDrive: slot.extraDrive, online: by !== "the office" });
