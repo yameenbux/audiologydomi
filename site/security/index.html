@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security and your data · Domi</title>
+<meta name="description" content="Where Domi keeps your patients' data, who can see it, how it's backed up, which companies process it, and how you get it all back if you leave.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0C1412">
+<!--ICONS-->
+<link rel="stylesheet" href="/page.css">
+<!--SOCIAL-->
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"%%SITE_URL%%/"},{"@type":"ListItem","position":2,"name":"Security and your data","item":"%%SITE_URL%%/security/"}]}</script>
+<!--ANALYTICS-->
+<script>document.documentElement.classList.add('js')</script>
+<style>
+  /* This page shows its commitments as figures and pictures; each one matches the data processing agreement
+     every practice signs. Motion only plays when nobody has asked for less. */
+  :root { --mint: #6CC592; --apricot: #E07B4F; --forest-2: #2C6B58; --red: #E5484D; }
+  .wrap.sec { max-width: 1080px; }
+  .sec h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.03em; line-height: 1.12; margin: 0; text-wrap: balance; }
+  .sec section { padding: 72px 0 0; }
+  .sec .kick { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); margin: 0 0 10px; }
+  .sec .lead { color: var(--on-forest-soft); margin: 10px 0 0; max-width: 40em; }
+
+  .hero-s { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 32px; align-items: center; padding-top: 8px; }
+  .hero-s h1 { font-size: clamp(40px, 6.4vw, 68px); letter-spacing: -0.045em; line-height: 1.02; margin: 0; }
+  .hero-s h1 span { display: block; background: linear-gradient(90deg, var(--amber), var(--apricot)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero-s p { font-size: 19px; color: var(--on-forest-soft); margin: 18px 0 0; max-width: 30em; }
+  .hero-s .updated { margin: 14px 0 0; }
+  .shield { width: 100%; max-width: 420px; justify-self: center; display: block; }
+  .shield .orbit { fill: none; stroke: rgba(108,197,146,.25); stroke-width: 1.5; stroke-dasharray: 3 7; transform-origin: 210px 210px; }
+  .shield .ping { fill: none; stroke: var(--mint); stroke-width: 2; opacity: 0; transform-origin: 210px 210px; }
+
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 48px; }
+  .stats div { border-radius: 20px; padding: 18px; background: var(--mint-bg); box-shadow: inset 0 0 0 1px rgba(108,197,146,.16); }
+  .stats b { display: block; font-size: 28px; letter-spacing: -0.03em; line-height: 1.05; }
+  .stats span { display: block; color: var(--on-forest-soft); font-size: 14.5px; margin-top: 4px; line-height: 1.4; }
+
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 28px; }
+  .icard { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px; }
+  .icard svg { width: 30px; height: 30px; color: var(--mint); }
+  .icard h3 { font-size: 18px; letter-spacing: -0.015em; margin: 12px 0 0; }
+  .icard p { margin: 6px 0 0; color: var(--on-forest-soft); font-size: 15.5px; line-height: 1.5; }
+
+  /* The breach promise against the legal deadline, as two bars */
+  .race { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 28px; align-items: center; margin-top: 28px; background: var(--card); border: 1px solid var(--line); border-radius: 26px; padding: 28px; }
+  .bars { display: grid; gap: 18px; }
+  .bars div { display: grid; gap: 8px; }
+  .bars span { font-size: 14.5px; color: var(--on-forest-soft); display: flex; justify-content: space-between; }
+  .bars span b { color: var(--ink); }
+  .bars i { display: block; height: 14px; border-radius: 999px; background: rgba(9,15,13,.7); box-shadow: inset 0 0 0 1px var(--line); position: relative; overflow: hidden; }
+  .bars i::after { content: ''; position: absolute; inset: 0; width: var(--w); border-radius: inherit; background: var(--c); transform-origin: left; }
+  .race .big { font-size: clamp(56px, 8vw, 84px); font-weight: 700; letter-spacing: -0.05em; line-height: 1; color: var(--mint); margin: 0; }
+  .race .big + p { margin: 8px 0 0; color: var(--on-forest-soft); }
+
+  /* Who handles the data: each company with how much it sees */
+  .procs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 28px; }
+  .proc { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .proc h3 { font-size: 18px; margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .proc h3 small { font-size: 13px; font-weight: 600; color: var(--soft); white-space: nowrap; }
+  .proc p { margin: 0; color: var(--on-forest-soft); font-size: 15px; line-height: 1.45; }
+  .sees { margin-top: auto; padding-top: 12px; }
+  .sees em { font-style: normal; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; color: var(--soft); }
+  .sees i { display: block; height: 6px; border-radius: 999px; background: rgba(247,251,249,.08); margin-top: 6px; position: relative; overflow: hidden; }
+  .sees i::after { content: ''; position: absolute; inset: 0; width: var(--w); border-radius: inherit; background: var(--c, var(--amber)); transform-origin: left; }
+  .procs-note { color: var(--soft); font-size: 14.5px; margin: 16px 0 0; }
+
+  /* Leaving: day 0, day 14, day 30 on one line */
+  .leave { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 34px 0 0; padding: 0; }
+  .leave::before { content: ''; position: absolute; left: 22px; right: calc((100% - 28px) / 3 - 22px); top: 21px; height: 2px; background: var(--line); }
+  .leave::after { content: ''; position: absolute; left: 22px; right: calc((100% - 28px) / 3 - 22px); top: 21px; height: 2px; background: linear-gradient(90deg, var(--amber), var(--mint)); transform-origin: left; }
+  .leave li { list-style: none; position: relative; }
+  .leave li b.day { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: #0E1916; box-shadow: inset 0 0 0 2px var(--mint); font-size: 14px; position: relative; z-index: 1; }
+  .leave li:first-child b.day { box-shadow: inset 0 0 0 2px var(--amber); }
+  .leave h3 { font-size: 18px; margin: 14px 0 0; }
+  .leave p { margin: 4px 0 0; color: var(--on-forest-soft); font-size: 15px; }
+  .leave-note { color: var(--on-forest-soft); margin: 22px 0 0; }
+
+  .badges { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 28px; }
+  .badge { display: flex; gap: 16px; align-items: center; background: var(--card); border: 1px dashed rgba(244,162,125,.4); border-radius: 22px; padding: 20px; }
+  .badge svg { flex: none; width: 46px; height: 46px; color: var(--amber); }
+  .badge h3 { font-size: 18px; margin: 0; }
+  .badge p { margin: 2px 0 0; color: var(--on-forest-soft); font-size: 15px; }
+  .badge small { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--amber); }
+
+  .closing { margin-top: 72px; border-radius: 28px; padding: 32px; background: linear-gradient(165deg, #2C6B58, #1E4D40 50%, #12302A); display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
+  .closing h2 { font-size: clamp(22px, 2.8vw, 28px); }
+  .closing p { margin: 6px 0 0; color: var(--on-forest-soft); }
+  .closing .actions { margin: 0; }
+
+  @media (max-width: 900px) {
+    .hero-s, .race { grid-template-columns: 1fr; }
+    .shield { max-width: 300px; order: -1; }
+    .stats { grid-template-columns: 1fr 1fr; } .stats div:last-child { grid-column: span 2; }
+    .grid3, .procs { grid-template-columns: 1fr 1fr; }
+    .badges { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    .grid3, .procs, .leave { grid-template-columns: 1fr; }
+    .leave { gap: 22px; }
+    .leave::before, .leave::after { display: none; }
+    .leave li:not(:last-child)::before { content: ''; position: absolute; left: 21px; top: 44px; bottom: -22px; width: 2px; background: linear-gradient(var(--amber), var(--mint)); }
+    .leave li { padding-left: 62px; } .leave li b.day { position: absolute; left: 0; top: 0; } .leave h3 { margin-top: 0; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .js [data-reveal] { opacity: 0; transform: translateY(20px); transition: opacity .7s cubic-bezier(.22,1,.36,1), transform .7s cubic-bezier(.22,1,.36,1); transition-delay: var(--d, 0s); }
+    .js [data-reveal].in { opacity: 1; transform: none; }
+    .js .bars i::after, .js .sees i::after { transform: scaleX(0); transition: transform 1.4s cubic-bezier(.22,1,.36,1) .3s; }
+    .js .in .bars i::after, .js .in .sees i::after { transform: none; }
+    .js .leave::after { transform: scaleX(0); transition: transform 1.6s cubic-bezier(.65,0,.35,1) .3s; }
+    .js .leave.in::after { transform: none; }
+    .shield .orbit { animation: spin 40s linear infinite; }
+    .shield .orbit.o2 { animation-duration: 60s; animation-direction: reverse; }
+    .shield .ping { animation: ping 3.2s ease-out infinite; } .shield .ping.p2 { animation-delay: 1.6s; }
+    .shield .lockpulse { animation: glow 3.2s ease-in-out infinite; }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes ping { 0% { opacity: .7; transform: scale(.55); } 100% { opacity: 0; transform: scale(1.25); } }
+  @keyframes glow { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap sec">
+  <nav class="top" aria-label="Main"><a class="brand" href="/"><img src="/logo.svg" alt="" width="40" height="40">Domi</a><a class="btn btn-line" href="/#contact">Contact us</a></nav>
+</div>
+<main id="main" class="wrap sec">
+  <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li><span aria-current="page">Security and your data</span></li></ol></nav>
+
+  <div class="hero-s">
+    <div>
+      <h1>Your patients’ data, <span>kept close.</span></h1>
+      <p>Held in London. Two-step sign-in for everyone. Every view logged. And if you leave, you get all of it back.</p>
+      <p class="updated">Last updated 24 October 2026. Every promise here is in the data processing agreement each practice signs.</p>
+    </div>
+    <svg class="shield" viewBox="0 0 420 420" aria-hidden="true" focusable="false">
+      <defs>
+        <radialGradient id="sg" cx="50%" cy="40%" r="60%"><stop offset="0" stop-color="#2C6B58"/><stop offset="1" stop-color="#12302A"/></radialGradient>
+        <linearGradient id="se" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6CC592"/><stop offset="1" stop-color="#2C6B58"/></linearGradient>
+      </defs>
+      <circle class="orbit" cx="210" cy="210" r="190"/>
+      <circle class="orbit o2" cx="210" cy="210" r="150"/>
+      <circle class="ping" cx="210" cy="210" r="170"/>
+      <circle class="ping p2" cx="210" cy="210" r="170"/>
+      <g transform="translate(210 30)"><circle r="16" fill="#0E1916" stroke="#F4A27D" stroke-width="2"/><path d="M0 -6 a5 5 0 0 1 5 5 c0 4 -5 8 -5 8 s-5 -4 -5 -8 a5 5 0 0 1 5 -5z" fill="#F4A27D"/></g>
+      <text x="210" y="70" text-anchor="middle" font-size="14" font-weight="700" fill="#F4A27D" letter-spacing="1.5">LONDON</text>
+      <path d="M210 96 L300 128 V206 C300 262 262 304 210 326 C158 304 120 262 120 206 V128 Z" fill="url(#sg)" stroke="url(#se)" stroke-width="3"/>
+      <path class="lockpulse" d="M210 96 L300 128 V206 C300 262 262 304 210 326 C158 304 120 262 120 206 V128 Z" fill="none" stroke="#6CC592" stroke-width="10" opacity=".5" style="filter:blur(10px)"/>
+      <path d="M190 196 V182 a20 20 0 0 1 40 0 V196" fill="none" stroke="#CFEBDC" stroke-width="7" stroke-linecap="round"/>
+      <rect x="180" y="192" width="60" height="50" rx="12" fill="#6CC592"/>
+      <circle cx="210" cy="213" r="6" fill="#0C1412"/><path d="M210 216 v12" stroke="#0C1412" stroke-width="5" stroke-linecap="round"/>
+      <g font-size="12.5" font-weight="600" fill="#A9BCB4" text-anchor="middle"><text x="62" y="214">Encrypted</text><text x="358" y="214">Logged</text><text x="210" y="380">Backed up daily</text></g>
+    </svg>
+  </div>
+
+  <div class="stats">
+    <div data-reveal><b>London</b><span>where the server and database run</span></div>
+    <div data-reveal style="--d:.05s"><b>2-step</b><span>sign-in for every user, every time</span></div>
+    <div data-reveal style="--d:.1s"><b>24 hours</b><span>to tell you about a breach</span></div>
+    <div data-reveal style="--d:.15s"><b>7 days</b><span>of daily backups, restores tested</span></div>
+    <div data-reveal style="--d:.2s"><b>5 minutes</b><span>between health checks, with alerts</span></div>
+  </div>
+
+  <section aria-labelledby="h-who">
+    <p class="kick">Who can see it</p>
+    <h2 id="h-who">Each person sees what their job needs.</h2>
+    <div class="grid3">
+      <div class="icard" data-reveal><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><h3>Everyone has their own account</h3><p>Passwords of 12 characters or more, checked against lists of common ones.</p></div>
+      <div class="icard" data-reveal style="--d:.06s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M9.5 13l1.8 1.8 3.4-3.6"/></svg><h3>A code from their phone</h3><p>At every sign-in. Accounts lock after repeated wrong attempts.</p></div>
+      <div class="icard" data-reveal style="--d:.12s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><h3>Roles, not free access</h3><p>Clinicians see their own round and area. Only the office sees sales totals.</p></div>
+      <div class="icard" data-reveal><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><h3>Sessions end on their own</h3><p>After 2 hours idle, 12 hours at most. The office can sign anyone out everywhere.</p></div>
+      <div class="icard" data-reveal style="--d:.06s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></svg><h3>A lost phone, wiped</h3><p>The day’s round is kept for working offline, and deleted on sign-out.</p></div>
+      <div class="icard" data-reveal style="--d:.12s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8l4 4v14H4V3h4z"/><path d="M8 11h8M8 15h8M8 7h4"/></svg><h3>Every view logged</h3><p>Who opened or changed which record, and when. No patient details in system logs.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-breach">
+    <p class="kick">If something goes wrong</p>
+    <h2 id="h-breach">You hear from us first, and fast.</h2>
+    <div class="race" data-reveal>
+      <div><p class="big">24 h</p><p>If there is ever a personal data breach affecting your practice, we tell you within 24 hours of knowing, with what we know, and keep you updated.</p></div>
+      <div class="bars">
+        <div><span><b>Our promise to you</b>24 hours</span><i style="--w:33.3%;--c:linear-gradient(90deg,#2C6B58,#6CC592)"></i></div>
+        <div><span><b>Your deadline to report to the ICO</b>72 hours</span><i style="--w:100%;--c:linear-gradient(90deg,#B4562E,#F4A27D)"></i></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-proc">
+    <p class="kick">Who handles the data</p>
+    <h2 id="h-proc">Six companies, and exactly what each one sees.</h2>
+    <p class="lead">We give you 30 days’ written notice before adding or changing one, and you can object.</p>
+    <div class="procs" data-reveal>
+      <div class="proc"><h3>Supabase <small>London</small></h3><p>The database.</p><div class="sees"><em>Your practice’s data</em><i style="--w:100%"></i></div></div>
+      <div class="proc"><h3>Fly.io <small>London</small></h3><p>Runs the Domi server.</p><div class="sees"><em>Your practice’s data, while in use</em><i style="--w:100%"></i></div></div>
+      <div class="proc"><h3>Twilio <small>EU and US</small></h3><p>Sends texts, only if you switch texts on.</p><div class="sees"><em>Name, mobile number, the message</em><i style="--w:40%"></i></div></div>
+      <div class="proc"><h3>Resend <small>Ireland</small></h3><p>Sends staff invitations, resets and enquiry replies.</p><div class="sees"><em>Name, email address, the message</em><i style="--w:30%"></i></div></div>
+      <div class="proc"><h3>openrouteservice <small>Germany</small></h3><p>Works out driving times.</p><div class="sees"><em>Postcode map points only, never names</em><i style="--w:8%;--c:#6CC592"></i></div></div>
+      <div class="proc"><h3>postcodes.io <small>UK</small></h3><p>Finds where a postcode is.</p><div class="sees"><em>Postcodes only</em><i style="--w:6%;--c:#6CC592"></i></div></div>
+    </div>
+    <p class="procs-note">Supabase, Fly.io, Twilio and Resend are US companies. Data that leaves the UK is protected by the safeguards in each one’s data processing terms, such as the UK International Data Transfer Addendum.</p>
+  </section>
+
+  <section aria-labelledby="h-leave">
+    <p class="kick">If you leave</p>
+    <h2 id="h-leave">You leave with everything. We keep nothing.</h2>
+    <ol class="leave" data-reveal>
+      <li><b class="day">0</b><h3>Subscription ends</h3><p>For any reason: your choice, or ours.</p></li>
+      <li><b class="day">14</b><h3>Full export</h3><p>Your practice’s data, handed back within 14 days.</p></li>
+      <li><b class="day">30</b><h3>Deleted, in writing</h3><p>Gone from Domi and its backups within 30 days, confirmed to you.</p></li>
+    </ol>
+    <p class="leave-note">Before then, the office can export or erase any single patient’s record, and download reports, visits, sales and invoices as spreadsheets at any time.</p>
+  </section>
+
+  <section aria-labelledby="h-next">
+    <p class="kick">Where we stand</p>
+    <h2 id="h-next">New, small, and straight with you about it.</h2>
+    <p class="lead">These two are in progress. They’ll show here once they’re in place. Until then, everything on this page is written into your agreement, and we’ll answer any security questionnaire you send.</p>
+    <div class="badges">
+      <div class="badge" data-reveal><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M24 4 40 10v12c0 10-7 18-16 22C15 40 8 32 8 22V10z"/><path d="M17 24l5 5 9-10" stroke-dasharray="3 4"/></svg><div><h3>Cyber Essentials</h3><p>The UK government’s certification for basic cyber security.</p><small>Working towards</small></div></div>
+      <div class="badge" data-reveal style="--d:.08s"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="6" width="32" height="36" rx="5"/><path d="M15 16h18M15 24h18M15 32h10" stroke-dasharray="3 4"/></svg><div><h3>NHS Data Security and Protection Toolkit</h3><p>The NHS’s own check that a supplier handles data properly.</p><small>Working towards</small></div></div>
+    </div>
+  </section>
+
+  <div class="closing" data-reveal>
+    <div><h2>Want the paperwork first?</h2><p>Ask for the data processing agreement before you decide. It’s the same one every practice signs. Found a security problem? Email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>, and please don’t test it on live patient data.</p></div>
+    <div class="actions"><a class="btn btn-main" href="/#contact">Ask us a question</a><a class="btn btn-line" href="/privacy/">Privacy policy</a></div>
+  </div>
+</main>
+<footer><div class="wrap"><p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p><p><a href="/security/">Security</a> · <a href="/privacy/">Privacy policy</a> · <a href="/terms/">Terms and conditions</a> · <a href="/#contact">Contact</a></p></div></footer>
+<script>
+  // Sections rise in, bars fill and the timeline draws as they're reached; with less motion asked for, it's all just there
+  (function () {
+    var els = [].slice.call(document.querySelectorAll('[data-reveal]'));
+    if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }); }, { threshold: 0.15 });
+    els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
+</body>
+</html>
