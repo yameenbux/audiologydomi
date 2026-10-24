@@ -1136,35 +1136,52 @@ async function loadReports() {
   g.loading = false; if (UI.pg === g) render();
 }
 const pct = (n) => (n == null ? "–" : n + "%");
-function reportsCsv(d) {
-  const q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`, rows = [];
-  const add = (title, head, body) => { rows.push([title], head, ...body, []); };
+/** Each part of the reports, as a spreadsheet table: [key, title, head, rows]. Exported one at a time or all together. */
+function repSections(d) {
   const gbp = (p) => (p == null ? "" : (p / 100).toFixed(2));
-  add(`${S.settings.practice}: report for ${d.period.label} (${d.period.fromIso} to ${d.period.toIso})`, ["Measure", "Value"], [
-    ["Visits done", d.summary.visitsDone], ["Patients seen", d.summary.patientsSeen], ["Nobody in", d.summary.missed], ["Cancelled", d.summary.cancelled], ["Cancelled slots refilled", d.summary.refilled],
-    ["Glasses sales (GBP)", gbp(d.summary.salesPence)], ["Sales", d.summary.sales], ["Visits that led to a sale (%)", d.summary.conversion ?? ""], ["Average sale (GBP)", gbp(d.summary.avgSalePence)],
-    ["Frames (GBP)", gbp(d.finance.framesPence)], ["Lenses (GBP)", gbp(d.finance.lensesPence)], ["NHS vouchers (GOS3) used", d.finance.vouchers],
-    ["Invoices raised (GBP)", gbp(d.finance.invoiced.pence)], ["Invoices paid (GBP)", gbp(d.finance.invoiced.paidPence)], ["Invoices unpaid (GBP)", gbp(d.finance.invoiced.unpaidPence)],
-    ["Miles driven (estimated)", d.summary.miles], [`Mileage at ${d.mileage.ratePence}p a mile (GBP)`, gbp(d.summary.mileagePence)]]);
-  add("By clinician", ["Clinician", "Visits done", "Nobody in", "Sales", "Visits with a sale (%)", "Sales (GBP)", "Average sale (GBP)"], d.byClinician.map((r) => [r.name, r.visits, r.missed, r.sales, r.conversion ?? "", gbp(r.salesPence), gbp(r.avgSalePence)]));
-  add("Day by day", ["Date", "Visits done", "Cancelled", "Sales", "Sales (GBP)"], d.days.map((x) => [x.iso, x.visits, x.cancelled, x.sales, gbp(x.salesPence)]));
-  add("Visits by type", ["Visit type", "Done", "Nobody in", "Cancelled"], d.visits.byType.map((r) => [r.label, r.done, r.missed, r.cancelled]));
-  add("Where visits came from", ["Source", "Visits done"], d.visits.bySource.map((r) => [r.label, r.n]));
-  add("Why visits were cancelled", ["Reason", "Visits"], d.visits.cancelReasons.map((r) => [r.label, r.n]));
-  add("Why nothing was sold", ["Reason", "Visits"], d.finance.noSale.map((r) => [r.label, r.n]));
-  add("Mileage and utilisation", ["Clinician", "Visits", "Driving (min)", "Miles (estimated)", "Mileage (GBP)", "Working day booked (%)"], d.mileage.clinicians.map((r) => [r.name, r.visits, r.driveMin, r.miles, gbp(r.mileagePence), r.utilisation ?? ""]));
+  return [
+    ["summary", "Summary", ["Measure", "Value"], [
+      ["Visits done", d.summary.visitsDone], ["Patients seen", d.summary.patientsSeen], ["Nobody in", d.summary.missed], ["Cancelled", d.summary.cancelled], ["Cancelled slots refilled", d.summary.refilled],
+      ["Glasses sales (GBP)", gbp(d.summary.salesPence)], ["Sales", d.summary.sales], ["Visits that led to a sale (%)", d.summary.conversion ?? ""], ["Average sale (GBP)", gbp(d.summary.avgSalePence)],
+      ["Miles driven (estimated)", d.summary.miles], [`Mileage at ${d.mileage.ratePence}p a mile (GBP)`, gbp(d.summary.mileagePence)]]],
+    ["money", "Sales and money", ["Measure", "Value"], [
+      ["Frames (GBP)", gbp(d.finance.framesPence)], ["Lenses (GBP)", gbp(d.finance.lensesPence)], ["Glasses sold, paid by card (GBP)", gbp(d.finance.salesPence)], ["Sales", d.finance.sales],
+      ["NHS vouchers (GOS3) used", d.finance.vouchers], ["Invoices raised (GBP)", gbp(d.finance.invoiced.pence)], ["Invoices paid (GBP)", gbp(d.finance.invoiced.paidPence)], ["Invoices unpaid (GBP)", gbp(d.finance.invoiced.unpaidPence)],
+      ["Recovered by refilling cancellations (GBP)", gbp(d.finance.recoveredPence)], ["Finished visits with no sale recorded", d.finance.notRecorded],
+      ...d.finance.noSale.map((r) => [`Nothing sold: ${r.label}`, r.n])]],
+    ["clinicians", "By clinician", ["Clinician", "Visits done", "Nobody in", "Sales", "Visits with a sale (%)", "Sales (GBP)", "Average sale (GBP)"], d.byClinician.map((r) => [r.name, r.visits, r.missed, r.sales, r.conversion ?? "", gbp(r.salesPence), gbp(r.avgSalePence)])],
+    ["days", "Day by day", ["Date", "Visits done", "Cancelled", "Sales", "Sales (GBP)"], d.days.map((x) => [x.iso, x.visits, x.cancelled, x.sales, gbp(x.salesPence)])],
+    ["visits", "Visits", ["Group", "Item", "Done", "Nobody in", "Cancelled"], [
+      ...d.visits.byType.map((r) => ["Visit type", r.label, r.done, r.missed, r.cancelled]),
+      ...d.visits.bySource.map((r) => ["Where they came from", r.label, r.n, "", ""]),
+      ...d.visits.cancelReasons.map((r) => ["Why cancelled", r.label, "", "", r.n])]],
+    ["mileage", "Mileage and time", ["Clinician", "Visits", "Driving (min)", "Miles (estimated)", "Mileage (GBP)", "Working day booked (%)"], d.mileage.clinicians.map((r) => [r.name, r.visits, r.driveMin, r.miles, gbp(r.mileagePence), r.utilisation ?? ""])],
+    ["now", "Right now", ["Item", "Count"], [["New Facebook leads to call", d.now.leads.new || 0], ["On the waiting list", d.now.waiting], ["Recalls due", d.now.recallsDue], ["PCSE notices to do", d.now.pcseToDo], ["Changes to copy to Opticabase", d.now.toCopy]]],
+    ["sales-list", "Every sale", ["Date", "Time", "Clinician", "Patient", "Opticabase ID", "Visit", "Frames (GBP)", "Frame", "Lenses (GBP)", "Lenses", "NHS voucher", "Total (GBP)", "Paid by", "In Opticabase"],
+      d.lists.sales.map((s) => [s.date, s.time, s.clinician, s.patient, s.obId, s.type, gbp(s.framesPence), s.frameRef, gbp(s.lensesPence), s.lensDesc, s.voucher ? "Yes" : "No", gbp(s.totalPence), s.method, s.inOpticabase ? "Yes" : "No"])],
+    ["visit-list", "Every visit", ["Date", "Time", "Clinician", "Patient", "Opticabase ID", "Visit", "Outcome", "Refilled a cancellation", "Came from", "Cancellation reason", "Sold", "Sale (GBP)", "Why nothing sold"],
+      d.lists.visits.map((v) => [v.date, v.time, v.clinician, v.patient, v.obId, v.type, v.status, v.refill ? "Yes" : "", v.source, v.reason, v.sold, gbp(v.salePence), v.noSaleReason])],
+  ];
+}
+function reportsCsv(d, key) {
+  const q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`, rows = [];
+  const parts = repSections(d).filter((s) => !key || s[0] === key);
+  rows.push([`${S.settings.practice}: ${key ? parts[0][1].toLowerCase() : "reports"} for ${d.period.label} (${d.period.fromIso} to ${d.period.toIso})`], []);
+  parts.forEach(([, title, head, body]) => { if (!key) rows.push([title]); rows.push(head, ...body, []); });
   return rows.map((r) => r.map(q).join(",")).join("\r\n");
 }
+
 function reportsPage() {
   const gbp = (p) => "£" + (p / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const gbp0 = (p) => "£" + Math.round(p / 100).toLocaleString("en-GB");
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Reports",
     lead: "Sales, visits, mileage and the rest, for any period, worked out from the diary as it stands. Download it all as a spreadsheet, or print it.",
-    actions: d ? `<button class="btn secondary" type="button" data-act="rep-print">${icon("note")}Print</button><button class="btn" type="button" data-act="rep-csv">${icon("copy")}Download spreadsheet</button>` : "" });
+    actions: d ? `<button class="btn secondary" type="button" data-act="rep-print">${icon("note")}Print or save as PDF</button><button class="btn" type="button" data-act="rep-csv">${icon("copy")}Export everything</button>` : "" });
+  const x = (k) => `<button class="btn ghost sm rep-x" type="button" data-act="rep-csv" data-v="${k}" title="Download this as a spreadsheet">${icon("copy")}Export</button>`;
   const ctl = `<div class="rep-ctl"><div class="seg" role="group" aria-label="Period">${REPORT_PERIODS.map(([k, l]) => `<button type="button" data-act="rep-period" data-v="${k}" aria-pressed="${g.period === k}">${l}</button>`).join("")}</div>
     ${g.period === "custom" ? `<form class="rep-dates" id="rep-dates"><label>From <input class="input" type="date" id="rep-from" value="${esc(g.from || "")}" max="${(calDay(0) || {}).iso || ""}" required></label><label>to <input class="input" type="date" id="rep-to" value="${esc(g.to || "")}" max="${(calDay(0) || {}).iso || ""}" required></label><button class="btn secondary sm" type="submit">Show</button></form>` : ""}
-    ${d ? `<span class="muted rep-when">${esc(d.period.label)}${d.period.from !== d.period.to ? `: ${esc(ukDate(d.period.fromIso))} to ${esc(ukDate(d.period.toIso))}` : `: ${esc(ukDate(d.period.toIso))}`}</span>` : ""}</div>`;
+    ${d ? `<span class="muted rep-when">${esc(d.period.label)}${d.period.from !== d.period.to ? `: ${esc(ukDate(d.period.fromIso))} to ${esc(ukDate(d.period.toIso))}` : `: ${esc(ukDate(d.period.toIso))}`}</span><span style="margin-left:auto">${x("summary").replace("rep-x", "").replace("Export</button>", "Export summary</button>")}</span>` : ""}</div>`;
   if (g.error) return `<div class="pg">${head}${ctl}<div class="callout warn">${icon("x")}<div>${esc(g.error)}</div></div></div>`;
   if (!d) return `<div class="pg">${head}${ctl}<p class="muted">${g.period === "custom" ? "Choose the dates." : "Working it out…"}</p></div>`;
   const s = d.summary, f = d.finance;
@@ -1181,7 +1198,7 @@ function reportsPage() {
       ${kpi(Math.round(s.miles).toLocaleString("en-GB"), "miles driven", `${gbp0(s.mileagePence)} at ${d.mileage.ratePence}p`)}
     </section>
     <div class="rep-grid">
-      <section class="card"><div class="card-h"><h2>Sales and money</h2></div>
+      <section class="card"><div class="card-h">${x("money")}<h2>Sales and money</h2></div>
         <table class="rep-t"><tbody>
           <tr><td>Frames</td><td class="n">${gbp(f.framesPence)}</td></tr><tr><td>Lenses</td><td class="n">${gbp(f.lensesPence)}</td></tr>
           <tr class="tot"><td>Glasses sold, paid by card</td><td class="n">${gbp(f.salesPence)}</td></tr>
@@ -1191,25 +1208,31 @@ function reportsPage() {
         </tbody></table>
         <div class="caps" style="margin:14px 0 6px">Why nothing was sold</div>${bars(f.noSale, maxN(f.noSale))}
         ${f.notRecorded ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${f.notRecorded} finished visit${f.notRecorded === 1 ? " has" : "s have"} no sale recorded.</p>` : ""}</section>
-      <section class="card"><div class="card-h"><h2>By clinician</h2></div>
+      <section class="card"><div class="card-h">${x("clinicians")}<h2>By clinician</h2></div>
         <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Visits</th><th class="n">With a sale</th><th class="n">Sales</th><th class="n">Average</th></tr></thead><tbody>
           ${d.byClinician.map((r) => `<tr><td><b>${esc(r.name)}</b>${r.missed ? `<div class="muted" style="font-size:12px">${r.missed} nobody in</div>` : ""}</td><td class="n">${r.visits}</td><td class="n">${r.sales} <span class="muted">(${pct(r.conversion)})</span></td><td class="n">${gbp(r.salesPence)}</td><td class="n">${r.avgSalePence ? gbp(r.avgSalePence) : "–"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No visits in this period.</td></tr>`}
         </tbody></table></section>
-      <section class="card wide"><div class="card-h"><h2>Day by day</h2><p>Visits done, and glasses sales.</p></div>
+      <section class="card wide"><div class="card-h">${x("days")}<h2>Day by day</h2><p>Visits done, and glasses sales.</p></div>
         <div class="rep-days">${d.days.map((x) => `<div class="rep-day" title="${esc(x.label)}: ${x.visits} visits, ${x.sales} sales, ${gbp(x.salesPence)}"><div class="rep-col"><i class="v" style="height:${Math.round((x.visits / maxVis) * 100)}%"></i><i class="s" style="height:${Math.round((x.salesPence / maxDay) * 100)}%"></i></div><span>${esc(x.label.split(" ").slice(0, 2).join(" "))}</span></div>`).join("") || `<p class="muted">No open days in this period.</p>`}</div>
         <div class="dst-key" style="margin-top:8px"><span><i class="dst-dot" style="background:var(--forest)"></i>Visits done</span><span><i class="dst-dot" style="background:var(--apricot)"></i>Sales (£)</span></div></section>
-      <section class="card"><div class="card-h"><h2>Visits</h2></div>
+      <section class="card"><div class="card-h">${x("visits")}<h2>Visits</h2></div>
         <table class="rep-t"><thead><tr><th>Visit type</th><th class="n">Done</th><th class="n">Nobody in</th><th class="n">Cancelled</th></tr></thead><tbody>
           ${d.visits.byType.map((r) => `<tr><td>${esc(r.label)}</td><td class="n">${r.done}</td><td class="n">${r.missed}</td><td class="n">${r.cancelled}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">None.</td></tr>`}
         </tbody></table>
         <div class="caps" style="margin:14px 0 6px">Where they came from</div>${bars(d.visits.bySource, maxN(d.visits.bySource))}
         <div class="caps" style="margin:14px 0 6px">Why visits were cancelled</div>${bars(d.visits.cancelReasons, maxN(d.visits.cancelReasons))}</section>
-      <section class="card"><div class="card-h"><h2>Mileage and time</h2><p>Estimated from each day's route, at the HMRC rate.</p></div>
+      <section class="card"><div class="card-h">${x("mileage")}<h2>Mileage and time</h2><p>Estimated from each day's route, at the HMRC rate.</p></div>
         <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Miles</th><th class="n">Driving</th><th class="n">Mileage</th><th class="n">Day booked</th></tr></thead><tbody>
           ${d.mileage.clinicians.map((r) => `<tr><td>${esc(r.name)}</td><td class="n">${r.miles}</td><td class="n">${mins(r.driveMin)}</td><td class="n">${gbp(r.mileagePence)}</td><td class="n">${pct(r.utilisation)}</td></tr>`).join("")}
         </tbody></table>
         <div class="caps" style="margin:14px 0 6px">Right now</div>
-        <ul class="rep-now"><li><b>${(d.now.leads.new || 0)}</b> new Facebook leads to call</li><li><b>${d.now.waiting}</b> on the waiting list</li><li><b>${d.now.recallsDue}</b> recalls due</li><li><b>${d.now.pcseToDo}</b> PCSE notices to do</li><li><b>${d.now.toCopy}</b> changes to copy to Opticabase</li></ul></section>
+        <ul class="rep-now"><li><b>${(d.now.leads.new || 0)}</b> new Facebook leads to call</li><li><b>${d.now.waiting}</b> on the waiting list</li><li><b>${d.now.recallsDue}</b> recalls due</li><li><b>${d.now.pcseToDo}</b> PCSE notices to do</li><li><b>${d.now.toCopy}</b> changes to copy to Opticabase</li></ul>
+        <div style="margin-top:8px">${x("now").replace("rep-x", "")}</div></section>
+      <section class="card wide"><div class="card-h">${x("sales-list")}<h2>Every sale</h2><p>Line by line, to check against the card reader and Opticabase.</p></div>
+        ${d.lists.sales.length ? `<div class="pvn-tw"><table class="rep-t"><thead><tr><th>Date</th><th>Clinician</th><th>Patient</th><th>Frames</th><th>Lenses</th><th class="n">Total</th><th>Opticabase</th></tr></thead><tbody>
+          ${d.lists.sales.slice(-12).reverse().map((s) => `<tr><td>${esc(ukDate(s.date))} ${esc(s.time)}</td><td>${esc(s.clinician)}</td><td><b>${esc(s.patient)}</b>${s.obId ? `<div class="muted mono" style="font-size:12px">${esc(s.obId)}</div>` : ""}</td><td>${s.framesPence ? `${gbp(s.framesPence)}${s.frameRef ? ` <span class="muted">${esc(s.frameRef)}</span>` : ""}` : "–"}</td><td>${s.lensesPence ? `${gbp(s.lensesPence)}${s.lensDesc ? ` <span class="muted">${esc(s.lensDesc)}</span>` : ""}` : "–"}${s.voucher ? ` <span class="badge b-plain">Voucher</span>` : ""}</td><td class="n"><b>${gbp(s.totalPence)}</b></td><td>${s.inOpticabase ? `<span class="badge b-ok">Entered</span>` : `<span class="badge b-warn">To enter</span>`}</td></tr>`).join("")}
+          </tbody></table></div>${d.lists.sales.length > 12 ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">The latest 12 of ${d.lists.sales.length}. Export for them all.</p>` : ""}` : `<p class="muted">No sales in this period.</p>`}</section>
+      <section class="card wide"><div class="card-h">${x("visit-list")}<h2>Every visit</h2><p>All ${d.lists.visits.length} visits in this period, with the outcome, where they came from and what was sold. Export to see them all.</p></div></section>
     </div></div>`;
 }
 
@@ -1250,7 +1273,7 @@ function pilotPage() {
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Pilot results",
     lead: "What you measured before Domi, the targets agreed at signing, and what's happened each week since go-live, from your own diary. Visits, cancelled slots refilled and calls per refill are worked out by Domi. Miles and office hours are what you record each week: miles from the clinicians' mileage claims, the same source as your baseline, so the comparison is fair.",
-    actions: d && d.config.start && !g.edit ? `<button class="btn secondary" type="button" data-act="pilot-edit">${icon("gear")}Change baseline or targets</button>` : "" });
+    actions: d && d.config.start && !g.edit ? `<button class="btn secondary" type="button" data-act="pilot-edit">${icon("gear")}Change baseline or targets</button><button class="btn secondary" type="button" data-act="pilot-csv">${icon("copy")}Export</button>` : "" });
   if (!d) return `<div class="pg">${head}<p class="muted">Loading…</p></div>`;
   const M = d.measures, c = d.config, fmt = (v, k) => v == null ? "–" : `${Number(v).toFixed(M[k].dp)}${M[k].unit === "%" ? "%" : ""}`;
   if (g.edit) {
@@ -2591,6 +2614,7 @@ function invoicesDrawer(d) {
   return `<div class="drawer-h"><div><div class="caps">Raised when a visit is completed</div><h2 style="margin-top:6px">Invoices</h2></div>${closeX}</div>
     <div class="drawer-b">
       <div class="rp-tiles">${`<div class="rp-tile"><b>${pounds(d.totals.unpaidPence)}</b><span>unpaid</span></div><div class="rp-tile"><b>${pounds(d.totals.paidPence)}</b><span>paid</span></div>`}</div>
+      ${d.invoices.length ? `<button class="btn secondary block" style="margin-bottom:12px" type="button" data-act="inv-csv">${icon("copy")}Export invoices as a spreadsheet</button>` : ""}
       <div class="soon-row">${soon("card", "Take card payment", "check")}${soon("xero", "Sync to Xero", "reset")}${soon("carehome", "Bill a care home", "users")}</div>
       <details class="prices"><summary>Prices per visit type</summary>
         <div class="price-grid">${Object.entries(TYPES_NOW()).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
@@ -2997,7 +3021,18 @@ document.addEventListener("click", async (e) => {
       case "sale-back": UI.sale = null; render(); break;
       case "rep-period": UI.pg.period = el.dataset.v; if (el.dataset.v !== "custom") UI.pg.data = null; loadReports(); break;
       case "rep-print": window.print(); break;
-      case "rep-csv": { const d = UI.pg.data; download(`${S.settings.practice.replace(/[^\w]+/g, "-")}-report-${d.period.fromIso}-to-${d.period.toIso}.csv`, "\ufeff" + reportsCsv(d), "text/csv"); break; }
+      case "pilot-csv": { const d = UI.pg.data, q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`, M = d.measures, n = (v) => (v == null ? "" : v);
+        const rows = [[`${S.settings.practice}: pilot results (go-live ${d.config.start})`], [], ["Targets"], ["Measure", "Baseline", "Target", "Now (average of complete weeks)", "Weeks counted", "Met"],
+          ...d.targets.map((x) => [x.label, n(x.baseline), n(x.goal), n(x.now), x.weeks, x.met == null ? "Not yet" : x.met ? "Yes" : "No"]), [], ["Week by week"],
+          ["Week", "From", "To", "Visits", "Miles claimed", "Miles per visit", "Cancelled", "Refilled", "Refilled (%)", "Left empty", "Calls", "Calls per refill", "Office hours", "In progress"],
+          ...d.weeks.map((w) => [w.week, w.from, w.to, w.visits, n(w.milesClaimed), n(w.milesPerVisit), w.cancellations, w.refilled, n(w.refillRate), w.unfilledPerWeek, w.calls, n(w.callsPerRefill), n(w.officeHours), w.inProgress ? "Yes" : ""])];
+        void M; download(`pilot-results-${(calDay(0) || {}).iso || "today"}.csv`, "\ufeff" + rows.map((r) => r.map(q).join(",")).join("\r\n"), "text/csv"); toast("Spreadsheet downloaded"); break; }
+      case "inv-csv": { const d = (panel("invoices") || {}).data, q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`;
+        const rows = [["Invoice", "Issued", "Patient", "Opticabase ID", "Items", "Total (GBP)", "Status", "Paid by", "Paid at"],
+          ...d.invoices.map((i) => { const p = pat(i.patientId); return [i.number, i.issuedAt, p ? p.name : "", p && p.obId ? p.obId : "", i.items.map((x) => x.desc).join("; "), (i.totalPence / 100).toFixed(2), i.status, i.method || "", i.paidAt || ""]; })];
+        download(`invoices-${(calDay(0) || {}).iso || "today"}.csv`, "\ufeff" + rows.map((r) => r.map(q).join(",")).join("\r\n"), "text/csv"); toast("Spreadsheet downloaded"); break; }
+      case "rep-csv": { const d = UI.pg.data, k = el.dataset.v || "";
+        download(`${S.settings.practice.replace(/[^\w]+/g, "-")}-${k || "reports"}-${d.period.fromIso}-to-${d.period.toIso}.csv`, "\ufeff" + reportsCsv(d, k), "text/csv"); toast("Spreadsheet downloaded"); break; }
       case "sale-edit": UI.saleEdit = el.dataset.id; redraw(); break;
       case "status": {
         const v = el.dataset.v, id = el.dataset.id, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";

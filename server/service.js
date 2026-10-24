@@ -784,6 +784,21 @@ async function reports(input = {}) {
     },
     mileage: { ratePence: HMRC_PENCE_PER_MILE, clinicians: miles },
     days,
+    // Line by line, for checking against the card reader and Opticabase: every sale and every visit in the period.
+    lists: (() => {
+      const pt = (id) => getPatient(id) || {}, ap = Object.fromEntries(appts.map((a) => [a.id, a]));
+      const saleBy = Object.fromEntries(sales.map((s) => [s.appointmentId, s]));
+      const STATUS = { done: "Done", missed: "Nobody in", cancelled: "Cancelled", booked: "Booked", enroute: "On the way", live: "With patient" };
+      return {
+        sales: sold.slice().sort((x, y) => (x.at < y.at ? -1 : 1)).map((s) => { const a = ap[s.appointmentId] || {}, p = pt(s.patientId);
+          return { date: cal.iso(s.day), time: hm(a.start || 0), clinician: cname[s.clinicianId] || "", patient: p.name || "", obId: p.obId || "", type: TYPES[a.type] ? TYPES[a.type].name : "",
+            framesPence: s.framesPence, frameRef: s.frameRef || "", lensesPence: s.lensesPence, lensDesc: s.lensDesc || "", voucher: s.voucher, totalPence: s.totalPence, method: s.method || "card", inOpticabase: !!s.copiedAt }; }),
+        visits: appts.slice().sort((x, y) => x.day - y.day || x.start - y.start).map((a) => { const p = pt(a.patientId), s = saleBy[a.id];
+          return { date: cal.iso(a.day), time: hm(a.start), clinician: cname[a.clinicianId] || "", patient: p.name || "", obId: p.obId || "", type: TYPES[a.type] ? TYPES[a.type].name : "",
+            status: STATUS[a.status] || a.status, refill: !!a.moved, source: (SOURCES[a.source] || SOURCES.new).label, reason: a.status === "cancelled" ? a.reason || "" : "",
+            sold: s ? (s.sold ? "Yes" : "No") : "", salePence: s && s.sold ? s.totalPence : null, noSaleReason: s && !s.sold ? s.reason || "" : "" }; }),
+      };
+    })(),
     now: { leads, waiting: one("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'waiting'").n, recallsDue: one("SELECT COUNT(*) AS n FROM recalls WHERE status IN ('due','texted') AND due_day <= 0").n,
       pcseToDo: one("SELECT COUNT(*) AS n FROM pcse WHERE status = 'todo'").n, toCopy: one("SELECT COUNT(*) AS n FROM diary_log WHERE copied_at IS NULL").n + one("SELECT COUNT(*) AS n FROM sales WHERE sold = 1 AND copied_at IS NULL").n },
   };
