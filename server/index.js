@@ -289,6 +289,19 @@ route("GET", "/api/state", {}, (req, body, user) => {
   const clinicians = db.prepare("SELECT * FROM clinicians ORDER BY rowid").all().map(map.clinician);
   const isAdmin = user.role === "admin";
   const appts = (isAdmin ? db.prepare("SELECT * FROM appointments ORDER BY start_min").all() : db.prepare("SELECT * FROM appointments WHERE clinician_id = ? ORDER BY start_min").all(user.clinicianId)).map(map.appt);
+  // Confirmation calls on each visit, for the diary's CC markers: the latest outcome per call (a call that was made
+  // isn't undone by a later no-answer), who made it and when, and which call is due now. Clinicians only see "confirmed".
+  const conf = new Map();
+  for (const r of db.prepare("SELECT appointment_id, stage, outcome, by_name, at FROM confirmations ORDER BY id").all()) {
+    const m = conf.get(r.appointment_id) || {}, prev = m[r.stage];
+    if (!prev || prev.o === "no-answer") m[r.stage] = { o: r.outcome, by: r.by_name, at: r.at, tries: (prev ? prev.tries : 0) + (r.outcome === "no-answer" ? 1 : 0) };
+    conf.set(r.appointment_id, m);
+  }
+  for (const a of appts) {
+    const m = conf.get(a.id) || {}, made = (s) => !!m[s] && m[s].o !== "no-answer";
+    if (isAdmin) { a.cc = m; a.ccDue = calls.stageDue(a, { 1: made(1), 2: made(2), 3: made(3) }); }
+    else a.confirmed = made(3);
+  }
   const me = !isAdmin && clinicians.find((c) => c.id === user.clinicianId);
   const patients = db.prepare("SELECT * FROM patients ORDER BY name").all().map(map.patient)
     .filter((p) => isAdmin || appts.some((a) => a.patientId === p.id) || me.patch.includes(D.district(p.pc)));

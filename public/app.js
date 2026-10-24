@@ -425,8 +425,10 @@ function officeView() {
         <div class="panel-h"><h2>Diaries</h2>
           ${dayNav()}
         </div>
+        ${statusStrip()}
         ${UI.view === "week" ? weekView() : `<div class="panel-h" style="padding-top:0"><span class="sub">${UI.day === 0 ? "Today, " + esc(dayLong(0)) : esc(dayLong(UI.day))}${calDay(UI.day) && !calDay(UI.day).open ? ` · <b>Closed: ${esc(calDay(UI.day).why)}</b>` : ""}</span>
-          <div class="legend"><span><i class="sw" style="background:var(--surface)"></i>Booked</span><span><i class="sw" style="background:var(--warn-soft)"></i>On the way</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--subtle)"></i>Done</span><span><i class="sw" style="background:var(--apricot-soft)"></i>Moved forward</span><span><i class="sw" style="background:var(--forest-soft)"></i>New booking</span></div>
+          <div class="legend"><span><i class="sw" style="background:var(--surface)"></i>Booked</span><span><i class="sw" style="background:var(--warn-soft)"></i>On the way</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--subtle)"></i>Done</span><span><i class="sw" style="background:var(--apricot-soft)"></i>Moved forward</span><span><i class="sw" style="background:var(--forest-soft)"></i>New booking</span>
+            <span class="ccm-key"><b>Calls</b><i class="cc-done">✓</i>Done<i class="cc-texted">✓</i>Texted<i class="cc-na">!</i>No answer<i class="cc-due"></i>Due<i class="cc-later"></i>Not yet<i class="ccm-rem">${icon("msg")}</i>Reminder sent</span></div>
         </div>
         <div class="board-wrap" data-scroll="board">${board(nowM)}</div>`}
       </section>
@@ -685,6 +687,49 @@ function dayNav() {
   </div>`;
 }
 
+/** The confirmation calls on a visit, as three small markers by the patient's name, plus the reminder text. Office only. */
+function ccState(a, s) {
+  const m = (a.cc || {})[s];
+  if (m && m.o === "done") return ["done", `CC${s} done by ${m.by}, ${m.at}`];
+  if (m && m.o === "texted") return ["texted", `CC${s} sent as a text by ${m.by}, ${m.at}`];
+  if (m && m.o === "no-answer") return ["na", `CC${s}: no answer (${m.tries} tr${m.tries === 1 ? "y" : "ies"}, last ${m.at})`];
+  if (a.ccDue === s) return ["due", `CC${s} due today`];
+  return ["later", `CC${s} not due yet`];
+}
+function ccMarks(a) {
+  if (!a.cc || a.status === "missed") return "";
+  const marks = [1, 2, 3].map((s) => ccState(a, s));
+  const made3 = a.cc[3] && a.cc[3].o !== "no-answer";
+  const rem = a.reminded && !made3 ? `<i class="ccm-rem" title="Day-before reminder text sent">${icon("msg")}</i>` : "";
+  const label = marks.map(([, why]) => why).join(". ") + (rem ? ". Reminder text sent" : "");
+  return `<span class="ccm" title="${esc(label)}" aria-label="${esc(label)}">${marks.map(([cls], i) => `<i class="cc-${cls}">${i + 1}</i>`).join("")}${rem}</span>`;
+}
+
+/** How full a clinician's day is: visit time plus driving, against their working hours. null on a day off. */
+function dayLoad(c, d) {
+  const h = hoursFor(c, d), list = dayAppts(c.id, d);
+  if (!h) return list.length ? { pct: 100, n: list.length } : null;
+  const mins = list.reduce((t, a) => t + T(a.type).dur + (a.drive || 0), 0);
+  return { pct: Math.min(100, Math.round(mins / (h[1] - h[0]) * 100)), n: list.length };
+}
+const LIGHTS = [[85, "full", "Full"], [50, "some", "Some space"], [0, "low", "Needs filling"]];
+const lightOf = (pct) => LIGHTS.find(([min]) => pct >= min);
+/** The traffic lights along the top of the diary: each clinician's next two weeks at a glance. Tap a day to open it. */
+function statusStrip() {
+  const days = openAhead(0, 10), team = S.clinicians.filter((c) => c.active !== false);
+  if (!days.length || !team.length) return "";
+  const head = days.map((d) => { const x = calDay(d); return `<div class="dst-d${UI.view === "day" && UI.day === d ? " on" : ""}">${d === 0 ? "Today" : esc(x.label.slice(0, x.label.lastIndexOf(" ")))}</div>`; }).join("");
+  const rows = team.map((c) => `<div class="dst-name"><span class="avatar xs" style="background:${c.color}">${initials(c.name)}</span>${esc(c.first || c.name)}</div>` + days.map((d) => {
+    const L = dayLoad(c, d), x = calDay(d);
+    if (!L) return `<div class="dst-cell off" title="${esc(c.first)}, ${esc(x.long)}: day off"><span>Off</span></div>`;
+    const [, cls, word] = lightOf(L.pct);
+    return `<button class="dst-cell ${cls}${UI.view === "day" && UI.day === d ? " on" : ""}" type="button" data-act="day" data-v="${d}" title="${esc(c.first)}, ${esc(x.long)}: ${word}, ${L.pct}% booked, ${L.n} visit${L.n === 1 ? "" : "s"}" aria-label="${esc(c.name)}, ${esc(x.long)}: ${word}, ${L.pct}% booked"><span>${L.pct}%</span></button>`;
+  }).join("")).join("");
+  return `<div class="dstat" aria-label="How full each diary is">
+    <div class="dst-key"><b>Diary status, next 2 weeks</b><span><i class="dst-dot full"></i>Full (85%+)</span><span><i class="dst-dot some"></i>Some space</span><span><i class="dst-dot low"></i>Needs filling (under 50%)</span><span class="muted">Tap a day to open it</span></div>
+    <div class="dst-grid" style="grid-template-columns:96px repeat(${days.length},minmax(44px,1fr))"><div></div>${head}${rows}</div></div>`;
+}
+
 /** Clinicians on the diary: everyone working, plus anyone who has left but still has visits that day. */
 const onBoard = (day) => S.clinicians.filter((c) => c.active !== false || S.appts.some((a) => a.clinicianId === c.id && (a.day || 0) === day && active(a)));
 function board(nowM) {
@@ -704,16 +749,17 @@ function board(nowM) {
       const p = pat(a.patientId), t = T(a.type), top = (a.start - DS) * PX, h = Math.max(t.dur * PX - 4, 36);
       const cls = a.moved ? "moved" : a.bookedMin != null && a.status === "booked" ? "fresh" : a.status;
       const drive = a.drive >= 10 ? `<div class="drive" style="top:${top - a.drive * PX + 3}px">${icon("car")}${a.drive} min</div>` : "";
+      const marks = ccMarks(a);
       const head = h < 52
-        ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="pn">${esc(p.name)}</span></span>`
-        : `<span class="tm">${hm(a.start)}–${hm(a.start + t.dur)}</span><span class="pn">${esc(p.name)}</span>`;
+        ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="pn">${esc(p.name)}</span>${marks}</span>`
+        : `<span class="tm">${hm(a.start)}–${hm(a.start + t.dur)}</span><span class="pn-row"><span class="pn">${esc(p.name)}</span>${marks}</span>`;
       const extra = (h > 62 ? `<span class="ty">${t.name}</span>` : "")
         + (h > 84 && a.moved ? `<span class="badge b-apricot" style="margin-top:4px">${icon("bolt")}Moved forward</span>` : "")
         + (h > 60 && !a.moved && a.bookedMin != null ? `<span class="badge b-forest" style="margin-top:4px">${icon("plus")}New booking</span>` : "")
         + (h > 84 && a.status === "enroute" ? `<span class="badge b-warn" style="margin-top:4px">${icon("car")}On the way</span>` : "")
         + (a.status === "missed" ? `<span class="badge b-plain" style="margin-top:4px">Not seen</span>` : "");
       const tc = countOf(a) < 1 && ["booked", "enroute"].includes(a.status) ? `<span class="tcount ${countOf(a) <= 0.25 ? "low" : ""}" title="True count ${fmtCount(countOf(a))}: may not be in">${fmtCount(countOf(a))}</span>` : "";
-      return `${drive}<button class="blk ${cls}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}${tc ? `, true count ${fmtCount(countOf(a))}` : ""}">${tc}${head}${extra}</button>`;
+      return `${drive}<button class="blk ${cls}${tc ? " has-tc" : ""}" type="button" data-act="open-appt" data-id="${a.id}" style="top:${top}px;height:${h}px" aria-label="${esc(p.name)} at ${hm(a.start)}${tc ? `, true count ${fmtCount(countOf(a))}` : ""}">${tc}${head}${extra}</button>`;
     }).join("");
     const filled = new Set(list.map((a) => a.start));
     const gaps = S.appts.filter((a) => a.clinicianId === c.id && (a.day || 0) === UI.day && a.status === "cancelled" && !filled.has(a.start)).map((a) => {
@@ -827,7 +873,7 @@ function todayTab(c) {
       <button class="v ${a.moved ? "moved" : a.status === "done" ? "done" : ""}" type="button" data-act="open-p" data-id="${p.id}" data-appt="${a.id}">
         <div class="tl"><span class="t">${hm(a.start)}</span><span class="ln"></span></div>
         <div class="card"><div class="row"><span class="type-chip">${t.name}</span>${st}</div>
-          <div class="pn">${esc(p.name)}</div>
+          <div class="pn">${esc(p.name)}${a.confirmed && ["booked", "enroute"].includes(a.status) ? ` <span class="badge b-ok" style="font-size:11px;vertical-align:2px">${icon("check")}Confirmed</span>` : ""}</div>
           <div class="ad">${icon("pin")}<span>${esc(p.addr)}, ${esc(p.pc)}</span></div>
           ${p.alerts.length && a.status !== "done" ? `<div class="ad" style="color:var(--warn)">${icon("users")}<span>${esc(p.alerts[0])}</span></div>` : ""}
           ${pvnChip(a) ? `<div class="ad">${pvnChip(a)}</div>` : ""}

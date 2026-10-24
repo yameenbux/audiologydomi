@@ -390,6 +390,18 @@ function seed(db, brand) {
   });
   // NHS numbers for the sample patients (valid check digits, from the range set aside for testing: 999 000 0000+).
   db.prepare("SELECT id FROM patients ORDER BY rowid").all().forEach((r, i) => { const n = testNhsNumber(i); if (n) db.prepare("UPDATE patients SET nhs_no = ? WHERE id = ?").run(n, r.id); });
+  // Confirmation calls already made before the demo starts, so the diary's CC markers show a realistic mix: today's
+  // visits had all three; tomorrow's have CC1 and CC2, and half their CC3; this week's mostly CC1, some CC2, a few
+  // unanswered; later ones only some CC1. What's left is the Calls list's work for today.
+  const STAFF = ["Sarah Lane", "Sarah Lane", "Mo Patel"];
+  const cc = (id, stage, outcome, at) => ins("confirmations", { appointment_id: id, stage, outcome, by_name: STAFF[(stage + id.length) % 3], at });
+  db.prepare("SELECT a.id, a.day, p.contact FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.day BETWEEN 0 AND 21 ORDER BY a.day, a.id").all().forEach((a, i) => {
+    const how = a.contact !== "Call" && i % 5 === 0 ? "texted" : "done";
+    if (a.day === 0) { cc(a.id, 1, how, "Earlier"); cc(a.id, 2, "done", "Last week"); cc(a.id, 3, "done", "Yesterday"); return; }
+    if (a.day === 1) { cc(a.id, 1, how, "Earlier"); cc(a.id, 2, "done", "Last week"); if (i % 2) cc(a.id, 3, "done", "Today 09:20"); return; }
+    if (a.day <= 7) { cc(a.id, 1, how, "Earlier"); if (i % 3 === 0) cc(a.id, 2, "done", "Yesterday"); else if (i % 3 === 1) cc(a.id, 2, "no-answer", "Yesterday"); return; }
+    if (i % 3) cc(a.id, 1, how, "Earlier");
+  });
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }

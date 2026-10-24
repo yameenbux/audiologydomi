@@ -1134,3 +1134,37 @@ button.rm-row:hover { background: var(--subtle) }
 @media (max-width: 700px) { .pl-set thead { display: none } .pl-set tr { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line) } .pl-set td { border: 0; padding: 2px 0 } }
 .dl-t td { white-space: normal; vertical-align: top }
 .dl-t td:first-child { white-space: nowrap }
+
+/* Traffic lights along the top of the diary */
+.dstat { margin: 0 18px 14px; padding: 12px 14px; border-radius: 14px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line) }
+.dst-key { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 10px }
+.dst-key b { color: var(--ink); font-size: 13px; margin-right: 4px }
+.dst-key span { display: inline-flex; align-items: center; gap: 6px }
+.dst-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block }
+.dst-grid { display: grid; gap: 4px; align-items: center; overflow-x: auto }
+.dst-d { font-size: 11px; color: var(--muted); text-align: center; white-space: nowrap; font-weight: 600 }
+.dst-d.on { color: var(--ink) }
+.dst-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden }
+.avatar.xs { width: 20px; height: 20px; font-size: 9px; flex: none }
+.dst-cell { height: 30px; border: 0; border-radius: 8px; font: 600 11px/1 var(--f-ui, inherit); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .12s, box-shadow .12s }
+.dst-cell:hover { transform: translateY(-1px) } .dst-cell.on { box-shadow: 0 0 0 2px var(--ink) }
+.dst-cell.off { background: repeating-linear-gradient(135deg, var(--subtle) 0 5px, transparent 5px 10px); color: var(--muted); cursor: default; font-weight: 500 }
+.dst-cell.full, .dst-dot.full { background: #2F8A57; color: #fff }
+.dst-cell.some, .dst-dot.some { background: #E8A33A; color: #2B1C05 }
+.dst-cell.low, .dst-dot.low { background: #CC4B3F; color: #fff }
+
+/* Confirmation-call markers by the patient's name: CC1, CC2, CC3 and the reminder text */
+.pn-row { display: flex; align-items: center; gap: 6px; min-width: 0 }
+.pn-row .pn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ccm { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: auto }
+.row1 .ccm { margin-left: 6px }
+.ccm i, .ccm-key i { width: 15px; height: 15px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font: 700 9px/1 var(--f-ui, inherit); font-style: normal; flex: none }
+.cc-done { background: #2F8A57; color: #fff }
+.cc-texted { background: #2F6FB3; color: #fff }
+.cc-na { background: #E8A33A; color: #2B1C05 }
+.cc-due { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink) }
+.cc-later { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); opacity: .8 }
+.ccm-rem { background: var(--forest-soft); color: var(--forest) } .ccm-rem .i { width: 10px; height: 10px }
+.ccm-key { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap } .ccm-key b { color: var(--ink); font-weight: 600 }
+.ccm-key i { margin-left: 6px } .ccm-key i:first-of-type { margin-left: 2px }
+.blk.has-tc .row1 { padding-right: 30px }
