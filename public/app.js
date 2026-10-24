@@ -234,12 +234,13 @@ function onEvent(type, e) {
   if (type === "reset") { UI.pid = null; UI.rec = null; closeDrawer(); toast("This demo was started again"); return; }
   if (!isAdmin()) {
     if (type === "slot.filled") toast(`Diary changed: ${e.patient} at ${hm(e.start)}`);
-    if (type === "route.planned") toast(`Your route ${e.day === 0 ? "today" : "on " + dayName(e.day)} has been re-planned: ${mins(e.savedMin)} less driving`);
+    if (type === "route.planned") toast(e.manual ? `The office has changed the order of your round ${e.day === 0 ? "today" : "on " + dayName(e.day)}` : `Your route ${e.day === 0 ? "today" : "on " + dayName(e.day)} has been re-planned: ${mins(e.savedMin)} less driving`);
     if (type === "appointment.booked") toast(`New visit${e.online ? " (booked online)" : ""}: ${e.patient}, ${e.day ? dayName(e.day) + " " : ""}${hm(e.start)}`);
     if (type === "appointment.moved") toast("The office has moved a visit on your round");
     return;
   }
   if (type === "referral.updated" && e.fresh) toast("New referral from the website form");
+  if (type === "route.planned" && e.auto) toast(`${e.clinician}'s round re-planned after the cancellation was refilled: ${mins(e.savedMin)} less driving, ${e.changed} patient${e.changed === 1 ? "" : "s"} texted`);
   if (type === "sale.recorded") toast(e.sold ? `${e.clinician} sold ${e.what} to ${e.patient}: ${pounds(e.totalPence)}` : `${e.clinician}: nothing sold to ${e.patient} (${String(e.reason || "").toLowerCase()})`);
   if (type === "lead.updated" && e.fresh) toast("New lead from your Facebook ad: thank-you email sent");
   if (type === "appointment.booked" && e.online) toast(`Booked online by the patient: ${e.patient}, ${dayName(e.day)} ${hm(e.start)} (+${e.extraDrive} min driving)`);
@@ -1605,7 +1606,7 @@ const SET_SECS = [
   { k: "practice", icon: "shield", label: "Practice details", sub: "Name, contact details, logo" },
   { k: "hours", icon: "clock", label: "Opening hours", sub: "When the diary runs" },
   { k: "visits", icon: "cal", label: "Visits & prices", sub: "Prices and online booking" },
-  { k: "refill", icon: "bolt", label: "Cancellations & reminders", sub: "How gaps are filled" },
+  { k: "refill", icon: "bolt", label: "Routes & cancellations", sub: "How rounds change, reminders" },
   { k: "messages", icon: "msg", label: "What patients receive", sub: "Texts and emails" },
   { k: "booking", icon: "qr", label: "Booking & referral pages", sub: "Links for your website" },
   { k: "facebook", icon: "send", label: "Facebook leads", sub: "Connect your ad forms" },
@@ -1698,7 +1699,14 @@ function settingsPage() {
       ${setFoot()}</form>`;
   } else if (sec === "refill") {
     const mins = [5, 10, 15, 20, 30, 45, 60, 90, 120];
+    const rm = st.routeMode || "manual";
     body = `<form id="set-refill" class="pg-form" novalidate>
+      <section class="card"><div class="card-h"><h2>How rounds change during the day</h2><p>What happens to a clinician's round when a visit is cancelled, refilled or booked at short notice. You can switch at any time.</p></div>
+        <div class="choice2" role="radiogroup" aria-label="How rounds change during the day">
+          <label class="choice"><input type="radio" name="set-rm" value="manual" ${rm === "manual" ? "checked" : ""}><span><b>${icon("users")}Manual</b><span>Nothing moves unless the office moves it: change the order of a round, move a visit, or apply a suggested route from Plan routes. New bookings go in the gap that adds least driving.</span></span></label>
+          <label class="choice"><input type="radio" name="set-rm" value="replan" ${rm === "replan" ? "checked" : ""}><span><b>${icon("send")}Text and re-plan</b><span>A cancelled slot is offered by text to the best-matched patients; the first to reply YES is booked. Domi then re-plans that round, keeping everyone inside the arrival window they've been given, if it saves 10 minutes or more.</span></span></label>
+          <label class="choice"><input type="radio" name="set-rm" value="end" ${rm === "end" ? "checked" : ""}><span><b>${icon("clock")}Add to the end</b><span>A visit booked for today or the next working day goes after the clinician's last visit, so nobody else's time changes. Booking shows the extra driving against the best gap.</span></span></label></div>
+        ${uses(["Plan routes", "Book a visit", "Cancellations"])}</section>
       <section class="card"><div class="card-h"><h2>When a visit is cancelled</h2><p>Domi picks the best-matched patients on the waiting list: urgency, area, how long they've waited and the extra driving.</p></div>
         <div class="choice2" role="radiogroup" aria-label="How cancelled visits are filled">
           <label class="choice"><input type="radio" name="set-mode" value="offer" ${st.mode === "offer" ? "checked" : ""}><span><b>${icon("send")}Text an offer</b><span>Patients reply YES to take it. The best match is asked first; when the visit is close, the top three are asked at once.</span></span></label>
@@ -2085,23 +2093,35 @@ function routeDrawer(r) {
   const d = UI.drawer, plan = d.plan;
   return `<div class="drawer-h"><div><div class="caps">${esc(r.day === 0 ? "Today" : dayName(r.day))}</div><h2 style="margin-top:6px">${esc(r.clinician.first)}'s route</h2></div>${closeX}</div>
     <div class="drawer-b">${d.applied ? `<div class="callout forest" style="margin-bottom:14px">${icon("check")}<div><b>Route re-planned</b><div style="margin-top:2px">${d.applied.changed} patient${d.applied.changed === 1 ? "" : "s"} texted their new time; ${esc(r.clinician.first)}'s phone has the new order.</div></div></div>` : ""}
-      ${plan ? planView(plan) : ""}
+      ${plan ? planView(plan) : d.reorder ? reorderView(r, d.reorder) : ""}
       ${r.stops.length ? routeMap(r) + routeSummary(r) : `<div class="empty"><b>No visits</b>Nothing booked on this day.</div>`}
       <p class="muted" style="font-size:12.5px;margin-top:14px">Drive times are road routes between the patients' postcodes where available, otherwise estimated from distance. Miles are estimated from distance.</p></div>
-    ${isAdmin() && r.stops.length && !plan ? `<div class="drawer-f"><button class="btn" type="button" data-act="plan-route" data-c="${r.clinician.id}" data-d="${r.day}">${icon("pin")}Plan the best route</button></div>` : ""}`;
+    ${isAdmin() && r.stops.length && !plan && !d.reorder ? `<div class="drawer-f">${r.stops.filter((s) => s.status === "booked").length > 1 ? `<button class="btn secondary" type="button" data-act="reorder" data-c="${r.clinician.id}" data-d="${r.day}">${icon("users")}Change the order</button>` : ""}<button class="btn" type="button" data-act="plan-route" data-c="${r.clinician.id}" data-d="${r.day}">${icon("pin")}Plan the best route</button></div>` : ""}`;
+}
+/** The office puts the round in its own order: move visits up and down, then see the new times before applying. */
+function reorderView(r, ids) {
+  const byId = Object.fromEntries(r.stops.map((s) => [s.id, s]));
+  const fixed = r.stops.filter((s) => s.status !== "booked");
+  return `<section class="plan-card"><div class="plan-head"><div><div class="caps">Change the order</div><b>Move visits up or down, then see the new times</b></div></div>
+    <ol class="plan-list ro-list">${fixed.map((s) => `<li class="fixed"><span class="mono">${hm(s.start)}</span><span>${esc(s.name)}</span><span class="muted">${s.status === "done" ? "Done" : "Under way"}: stays</span></li>`).join("")}
+      ${ids.map((id, i) => { const s = byId[id]; return `<li><span class="mono">${hm(s.start)}</span><span>${esc(s.name)} <span class="muted" style="font-size:12px">${esc(s.pc)}</span></span>
+        <span class="ro-btns"><button class="icon-btn sm" type="button" data-act="ro-move" data-i="${i}" data-v="-1" ${i === 0 ? "disabled" : ""} aria-label="Move ${esc(s.name)} earlier">↑</button><button class="icon-btn sm" type="button" data-act="ro-move" data-i="${i}" data-v="1" ${i === ids.length - 1 ? "disabled" : ""} aria-label="Move ${esc(s.name)} later">↓</button></span></li>`; }).join("")}</ol>
+    <p class="muted" style="font-size:12.5px;margin:10px 0 0">The visits keep the day's time slots in their new order. A time only moves later when the clinician can't get there by then, or the patient can't be seen until later.</p>
+    <div class="plan-actions"><button class="btn ghost sm" type="button" data-act="ro-cancel">Cancel</button><button class="btn sm" type="button" data-act="ro-preview" data-c="${r.clinician.id}" data-d="${r.day}">See the new times</button></div></section>`;
 }
 /** The proposed order: what it saves, who moves, and anything to check before applying. */
 function planView(p) {
+  if (!p.changed && p.manual) return `<div class="callout" style="margin-bottom:14px">${icon("check")}<div><b>Nobody's time changes</b><div style="margin-top:2px">That order gives everyone the same time as now.</div><button class="btn ghost sm" style="margin-top:8px" type="button" data-act="plan-cancel">Close</button></div></div>`;
   if (!p.changed) return p.warnings.length ? `<div class="callout warn" style="margin-bottom:14px">${icon("clock")}<div><b>A patient's time can't be kept on this day</b>${p.warnings.map((w) => `<div style="margin-top:4px">${esc(w)}</div>`).join("")}</div></div>`
     : `<div class="callout" style="margin-bottom:14px">${icon("check")}<div><b>This is already a good order</b><div style="margin-top:2px">No other order saves ten minutes or more of driving, so nobody needs a new time.</div></div></div>`;
   return `<section class="plan-card">
-    <div class="plan-head"><div><div class="caps">Proposed order</div><b>${p.fixes && !p.savedMin ? `Fits ${p.fixes} patient${p.fixes === 1 ? "'s" : "s'"} time${p.fixes === 1 ? "" : "s"}${p.extraMin ? `, ${mins(p.extraMin)} more driving` : ""}` : `${mins(p.savedMin)} less driving${p.savedMiles > 0 ? `, ${p.savedMiles} fewer miles` : ""}${p.fixes ? ` and fits ${p.fixes} patient${p.fixes === 1 ? "'s" : "s'"} time` : ""}`}</b></div>
+    <div class="plan-head"><div><div class="caps">${p.manual ? "Your order" : "Proposed order"}</div><b>${p.manual ? (p.savedMin ? `${mins(p.savedMin)} less driving` : p.extraMin ? `${mins(p.extraMin)} more driving` : "Same driving") : ""}${p.manual ? "" : `${p.fixes && !p.savedMin ? `Fits ${p.fixes} patient${p.fixes === 1 ? "'s" : "s'"} time${p.fixes === 1 ? "" : "s"}${p.extraMin ? `, ${mins(p.extraMin)} more driving` : ""}` : `${mins(p.savedMin)} less driving${p.savedMiles > 0 ? `, ${p.savedMiles} fewer miles` : ""}${p.fixes ? ` and fits ${p.fixes} patient${p.fixes === 1 ? "'s" : "s'"} time` : ""}`}`}</b></div>
       <div class="plan-tot"><span>Now <b>${mins(p.before.driveMin)}</b></span><span>Planned <b>${mins(p.after.driveMin)}</b></span></div></div>
     <ol class="plan-list">${p.fixed.map((f) => `<li class="fixed"><span class="mono">${hm(f.start)}</span><span>${esc(f.name)}</span><span class="muted">${f.status === "done" ? "Done" : "Under way"}: stays</span></li>`).join("")}
       ${p.planned.map((x) => `<li class="${x.moved ? "moved" : ""}"><span class="mono">${hm(x.start)}</span><span>${esc(x.name)}</span><span class="muted">${x.moved ? `was ${hm(x.from)}` : "same time"}${x.tw ? ` · <span class="twc">${icon("clock")}${esc(x.tw)}</span>` : ""}</span></li>`).join("")}</ol>
     ${p.warnings.length ? `<div class="ir-m" style="margin:8px 0 0">${p.warnings.map((w) => `<span>${esc(w)}</span>`).join("")}</div>` : ""}
-    <p class="muted" style="font-size:12.5px;margin:10px 0 0">Mornings stay mornings and afternoons stay afternoons, and each patient's own times are kept. Each patient whose time changes gets a text with the new time and can reply NO.</p>
-    <div class="plan-actions"><button class="btn ghost sm" type="button" data-act="plan-cancel">Keep it as it is</button><button class="btn sm" type="button" data-act="plan-apply" data-c="${p.clinicianId}" data-d="${p.day}">${icon("check")}Apply and text ${p.changed} patient${p.changed === 1 ? "" : "s"}</button></div>
+    <p class="muted" style="font-size:12.5px;margin:10px 0 0">${p.manual ? "The order is yours: Domi only works out the times." : "Mornings stay mornings and afternoons stay afternoons, and each patient's own times are kept."} Each patient whose time changes gets a text with the new time and can reply NO.</p>
+    <div class="plan-actions"><button class="btn ghost sm" type="button" data-act="plan-cancel">Keep it as it is</button><button class="btn sm" type="button" data-act="plan-apply" data-c="${p.clinicianId}" data-d="${p.day}" ${p.manual ? `data-ids="${esc(p.planned.map((x) => x.id).join(","))}"` : ""}>${icon("check")}Apply and text ${p.changed} patient${p.changed === 1 ? "" : "s"}</button></div>
   </section>`;
 }
 /* ---------- Every clinician's route for one day, planned at once ---------- */
@@ -2809,11 +2829,17 @@ document.addEventListener("click", async (e) => {
       case "map-focus": focusStop(el.dataset.map, Number(el.dataset.i)); break;
       case "plan-route": el.disabled = true; UI.drawer.plan = await api("GET", `/api/route/plan?clinician=${el.dataset.c}&day=${el.dataset.d}`); redraw(); break;
       case "plan-cancel": UI.drawer.plan = null; redraw(); break;
+      case "reorder": UI.drawer.reorder = UI.drawer.data.stops.filter((s) => s.status === "booked").map((s) => s.id); UI.drawer.applied = null; redraw(); break;
+      case "ro-move": { const L = UI.drawer.reorder, i = Number(el.dataset.i), j = i + Number(el.dataset.v); [L[i], L[j]] = [L[j], L[i]]; redraw(); break; }
+      case "ro-cancel": UI.drawer.reorder = null; redraw(); break;
+      case "ro-preview": el.disabled = true; UI.drawer.plan = await api("POST", "/api/route/order", { clinicianId: el.dataset.c, day: Number(el.dataset.d), ids: UI.drawer.reorder }); UI.drawer.reorder = null; redraw(); break;
       case "plan-apply": {
         el.disabled = true;
-        const r = await api("POST", "/api/route/plan", { clinicianId: el.dataset.c, day: Number(el.dataset.d) });
+        const manual = !!el.dataset.ids;
+        const r = manual ? await api("POST", "/api/route/order", { clinicianId: el.dataset.c, day: Number(el.dataset.d), ids: el.dataset.ids.split(","), apply: true })
+          : await api("POST", "/api/route/plan", { clinicianId: el.dataset.c, day: Number(el.dataset.d) });
         const data = await api("GET", `/api/route?clinician=${el.dataset.c}&day=${el.dataset.d}`);
-        UI.drawer = { kind: "route", data, applied: r }; await load(); toast(`Route planned: ${mins(r.savedMin)} less driving`); break;
+        UI.drawer = { kind: "route", data, applied: r }; await load(); toast(manual ? `New order saved: ${r.changed} patient${r.changed === 1 ? "" : "s"} texted` : `Route planned: ${mins(r.savedMin)} less driving`); break;
       }
       case "plans": UI.drawer = { kind: "plans", day: UI.view === "week" ? 1 : UI.day }; openDrawer(UI.drawer); await loadPlans(UI.drawer.day); break;
       case "plans-day": await loadPlans(Number(el.dataset.v)); break;
@@ -3115,7 +3141,7 @@ document.addEventListener("submit", async (e) => {
         "set-practice": () => ({ practice: v("practice"), phone: v("phone"), email: v("email"), officeHours: v("hoursText"), logo: v("logo") }),
         "set-hours": () => ({ dayStart: Number(v("ds")), dayEnd: Number(v("de")), bookAheadDays: Number(v("ba")), onlineAheadDays: Number(v("oa")), offerAheadDays: Number(v("fa")), closures: (UI.pg && UI.pg.clo) || S.settings.closures || [] }),
         "set-visits": () => ({ clinicTarget: Number(v("tgt")), durations: Object.fromEntries([...e.target.querySelectorAll("[data-dur]")].map((i) => [i.dataset.dur, Number(i.value)])), prices: Object.fromEntries([...e.target.querySelectorAll("[data-price]")].map((i) => [i.dataset.price, Number(i.value)])), online: [...e.target.querySelectorAll("[data-online]:checked")].map((i) => i.dataset.online) }),
-        "set-refill": () => ({ mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")), autoRecalls: $("#set-arc").checked, recallAt: Number(v("rat")) }),
+        "set-refill": () => ({ routeMode: (e.target.querySelector("[name=set-rm]:checked") || {}).value, mode: (e.target.querySelector("[name=set-mode]:checked") || {}).value, offerMinutes: Number(v("om")), fee: Number(v("fee")), reminders: $("#set-rem").checked, reminderAt: Number(v("ra")), autoRecalls: $("#set-arc").checked, recallAt: Number(v("rat")) }),
       }[e.target.id];
       if (!body) return;
       const r = await api("PUT", "/api/settings", body());

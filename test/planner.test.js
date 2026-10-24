@@ -77,3 +77,20 @@ test("time restrictions: when no order can keep one, the office is told rather t
   const p = planDay({ base: "H", visits: [V("a", "A", 540, { tw: { k: "fixed", at: 540 } }), V("b", "B", 600, { tw: { k: "fixed", at: 540 } })], drive });
   assert.ok(p.warnings.some((w) => /can't be fitted/.test(w)), p.warnings.join("; "));
 });
+
+test("an arrival window already given (CC2) is kept by an automatic re-plan", () => {
+  // Without windows, C, B, A is best (first test). B was told 09:00-12:00 and A 10:30-13:30: the plan must keep both.
+  const p = planDay({ base: "H", visits: [V("c", "C", 540), V("a", "A", 600, { tw: { k: "between", at: 630, to: 690 } }), V("b", "B", 660, { tw: { k: "between", at: 540, to: 600 } })], drive });
+  const at = Object.fromEntries(p.planned.map((x) => [x.id, x.start]));
+  assert.ok(at.a >= 630 && at.a <= 690, `a at ${at.a}`); assert.ok(at.b >= 540 && at.b <= 600, `b at ${at.b}`);
+});
+
+test("the office's own order: times follow it, restrictions are flagged, and every visit must be listed", () => {
+  const { orderDay } = require("../server/planner");
+  const visits = [V("c", "C", 540), V("a", "A", 600), V("b", "B", 660, { tw: { k: "after", at: 720 } })];
+  const p = orderDay({ base: "H", visits, order: ["a", "b", "c"], drive });
+  assert.deepStrictEqual(p.planned.map((x) => x.id), ["a", "b", "c"]);
+  assert.ok(p.planned[1].start >= 720, "b waits until it can be seen");
+  assert.ok(p.planned.every((x, i, l) => i === 0 || x.start >= l[i - 1].start + 30), "no overlaps");
+  assert.throws(() => orderDay({ base: "H", visits, order: ["a", "b"], drive }), /every visit/);
+});

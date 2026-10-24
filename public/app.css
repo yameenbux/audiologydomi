@@ -1227,3 +1227,5 @@ button.rm-row:hover { background: var(--subtle) }
 @media print { .side, .rep-ctl .seg, .pg-acts, .app-top, header.top { display: none !important } .rep-grid { grid-template-columns: 1fr 1fr } .card { break-inside: avoid } }
 .rep .card-h { position: relative; padding-right: 96px } .rep-x { position: absolute; right: 0; top: 0 }
 @media print { .rep-x, [data-act="rep-csv"] { display: none !important } }
+.ro-list li { align-items: center } .ro-btns { display: inline-flex; gap: 4px; justify-self: end }
+.ro-btns .icon-btn { font-weight: 700; font-size: 14px }

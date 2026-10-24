@@ -365,6 +365,18 @@ function offerNext(slotId, actor, { first: isFirst = false } = {}) {
 }
 
 /**
+ * "Text and re-plan" (Settings, routeMode replan): once a cancelled slot is refilled, re-plan that clinician's day,
+ * keeping every patient inside the arrival window they've been given. Applied only when it saves 10 minutes or more
+ * and breaks nothing; otherwise the day stays as it is (the office can still plan it by hand).
+ */
+async function autoReplan(cid, day) {
+  if ((settings().routeMode || "manual") !== "replan") return null;
+  const plan = await planRoute(cid, day, { told: true });
+  if (!plan.changed || plan.warnings.length || plan.savedMin < 10) return null;
+  return commitPlan(plan, day, { name: "Domi (automatic re-plan)" }, "route.auto", { auto: true });
+}
+
+/**
  * Put a waiting-list patient into a freed slot. `how`: "offer" (they replied YES), "instant" (instant mode) or
  * "office" (the office rang them and booked it).
  */
@@ -402,6 +414,8 @@ function book(slot, waitlistId, offerId, actor, how = offerId ? "offer" : "insta
   audit(actor, "slot.filled", id, `${p.name} moved forward to ${hm(slot.start)} with ${c.name}${how === "office" ? " (booked by phone)" : ""}`);
   const booking = { appointmentId: id, patient: p.name, clinician: c.name, day: slot.day, start: slot.start, instant: how === "instant", byOffice: how === "office" };
   bus.emit({ type: "slot.filled", clinicianId: c.id, slotId: slot.id, ...booking });
+  // Text and re-plan: once this booking is saved, see whether the day now has a better order.
+  if ((settings().routeMode || "manual") === "replan") setImmediate(() => autoReplan(c.id, slot.day).catch((e) => console.error("auto re-plan:", e.message)));
   return booking;
 }
 
@@ -623,22 +637,47 @@ async function routeFor(cid, day, insert, { withPath = true } = {}) {
 
 /* ---------- Route planning ---------- */
 /** A clinician's day, re-ordered to drive least (server/planner.js). Nothing changes until it's applied. */
-async function planRoute(cid, day) {
+async function dayVisits(cid, day, { told = false } = {}) {
   const c = getClinician(String(cid || ""));
   if (!c) throw new HttpError(404, "No such clinician.");
   bookableDay(day);
   const visits = all("SELECT a.*, p.name, p.pc FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.day = ? AND a.status != 'cancelled' ORDER BY a.start_min", c.id, day)
     .map((r) => ({ id: r.id, name: r.name, pc: r.pc, dur: TYPES[r.type].dur, start: r.start_min, status: r.status, type: r.type, tw: r.tw ? { k: r.tw, at: r.tw_at } : null }));
+  // An automatic re-plan keeps every patient inside the arrival window they've already been given (their CC2 or
+  // CC3 call, or its text). Their own restriction, when they have one, still comes first.
+  if (told) {
+    const { arrivalWindow } = require("./calls");
+    for (const v of visits) {
+      if (v.tw || !one("SELECT 1 FROM confirmations WHERE appointment_id = ? AND stage IN (2, 3) AND outcome != 'no-answer'", v.id)) continue;
+      const [from, to] = arrivalWindow(v.start); v.tw = { k: "between", at: from, to };
+    }
+  }
   await travel.prepare([c.base, ...visits.map((v) => v.pc)]);
   const drive = (a, b) => (a === b ? 0 : travel.driveMinutes(a, b) || 15);
   const [dayStart, dayEnd] = hoursOn(c, day) || [settings().dayStart, settings().dayEnd];
-  const plan = planner.planDay({ base: c.base, visits, drive, miles: travel.miles, now: day === 0 ? sandbox.nowMin() : null, dayStart, dayEnd });
+  return { c, visits, drive, dayStart, dayEnd, now: day === 0 ? sandbox.nowMin() : null };
+}
+async function planRoute(cid, day, opts = {}) {
+  const { c, visits, drive, dayStart, dayEnd, now } = await dayVisits(cid, day, opts);
+  const plan = planner.planDay({ base: c.base, visits, drive, miles: travel.miles, now, dayStart, dayEnd });
   return { clinicianId: c.id, clinician: c.name, first: c.first, day, dayLabel: cal.label(day), ...plan };
+}
+/** The office's own order for a clinician's day (Route: change the order). Shown first; applied with `apply`. */
+async function orderRoute(cid, day, ids, apply, user) {
+  const { c, visits, drive, dayStart, dayEnd, now } = await dayVisits(cid, day);
+  let plan;
+  try { plan = planner.orderDay({ base: c.base, visits, order: Array.isArray(ids) ? ids.map(String) : [], drive, miles: travel.miles, now, dayStart, dayEnd }); }
+  catch (e) { throw new HttpError(400, e.message); }
+  plan = { clinicianId: c.id, clinician: c.name, first: c.first, day, dayLabel: cal.label(day), ...plan };
+  return apply ? commitPlan(plan, day, user, "route.ordered") : plan;
 }
 
 /** Put a planned route into the diary, and text each patient whose time has changed. */
 async function applyRoute(cid, day, user) {
-  const plan = await planRoute(cid, day);
+  return commitPlan(await planRoute(cid, day), day, user, "route.planned");
+}
+/** Put a planned or re-ordered round into the diary, and text each patient whose time has changed. */
+function commitPlan(plan, day, user, action, { auto = false } = {}) {
   return tx(() => {
     if (!plan.changed) return { ...plan, applied: false };
     // Re-check against the diary as it is now, so a visit booked or cancelled meanwhile isn't overwritten.
@@ -652,9 +691,11 @@ async function applyRoute(cid, day, user) {
       const a = getAppt(p.id), pt = getPatient(a.patientId);
       sendSms({ to: pt.phone, name: pt.name, kind: "time-change", body: `Hi ${first(pt.name)}, it's ${practice()}. Your home visit ${cal.phrase(day)} is now at ${hm(p.start)} (was ${hm(p.from)}). Reply NO if that doesn't suit.` });
     }
-    sendSms({ to: "clinician", name: plan.clinician, kind: "diary-change", toClinicianId: plan.clinicianId, body: `Your route ${cal.phrase(day)} has been re-planned: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved, about ${plan.savedMin} min less driving. The new order is in the app.` });
-    audit(user.name, "route.planned", `${plan.clinicianId}:${day}`, `${plan.clinician} ${cal.label(day)}: ${plan.changed} moved, ${plan.savedMin} min and ${plan.savedMiles} miles saved`);
-    bus.emit({ type: "route.planned", clinicianId: plan.clinicianId, day, savedMin: plan.savedMin });
+    sendSms({ to: "clinician", name: plan.clinician, kind: "diary-change", toClinicianId: plan.clinicianId, body: plan.manual
+      ? `The office has changed the order of your round ${cal.phrase(day)}: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved. The new order is in the app.`
+      : `Your route ${cal.phrase(day)} has been re-planned${auto ? " after a cancellation was refilled" : ""}: ${plan.changed} visit${plan.changed === 1 ? "" : "s"} moved, about ${plan.savedMin} min less driving. The new order is in the app.` });
+    audit(user.name, action, `${plan.clinicianId}:${day}`, `${plan.clinician} ${cal.label(day)}: ${plan.changed} moved, ${plan.savedMin} min and ${plan.savedMiles} miles saved${plan.extraMin ? `, ${plan.extraMin} min more driving` : ""}`);
+    bus.emit({ type: "route.planned", clinicianId: plan.clinicianId, clinician: plan.first, day, savedMin: plan.savedMin, changed: plan.changed, auto, manual: !!plan.manual });
     return { ...plan, applied: true };
   });
 }
@@ -929,8 +970,18 @@ function slotsFor(patient, type, avail, { exclude = null, from = 0, count = 10, 
   const days = cal.openDays(from, count, max);
   // Only times the patient can do: the visit's own restriction when it's being moved, otherwise the patient's standing one.
   if (tw === undefined) tw = patient.id ? (getPatient(patient.id) || {}).tw || null : null;
-  return suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine", pvnApproved })
+  let out = suggestSlots({ pc: patient.pc, type, avail: ["am", "pm"].includes(avail) ? avail : "any", clinicians, appts, days, now: sandbox.nowMin(), prio: wait ? wait.prio : "routine", pvnApproved })
     .filter((s) => twAllows(tw, s.start));
+  // "Add to the end" (Settings, routeMode end): a same-day booking goes after the clinician's last visit, so
+  // nobody else's time changes. Each option says what the best gap would have cost instead.
+  // Last minute means today or the next working day: those patients have had their day-before call or reminder.
+  if ((settings().routeMode || "manual") === "end" && !exclude) {
+    const soon = (d) => d <= (cal.openDays(1, 1)[0] ?? 1), key = (s) => `${s.clinicianId}:${s.day}`, best = {};
+    out.filter((s) => soon(s.day)).forEach((s) => { best[key(s)] = Math.min(best[key(s)] ?? Infinity, s.extraDrive); });
+    out = out.filter((s) => !soon(s.day) || !s.next).map((s) => !soon(s.day) ? s
+      : { ...s, why: [...(s.why || []), `End of the round${best[key(s)] < s.extraDrive ? `: +${s.extraDrive} min driving (the best gap that day would be +${best[key(s)]} min)` : ""}`] });
+  }
+  return out;
 }
 
 /**
@@ -1374,7 +1425,7 @@ async function updatePatient(id, input, user) {
 
 /* ---------- Settings: the practice's own details and rules, which the rest of Domi reads ---------- */
 const SETTING_LABELS = { practice: "practice name", phone: "phone number", email: "email", logo: "logo", officeHours: "office hours", dayStart: "opening time", dayEnd: "closing time",
-  prices: "prices", durations: "visit lengths", clinicTarget: "patients-per-day target", online: "online booking", mode: "how cancellations are filled", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
+  prices: "prices", durations: "visit lengths", clinicTarget: "patients-per-day target", online: "online booking", mode: "how cancellations are filled", routeMode: "how rounds change during the day", offerMinutes: "reply window", autoRecalls: "automatic recall texts", recallAt: "recall text time", reminders: "reminders", reminderAt: "reminder time", fee: "fee per visit",
   bookAheadDays: "how far ahead the office can book", onlineAheadDays: "how far ahead patients can book online", offerAheadDays: "how far ahead gaps are offered", closures: "closure days" };
 const plain = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -1455,6 +1506,11 @@ function saveSettings(input, user) {
     next.online = ONLINE_TYPES.filter((k) => list.includes(k));
   }
   if (has("mode")) { if (!["offer", "instant", "phone"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
+  if (has("routeMode")) {
+    if (!["manual", "replan", "end"].includes(input.routeMode)) throw new HttpError(400, "Choose how rounds change during the day.");
+    next.routeMode = input.routeMode;
+    if (input.routeMode === "replan" && (next.mode || st.mode) === "phone") next.mode = "offer"; // text and re-plan texts the waiting list
+  }
   if (has("offerMinutes")) { const n = Number(input.offerMinutes); if (!(Number.isInteger(n) && n >= 1 && n <= 240)) throw new HttpError(400, "The reply window must be between 1 and 240 minutes."); next.offerMinutes = n; }
   if (has("autoRecalls")) { if (typeof input.autoRecalls !== "boolean") throw new HttpError(400, "Turn automatic recall texts on or off."); next.autoRecalls = input.autoRecalls; }
   // How far ahead bookings can go, in days: the office (up to 2 years), patients online, and gaps offered by text.
@@ -1958,4 +2014,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { reports, reportPeriod, recordSale, saveSale, saleOf, NO_SALE, setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { orderRoute, autoReplan, reports, reportPeriod, recordSale, saveSale, saleOf, NO_SALE, setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

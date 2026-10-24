@@ -573,6 +573,7 @@ route("GET", "/api/route", {}, (req, body, user) => {
 // Route planning: the office sees the proposed order first, then applies it.
 route("GET", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); const q = new URL(req.url, "http://x").searchParams; return svc.planRoute(q.get("clinician"), Number(q.get("day") || 0)); });
 route("POST", "/api/route/plan", {}, (req, body, user) => { needAdmin(user); return svc.applyRoute(body.clinicianId, Number(body.day || 0), user); });
+route("POST", "/api/route/order", {}, (req, body, user) => { needAdmin(user); return svc.orderRoute(body.clinicianId, Number(body.day || 0), body.ids, body.apply === true, user); });
 
 // Tomorrow's reminders now, rather than waiting for the practice's reminder time (the demo can't wait until 17:00).
 route("POST", "/api/reminders/send", {}, (req, body, user) => { needAdmin(user); sandbox.current().remindedDay = 1; return svc.sendReminders(require("./calendar").openDays(1, 1)[0], user.name); });
