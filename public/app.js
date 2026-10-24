@@ -431,7 +431,7 @@ function officeView() {
         ${statusStrip()}
         ${UI.view === "week" ? weekView() : `<div class="panel-h" style="padding-top:0"><span class="sub">${UI.day === 0 ? "Today, " + esc(dayLong(0)) : esc(dayLong(UI.day))}${calDay(UI.day) && !calDay(UI.day).open ? ` · <b>Closed: ${esc(calDay(UI.day).why)}</b>` : ""}</span>
           <div class="legend"><span><i class="sw" style="background:var(--surface)"></i>Booked</span><span><i class="sw" style="background:var(--warn-soft)"></i>On the way</span><span><i class="sw" style="background:var(--ok-soft)"></i>With patient</span><span><i class="sw" style="background:var(--subtle)"></i>Done</span><span><i class="sw" style="background:var(--apricot-soft)"></i>Moved forward</span><span><i class="sw" style="background:var(--forest-soft)"></i>New booking</span>
-            <span class="ccm-key"><b>Calls</b><i class="cc-done">✓</i>Done<i class="cc-texted">✓</i>Texted<i class="cc-na">!</i>No answer<i class="cc-due"></i>Due<i class="cc-later"></i>Not yet<i class="ccm-rem">${icon("msg")}</i>Reminder sent</span></div>
+            <span class="ccp-key"><b>Calls</b><span class="ccp"><i class="s-done">CC</i></span>Done<span class="ccp"><i class="s-texted">CC</i></span>Texted<span class="ccp"><i class="s-na">CC</i></span>No answer<span class="ccp"><i class="s-due">CC</i></span>Due today<span class="ccp"><i class="s-later">CC</i></span>Not yet<span class="ccp"><i class="ccp-rem">${icon("msg")}</i></span>Reminder sent</span></div>
         </div>
         <div class="board-wrap" data-scroll="board">${board(nowM)}</div>`}
       </section>
@@ -703,9 +703,9 @@ function ccMarks(a) {
   if (!a.cc || a.status === "missed") return "";
   const marks = [1, 2, 3].map((s) => ccState(a, s));
   const made3 = a.cc[3] && a.cc[3].o !== "no-answer";
-  const rem = a.reminded && !made3 ? `<i class="ccm-rem" title="Day-before reminder text sent">${icon("msg")}</i>` : "";
+  const rem = a.reminded && !made3 ? `<i class="ccp-rem" title="Day-before reminder text sent">${icon("msg")}</i>` : "";
   const label = marks.map(([, why]) => why).join(". ") + (rem ? ". Reminder text sent" : "");
-  return `<span class="ccm" title="${esc(label)}" aria-label="${esc(label)}">${marks.map(([cls], i) => `<i class="cc-${cls}">${i + 1}</i>`).join("")}${rem}</span>`;
+  return `<span class="ccp" title="${esc(label)}" aria-label="${esc(label)}">${marks.map(([cls], i) => `<i class="s-${cls}">CC${i + 1}</i>`).join("")}${rem}</span>`;
 }
 
 /** How full a clinician's day is: visit time plus driving, against their working hours. null on a day off. */
@@ -721,16 +721,21 @@ const lightOf = (pct) => LIGHTS.find(([min]) => pct >= min);
 function statusStrip() {
   const days = openAhead(0, 10), team = S.clinicians.filter((c) => c.active !== false);
   if (!days.length || !team.length) return "";
-  const head = days.map((d) => { const x = calDay(d); return `<div class="dst-d${UI.view === "day" && UI.day === d ? " on" : ""}">${d === 0 ? "Today" : esc(x.label.slice(0, x.label.lastIndexOf(" ")))}</div>`; }).join("");
-  const rows = team.map((c) => `<div class="dst-name"><span class="avatar xs" style="background:${c.color}">${initials(c.name)}</span>${esc(c.first || c.name)}</div>` + days.map((d) => {
+  const on = (d) => UI.view === "day" && UI.day === d;
+  // A small gap where a new week starts, so the two weeks read apart.
+  const wk = (d, i) => (i > 0 && weekStart(d) !== weekStart(days[i - 1]) ? " nw" : "");
+  const head = days.map((d, i) => { const x = calDay(d), [wd, dn] = x.label.split(" ");
+    return `<div class="dst-d${on(d) ? " on" : ""}${wk(d, i)}">${d === 0 ? "<b>Today</b>" : `${esc(wd)} <b>${esc(dn)}</b>`}</div>`; }).join("");
+  const rows = team.map((c) => `<div class="dst-name"><span class="avatar xs" style="background:${c.color}">${initials(c.name)}</span><span>${esc(c.first || c.name)}</span></div>` + days.map((d, i) => {
     const L = dayLoad(c, d), x = calDay(d);
-    if (!L) return `<div class="dst-cell off" title="${esc(c.first)}, ${esc(x.long)}: day off"><span>Off</span></div>`;
+    if (!L) return `<div class="dst-cell off${wk(d, i)}" title="${esc(c.first)}, ${esc(x.long)}: day off">–</div>`;
     const [, cls, word] = lightOf(L.pct);
-    return `<button class="dst-cell ${cls}${UI.view === "day" && UI.day === d ? " on" : ""}" type="button" data-act="day" data-v="${d}" title="${esc(c.first)}, ${esc(x.long)}: ${word}, ${L.pct}% booked, ${L.n} visit${L.n === 1 ? "" : "s"}" aria-label="${esc(c.name)}, ${esc(x.long)}: ${word}, ${L.pct}% booked"><span>${L.pct}%</span></button>`;
+    return `<button class="dst-cell ${cls}${on(d) ? " on" : ""}${wk(d, i)}" type="button" data-act="day" data-v="${d}" title="${esc(c.first)}, ${esc(x.long)}: ${word}. ${L.pct}% booked, ${L.n} visit${L.n === 1 ? "" : "s"}" aria-label="${esc(c.name)}, ${esc(x.long)}: ${word}, ${L.pct}% booked">${L.pct}%<i style="width:${L.pct}%"></i></button>`;
   }).join("")).join("");
   return `<div class="dstat" aria-label="How full each diary is">
-    <div class="dst-key"><b>Diary status, next 2 weeks</b><span><i class="dst-dot full"></i>Full (85%+)</span><span><i class="dst-dot some"></i>Some space</span><span><i class="dst-dot low"></i>Needs filling (under 50%)</span><span class="muted">Tap a day to open it</span></div>
-    <div class="dst-grid" style="grid-template-columns:96px repeat(${days.length},minmax(44px,1fr))"><div></div>${head}${rows}</div></div>`;
+    <div class="dst-top"><div><b>Diary status</b><span>Next 2 weeks · tap a day to open it</span></div>
+      <div class="dst-key"><span><i class="dst-dot full"></i>Full</span><span><i class="dst-dot some"></i>Some space</span><span><i class="dst-dot low"></i>Needs filling</span></div></div>
+    <div class="dst-grid" style="grid-template-columns:88px repeat(${days.length},minmax(40px,1fr))"><div></div>${head}${rows}</div></div>`;
 }
 
 /** Clinicians on the diary: everyone working, plus anyone who has left but still has visits that day. */
@@ -748,15 +753,16 @@ function board(nowM) {
     const h = hoursFor(c, UI.day), shut = calDay(UI.day) && !calDay(UI.day).open;
     const off = !h ? `<div class="off-hours" style="top:0;height:${H}px"><span>${shut ? "Closed" : "Day off"}</span></div>`
       : (h[0] > DS ? `<div class="off-hours" style="top:0;height:${(h[0] - DS) * PX}px"></div>` : "") + (h[1] < DE ? `<div class="off-hours" style="top:${(h[1] - DS) * PX}px;height:${(DE - h[1]) * PX}px"></div>` : "");
-    const blocks = list.map((a) => {
+    const blocks = list.map((a, i) => {
       const p = pat(a.patientId), t = T(a.type), top = (a.start - DS) * PX, h = Math.max(t.dur * PX - 4, 36);
+      const prev = list[i - 1], room = prev ? (a.start - prev.start - T(prev.type).dur) * PX : Infinity; // space above for the drive label
       const cls = a.moved ? "moved" : a.bookedMin != null && a.status === "booked" ? "fresh" : a.status;
-      const drive = a.drive >= 10 ? `<div class="drive" style="top:${top - a.drive * PX + 3}px">${icon("car")}${a.drive} min</div>` : "";
+      const drive = a.drive >= 10 && room >= 16 ? `<div class="drive" style="top:${top - Math.min(a.drive * PX, room) + 3}px">${icon("car")}${a.drive} min</div>` : "";
       const marks = ccMarks(a);
       const twc = a.tw ? `<span class="twc ${twOk(a.tw, a.start) ? "" : "bad"}" title="Can be seen: ${esc(twText(a.tw))}${twOk(a.tw, a.start) ? "" : ". Booked outside this: plan the route or move the visit"}">${icon("clock")}${esc(twText(a.tw))}</span>` : "";
       const head = h < 52
-        ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="pn">${esc(p.name)}</span>${marks}</span>`
-        : `<span class="tm">${hm(a.start)}–${hm(a.start + t.dur)}</span><span class="pn-row"><span class="pn">${esc(p.name)}</span>${marks}</span>`;
+        ? `<span class="row1"><span class="tm">${hm(a.start)}</span><span class="pn">${esc(p.name)}</span></span>${marks ? `<span class="ccline">${marks}</span>` : ""}`
+        : `<span class="tm">${hm(a.start)}–${hm(a.start + t.dur)}</span><span class="pn">${esc(p.name)}</span>${marks ? `<span class="ccline">${marks}</span>` : ""}`;
       const extra = (h > 62 ? `<span class="ty">${t.name}</span>` : "") + twc
         + (h > 84 && a.moved ? `<span class="badge b-apricot" style="margin-top:4px">${icon("bolt")}Moved forward</span>` : "")
         + (h > 60 && !a.moved && a.bookedMin != null ? `<span class="badge b-forest" style="margin-top:4px">${icon("plus")}New booking</span>` : "")
