@@ -146,43 +146,6 @@
     .js .opened .card-r { transform: translateY(84px) rotate(5deg); }
   }
 
-  /* What's built and what's coming: three rows and an outline that glides to the chosen one; its list shows alongside */
-  .plans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin-top: 40px; align-items: start; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .picker { background: var(--card); border: 1px solid var(--line); border-radius: 30px; padding: 12px; margin: 0; }
-  .picker fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
-  .rows input { position: absolute; opacity: 0; pointer-events: none; }
-  .row:has(input:focus-visible) { outline: 3px solid var(--amber); outline-offset: 2px; }
-  .rows { position: relative; display: flex; flex-direction: column; gap: 12px; }
-  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 18px; border: 1.5px solid var(--line);
-    border-radius: 18px; cursor: pointer; }
-  .row-text { display: flex; flex-direction: column; gap: 2px; }
-  .row-name { font: 700 20px/1.2 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.015em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .row-price { color: var(--soft); }
-  .row-price b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-  .badge { font: 600 12.5px 'Plus Jakarta Sans', sans-serif; padding: 3px 8px; border-radius: 8px; background: var(--mint-bg); color: var(--mint); letter-spacing: 0; }
-  .badge.soon { background: none; color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
-  .dot { flex: none; width: 22px; height: 22px; margin-top: 3px; border-radius: 50%; border: 2px solid var(--soft); display: grid; place-items: center;
-    transition: border-color .3s; }
-  .dot::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--mint); opacity: 0; transition: opacity .3s; }
-  .row:has(input:checked) .dot { border-color: var(--mint); }
-  .row:has(input:checked) .dot::after { opacity: 1; }
-  .glide { position: absolute; left: 0; right: 0; top: 0; height: 0; border: 2.5px solid var(--mint); border-radius: 18px; pointer-events: none;
-    opacity: 0; transition: transform .3s cubic-bezier(.16,1,.3,1), height .3s cubic-bezier(.16,1,.3,1); }
-  .picker.ready .glide { opacity: 1; }
-  .soon-line { margin: 14px 6px 4px; text-align: center; color: var(--soft); font-size: 15px; }
-  .js .plan .panel:not(.on) { display: none; }
-  .panel + .panel { margin-top: 26px; } .js .panel + .panel { margin-top: 0; }
-  @media (prefers-reduced-motion: reduce) { .glide, .dot, .dot::after { transition: none; } }
-  @media (max-width: 760px) { .plans { grid-template-columns: 1fr; } }
-  .plan { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 30px; }
-  .plan ul { list-style: none; padding: 0; margin: 22px 0 0; }
-  .plan li { padding: 9px 0 9px 32px; border-top: 1px solid var(--line); position: relative; }
-  .plan li::before { content: ''; position: absolute; left: 2px; top: 13px; width: 18px; height: 18px; border-radius: 50%; background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236CC592' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5.5 12.5 4.2 4.2 8.8-9.2'/%3E%3C/svg%3E") center / 12px no-repeat; }
-  .plan .panel[data-plan="next"] li::before, .plan .panel[data-plan="later"] li::before { background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F4A27D' stroke-width='2.6' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7.5'/%3E%3Cpath d='M12 8.2V12l2.6 1.6'/%3E%3C/svg%3E") center / 13px no-repeat; }
-  .plan li small { display: block; color: var(--soft); font-size: 15px; }
-  .fine { color: var(--soft); font-size: 15px; margin-top: 18px; }
-  .plans + .fine { text-align: center; max-width: 720px; margin-left: auto; margin-right: auto; }
 
   /* Data promise */
   .promise dl { margin: 40px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center; }
@@ -344,6 +307,206 @@
   footer .wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
   footer a { color: var(--on-forest); }
   footer p { margin: 0; }
+
+  .fine { color: var(--soft); font-size: 15px; margin-top: 18px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Sections that rise into place as they're scrolled to. Without the script, or with less motion asked for, they're
+     simply there. */
+  @media (prefers-reduced-motion: no-preference) {
+    .js [data-reveal] { opacity: 0; transform: translateY(22px); transition: opacity .7s cubic-bezier(.22,1,.36,1), transform .7s cubic-bezier(.22,1,.36,1); transition-delay: var(--d, 0s); }
+    .js [data-reveal].in { opacity: 1; transform: none; }
+  }
+
+  /* The round: one clinician's day on a map. A visit cancels, three nearby patients are texted, the first YES is
+     booked and the route redraws. The script steps data-step from 0 to 5 and starts again; every change is a CSS
+     transition on that step, so the drawing is vector all the way down and sharp on any screen. */
+  .story .sect-lead { margin-bottom: 40px; }
+  .scene { position: relative; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px;
+    background: linear-gradient(160deg, rgba(30,77,64,.32), rgba(12,20,18,.6) 60%); border: 1px solid var(--line); border-radius: 28px; padding: 18px;
+    box-shadow: 0 40px 90px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(247,251,249,.05); }
+  .map { display: block; width: 100%; height: auto; border-radius: 18px; background: #0E1916; }
+  .map .road { fill: none; stroke: rgba(247,251,249,.07); stroke-linecap: round; stroke-linejoin: round; }
+  .map .lbl { font: 600 13px 'Plus Jakarta Sans', sans-serif; fill: var(--on-forest-soft); }
+  .map .lbl-s { font: 500 11.5px 'Plus Jakarta Sans', sans-serif; fill: var(--soft); }
+  .map .route { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; }
+  .map .r1 { stroke: var(--amber); stroke-width: 4; stroke-dashoffset: 1; transition: stroke-dashoffset 2s cubic-bezier(.45,.05,.3,1), opacity .6s; }
+  .map .r1-glow { stroke: var(--apricot); stroke-width: 14; opacity: .14; stroke-dashoffset: 1; transition: stroke-dashoffset 2s cubic-bezier(.45,.05,.3,1), opacity .6s; filter: blur(4px); }
+  .map .r2 { stroke: var(--mint); stroke-width: 4; stroke-dashoffset: 1; transition: stroke-dashoffset 1.8s cubic-bezier(.45,.05,.3,1); }
+  .map .r2-glow { stroke: var(--mint); stroke-width: 14; opacity: .16; stroke-dashoffset: 1; transition: stroke-dashoffset 1.8s cubic-bezier(.45,.05,.3,1); filter: blur(4px); }
+  .scene[data-step] .r1, .scene[data-step] .r1-glow { stroke-dashoffset: 0; }
+  .scene[data-step="5"] .r1, .scene[data-step="5"] .r1-glow { opacity: 0; }
+  .scene[data-step="5"] .r2, .scene[data-step="5"] .r2-glow { stroke-dashoffset: 0; }
+  .scene.reset .route { transition: none; }
+  .map .stop circle.dot { fill: #0E1916; stroke: var(--amber); stroke-width: 3; transition: stroke .4s, fill .4s; }
+  .map .stop .ring { fill: none; stroke: var(--apricot); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+  .map .gone circle.dot { transition: stroke .4s, fill .4s, opacity .6s; }
+  .scene:is([data-step="1"], [data-step="2"], [data-step="3"], [data-step="4"]) .gone circle.dot { stroke: #E5484D; fill: rgba(229,72,77,.18); }
+  .scene[data-step="5"] .gone { opacity: .25; }
+  .map .gone-tag { opacity: 0; transition: opacity .4s; }
+  .scene:is([data-step="1"], [data-step="2"], [data-step="3"], [data-step="4"]) .gone-tag { opacity: 1; }
+  .map .wait { opacity: 0; transition: opacity .5s; }
+  .scene:is([data-step="2"], [data-step="3"], [data-step="4"], [data-step="5"]) .wait { opacity: 1; }
+  .map .wait circle.dot { fill: rgba(244,162,125,.2); stroke: var(--amber); stroke-width: 2; stroke-dasharray: 3 3; transition: all .4s; }
+  .scene:is([data-step="3"], [data-step="4"], [data-step="5"]) .wait.yes circle.dot { fill: rgba(108,197,146,.25); stroke: var(--mint); stroke-dasharray: none; stroke-width: 3; }
+  .scene:is([data-step="4"], [data-step="5"]) .wait.no { opacity: .35; }
+  .map .beam { fill: none; stroke: var(--amber); stroke-width: 1.6; stroke-dasharray: 4 6; opacity: 0; transition: opacity .4s; }
+  .scene[data-step="2"] .beam { opacity: .9; }
+  .scene:is([data-step="3"], [data-step="4"]) .beam.to-yes { opacity: .9; stroke: var(--mint); }
+  .map .done-tag { opacity: 0; transform: translateY(8px); transition: opacity .5s .9s, transform .5s .9s; }
+  .scene[data-step="5"] .done-tag { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .scene.playing .map .beam { animation: beam 1s linear infinite; }
+    .scene.playing:is([data-step="1"]) .gone .ring { animation: ping 1.4s ease-out infinite; stroke: #E5484D; }
+    .scene.playing:is([data-step="2"]) .wait .ring { animation: ping 1.4s ease-out infinite; }
+    .scene.playing:is([data-step="3"]) .wait.yes .ring { animation: ping 1.4s ease-out infinite; stroke: var(--mint); }
+  }
+  @keyframes beam { to { stroke-dashoffset: -20; } }
+  @keyframes ping { 0% { opacity: .9; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.4); } }
+
+  /* The texts the round runs on, appearing beside the map as they're sent and answered */
+  .feed { position: relative; display: flex; flex-direction: column; background: rgba(9,15,13,.7); border: 1px solid var(--line); border-radius: 18px; padding: 16px; overflow: hidden; }
+  .feed-body { position: absolute; left: 16px; right: 16px; top: 62px; bottom: 16px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+  .feed-body::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 40px; background: linear-gradient(rgba(9,15,13,.95), transparent); z-index: 1; pointer-events: none; }
+  .feed-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; font-weight: 700; font-size: 15px; }
+  .feed-head span { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--forest); }
+  .feed-head small { margin-left: auto; font-weight: 600; font-size: 12px; color: var(--mint); display: flex; align-items: center; gap: 6px; }
+  .feed-head small::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 4px rgba(108,197,146,.18); }
+  .bub { max-width: 92%; padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.4; margin: 0 0 9px; opacity: 0; transform: translateY(10px) scale(.98);
+    transition: opacity .45s cubic-bezier(.22,1,.36,1), transform .45s cubic-bezier(.22,1,.36,1); }
+  .bub b { display: block; font-size: 11.5px; letter-spacing: .02em; color: var(--soft); font-weight: 600; margin-bottom: 2px; }
+  .bub.in { align-self: flex-start; background: #1F2C28; border-bottom-left-radius: 5px; }
+  .bub.out { align-self: flex-end; background: linear-gradient(135deg, #2C6B58, #1E4D40); border-bottom-right-radius: 5px; }
+  .bub.out b { color: var(--on-forest-soft); }
+  .bub.yes { background: rgba(108,197,146,.2); box-shadow: inset 0 0 0 1px rgba(108,197,146,.45); }
+  .bub.sys { align-self: stretch; max-width: none; background: rgba(244,162,125,.1); box-shadow: inset 0 0 0 1px rgba(244,162,125,.35); }
+  .scene[data-step="1"] .bub[data-at="1"], .scene[data-step="2"] .bub:is([data-at="1"], [data-at="2"]),
+  .scene[data-step="3"] .bub:is([data-at="1"], [data-at="2"], [data-at="3"]), .scene[data-step="4"] .bub:not([data-at="5"]),
+  .scene[data-step="5"] .bub { opacity: 1; transform: none; }
+  .scene.reset .bub { transition: none; }
+
+  /* What happens, step by step, under the scene: the step on screen is lit */
+  .beats { list-style: none; margin: 22px 0 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .beats li { position: relative; padding: 16px 14px 0; font-size: 14.5px; line-height: 1.45; color: var(--soft); transition: color .4s; }
+  .beats li::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: 3px; background: var(--line); }
+  .beats li::after { content: ''; position: absolute; left: 0; top: 0; height: 3px; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--amber), var(--apricot)); }
+  .beats li b { display: block; color: var(--on-forest); font-size: 15.5px; margin-bottom: 2px; }
+  .beats li.on { color: var(--on-forest-soft); }
+  .beats li.on::after { width: 100%; transition: width var(--t, 2s) linear; }
+  .beats li.past::after { width: 100%; }
+  .scene-ctl { display: flex; justify-content: center; margin-top: 18px; }
+  .scene-ctl button { font: 600 14px 'Plus Jakarta Sans', sans-serif; color: var(--on-forest-soft); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 7px 16px; cursor: pointer; }
+  .scene-ctl button:hover { color: var(--on-forest); border-color: rgba(247,251,249,.3); }
+  @media (max-width: 860px) {
+    .scene { grid-template-columns: 1fr; padding: 12px; border-radius: 22px; }
+    .feed { min-height: 430px; }
+    .beats { grid-template-columns: 1fr; gap: 0; }
+    .beats li { padding: 12px 0 12px 18px; }
+    .beats li::before, .beats li::after { top: 12px; bottom: 12px; height: auto; width: 3px; right: auto; }
+    .beats li.on::after, .beats li.past::after { width: 3px; }
+  }
+
+  /* What's built: five tiles, each with a small moving picture of what that part of Domi does */
+  .built-head { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .count { font: 700 clamp(64px, 11vw, 120px)/1 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.05em; margin: 18px 0 0;
+    background: linear-gradient(180deg, #fff, var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; font-variant-numeric: tabular-nums; }
+  .count-label { margin: 6px 0 0; font-weight: 600; color: var(--on-forest-soft); }
+  .bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; margin-top: 44px; }
+  .tile { grid-column: span 4; position: relative; overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 22px; display: flex; flex-direction: column; }
+  .tile.w7 { grid-column: span 7; } .tile.w5 { grid-column: span 5; }
+  .tile::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .4s;
+    background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(244,162,125,.12), transparent 60%); }
+  .tile:hover::before { opacity: 1; }
+  .tile .art { display: block; width: 100%; height: 150px; margin: -4px 0 14px; }
+  .tile h3 { font-size: 22px; }
+  .tile p { margin: 6px 0 0; color: var(--on-forest-soft); font-size: 15.5px; }
+  .chips { list-style: none; display: flex; flex-wrap: wrap; gap: 7px; margin: 16px 0 0; padding: 0; }
+  .chips li { font-size: 13.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: rgba(108,197,146,.1); color: #CFEBDC; box-shadow: inset 0 0 0 1px rgba(108,197,146,.22); }
+  .tile .more { margin-top: auto; padding-top: 16px; font-weight: 600; font-size: 15px; }
+  @media (max-width: 900px) { .tile, .tile.w7, .tile.w5 { grid-column: span 12; } }
+
+  /* The tiles' pictures loop gently once they're on screen */
+  .js .art .ab { opacity: 0; }
+  .art .rt { fill: none; stroke: var(--amber); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 0; }
+  .art .ruler-mark { transform-box: fill-box; }
+  @media (prefers-reduced-motion: no-preference) {
+    .tile.in .art .ab { animation: ab 6s cubic-bezier(.22,1,.36,1) infinite; animation-delay: var(--ad); }
+    .tile.in .art .rt { animation: rt 5s cubic-bezier(.45,.05,.3,1) infinite; }
+    .tile.in .art .pulse { animation: pulse 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .tile.in .art .slide { animation: slide 5s cubic-bezier(.65,0,.35,1) infinite; }
+    .tile.in .art .bar { animation: bar 5s steps(1) infinite; animation-delay: var(--bd); }
+    .tile.in .art .flip-a { animation: flipa 5s steps(1) infinite; } .tile.in .art .flip-b { animation: flipb 5s steps(1) infinite; }
+    .tile.in .art .off { animation: offl 5s steps(1) infinite; } .tile.in .art .on { animation: onl 5s steps(1) infinite; }
+    .tile.in .art .ring2 { animation: ping 2.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  }
+  .art .off, .art .on, .art .flip-b { opacity: 0; }
+  @media (prefers-reduced-motion: reduce) { .art .ab { opacity: 1; } .art .flip-a, .art .off { opacity: 0; } .art .flip-b, .art .on { opacity: 1; } .art .slide { transform: translateX(150px); } }
+  @keyframes ab { 0% { opacity: 0; transform: translateY(8px); } 8%, 80% { opacity: 1; transform: none; } 92%, 100% { opacity: 0; transform: none; } }
+  @keyframes rt { 0% { stroke-dashoffset: 1; } 45%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+  @keyframes slide { 0%, 12% { transform: translateX(0); } 45%, 88% { transform: translateX(150px); } 100% { transform: translateX(0); } }
+  @keyframes bar { 0% { opacity: 1; } 30% { opacity: .15; } 62% { opacity: 1; } }
+  @keyframes flipa { 0% { opacity: 1; } 38% { opacity: 0; } 92% { opacity: 1; } }
+  @keyframes flipb { 0% { opacity: 0; } 38% { opacity: 1; } 92% { opacity: 0; } }
+  @keyframes offl { 0% { opacity: 0; } 30% { opacity: 1; } 62% { opacity: 0; } }
+  @keyframes onl { 0% { opacity: 0; } 62% { opacity: 1; } 95% { opacity: 0; } }
+
+  /* What's coming: a track from today, through the next pieces, to the bigger ones */
+  .road { position: relative; display: grid; grid-template-columns: auto 1fr 1fr; gap: 18px; margin-top: 18px; align-items: stretch; }
+  .road-now { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 150px; padding: 20px; border-radius: 24px;
+    background: linear-gradient(160deg, var(--forest-2), var(--forest)); text-align: center; box-shadow: 0 20px 40px -20px rgba(0,0,0,.7); }
+  .road-now b { font-size: 34px; letter-spacing: -0.03em; line-height: 1; }
+  .road-now span { font-size: 14px; color: var(--on-forest-soft); font-weight: 600; margin-top: 6px; }
+  .road-col { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 22px; }
+  .road-col h3 { font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .road-col h3 span { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; color: var(--amber); box-shadow: inset 0 0 0 1px rgba(244,162,125,.4); }
+  .road-col .chips li { background: rgba(244,162,125,.08); color: #F6D3C2; box-shadow: inset 0 0 0 1px rgba(244,162,125,.22); }
+  .road-col.later .chips li { background: transparent; color: var(--on-forest-soft); box-shadow: inset 0 0 0 1px var(--line); }
+  .road-note { text-align: center; color: var(--soft); font-size: 15px; margin: 18px 0 0; }
+  @media (max-width: 900px) { .road { grid-template-columns: 1fr; } .road-now { flex-direction: row; gap: 10px; min-width: 0; } .road-now span { margin: 0; } }
+
+  /* Price: the monthly figure counts up, and three refilled visits fill a bar past it */
+  .price-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; margin-top: 44px; }
+  .price-card { position: relative; overflow: hidden; border-radius: 28px; padding: 32px; background: linear-gradient(165deg, #2C6B58 0%, #1E4D40 45%, #12302A 100%);
+    box-shadow: 0 40px 80px -40px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.12); }
+  .price-card::after { content: ''; position: absolute; right: -120px; top: -120px; width: 320px; height: 320px; border-radius: 50%; background: radial-gradient(circle, rgba(244,162,125,.35), transparent 65%); pointer-events: none; }
+  .price-from { font-weight: 600; color: var(--on-forest-soft); margin: 0; }
+  .price-big { font: 700 clamp(64px, 9vw, 96px)/1 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.05em; margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+  .price-big small { font-size: 20px; letter-spacing: 0; font-weight: 600; color: var(--on-forest-soft); margin-left: 6px; }
+  .price-card ul { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 10px; }
+  .price-card li { display: flex; gap: 10px; align-items: flex-start; font-size: 16px; }
+  .price-card li svg { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--mint); }
+  .price-card .fine { color: var(--on-forest-soft); font-size: 14px; margin: 22px 0 0; }
+  .price-card .btn { margin-top: 22px; }
+  .payback { border-radius: 28px; padding: 32px; background: var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; }
+  .payback h3 { font-size: 24px; }
+  .payback > p { color: var(--on-forest-soft); margin: 8px 0 0; }
+  .slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 26px 0 0; }
+  .slot { border-radius: 18px; padding: 16px 14px; background: rgba(9,15,13,.6); border: 1.5px dashed rgba(244,162,125,.35); text-align: center; transition: all .6s cubic-bezier(.22,1,.36,1); transition-delay: var(--sd); }
+  .slot b { display: block; font-size: 26px; letter-spacing: -0.03em; color: var(--soft); transition: color .6s; transition-delay: var(--sd); }
+  .slot span { font-size: 13px; color: var(--soft); }
+  .payback.in .slot { background: rgba(108,197,146,.14); border: 1.5px solid rgba(108,197,146,.5); }
+  .payback.in .slot b { color: var(--mint); }
+  .meter { position: relative; height: 16px; border-radius: 999px; background: rgba(9,15,13,.7); margin: 30px 0 10px; box-shadow: inset 0 0 0 1px var(--line); }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--forest-2), var(--mint)); transition: width 1.8s cubic-bezier(.22,1,.36,1) .5s; }
+  .payback.in .meter i { width: 100%; }
+  .meter em { position: absolute; top: -8px; bottom: -8px; left: 82%; width: 2px; background: var(--amber); font-style: normal; }
+  .meter em::after { content: '£160 a month'; position: absolute; top: -24px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--amber); }
+  .meter-scale { display: flex; justify-content: space-between; font-size: 13px; color: var(--soft); }
+  .meter-scale b { color: var(--mint); }
+  .payback .src { margin: auto 0 0; padding-top: 22px; font-size: 13px; color: var(--soft); }
+  @media (max-width: 900px) { .price-grid { grid-template-columns: 1fr; } .price-card, .payback { padding: 24px; } }
+  @media (prefers-reduced-motion: reduce) { .slot, .slot b, .meter i { transition: none; } }
+
+  /* Your patients' data: four figures and the page with the detail */
+  .vault { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 40px; }
+  .vault div { position: relative; border-radius: 22px; padding: 22px; background: var(--mint-bg); box-shadow: inset 0 0 0 1px rgba(108,197,146,.16); overflow: hidden; }
+  .vault svg { width: 34px; height: 34px; color: var(--mint); }
+  .vault b { display: block; font-size: 30px; letter-spacing: -0.03em; margin-top: 14px; line-height: 1.05; }
+  .vault span { display: block; color: var(--on-forest-soft); font-size: 15px; margin-top: 4px; }
+  .vault-foot { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px 22px; margin-top: 26px; color: var(--soft); font-size: 15px; text-align: center; }
+  @media (max-width: 900px) { .vault { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .vault { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -355,10 +518,11 @@
     <nav aria-label="Main">
       <a class="brand" href="/"><img src="logo.svg" alt="" width="40" height="40">Domi</a>
       <ul>
-        <li><a href="#how">How it works</a></li>
+        <li><a href="#story">How it works</a></li>
         <li><a href="#sectors">Who it's for</a></li>
         <li><a href="#inside">Inside Domi</a></li>
-        <li><a href="#coming">What's coming</a></li>
+        <li><a href="#coming">What's built</a></li>
+        <li><a href="#price">Price</a></li>
         <li><a href="#support">Questions</a></li>
         <li><a href="#contact">Contact</a></li>
       </ul>
@@ -392,6 +556,70 @@
 </header>
 
 <main id="main">
+  <section id="story" class="story">
+    <div class="wrap">
+      <p class="kicker">How it works</p>
+      <h2>Watch a cancellation fill itself.</h2>
+      <p class="sect-lead">One clinician’s round. A patient cancels at 10:20. Nobody in the office picks up the phone.</p>
+      <div class="scene" data-step="5" data-reveal role="group" aria-label="An example round, told in the steps below">
+        <svg class="map" viewBox="0 0 760 500" aria-hidden="true" focusable="false">
+          <defs>
+            <pattern id="mapdots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(247,251,249,.07)"/></pattern>
+            <radialGradient id="mapglow" cx="30%" cy="20%" r="80%"><stop offset="0" stop-color="#1E4D40" stop-opacity=".55"/><stop offset="1" stop-color="#0E1916" stop-opacity="0"/></radialGradient>
+          </defs>
+          <rect width="760" height="500" fill="url(#mapglow)"/>
+          <rect width="760" height="500" fill="url(#mapdots)"/>
+          <g class="road" stroke-width="16"><path d="M0 395 C150 380 220 262 320 200 S520 118 760 92"/><path d="M300 0 C318 120 420 220 470 262 S600 382 760 420"/></g>
+          <g class="road" stroke-width="10"><path d="M60 0 C118 140 158 258 170 330 S258 478 320 500"/><path d="M760 232 C640 252 560 200 470 262 S240 360 0 300"/><path d="M520 500 C540 402 600 300 680 320 S722 160 700 0"/></g>
+          <g class="road" stroke-width="4"><path d="M0 160 C120 170 200 120 300 182"/><path d="M380 500 C390 420 430 340 420 300"/><path d="M600 0 C600 60 590 100 590 130"/><path d="M200 500 C220 470 240 450 300 440"/></g>
+
+          <path class="route r1-glow" pathLength="1" d="M70 430 L170 320 L300 180 L450 250 L590 130 L680 320 L560 450 L70 430"/>
+          <path class="route r1" pathLength="1" d="M70 430 L170 320 L300 180 L450 250 L590 130 L680 320 L560 450 L70 430"/>
+          <path class="route r2-glow" pathLength="1" d="M70 430 L170 320 L300 180 L420 310 L590 130 L680 320 L560 450 L70 430"/>
+          <path class="route r2" pathLength="1" d="M70 430 L170 320 L300 180 L420 310 L590 130 L680 320 L560 450 L70 430"/>
+
+          <path class="beam to-yes" d="M450 250 L420 310"/>
+          <path class="beam" d="M450 250 L612 438"/>
+          <path class="beam" d="M450 250 L252 74"/>
+
+          <g transform="translate(70 430)"><rect x="-14" y="-14" width="28" height="28" rx="8" fill="#2C6B58"/><path d="M-7 3 L0 -4 L7 3 M-5 1 V7 H5 V1" fill="none" stroke="#F7FBF9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><text class="lbl-s" x="-16" y="38">Amira sets off</text></g>
+          <g class="stop" transform="translate(170 320)"><circle class="dot" r="9"/><text class="lbl" x="-58" y="5">09:00</text></g>
+          <g class="stop" transform="translate(300 180)"><circle class="dot" r="9"/><text class="lbl" x="-58" y="5">10:00</text></g>
+          <g class="stop gone" transform="translate(450 250)"><circle class="ring" r="11"/><circle class="dot" r="9"/></g>
+          <g class="stop" transform="translate(590 130)"><circle class="dot" r="9"/><text class="lbl" x="16" y="-10">12:30</text></g>
+          <g class="stop" transform="translate(680 320)"><circle class="dot" r="9"/><text class="lbl" x="-62" y="5">14:00</text></g>
+          <g class="gone-tag" transform="translate(478 244)"><rect width="176" height="28" rx="14" fill="rgba(229,72,77,.16)" stroke="rgba(229,72,77,.6)"/><text class="lbl" x="14" y="19" style="fill:#FFB3B5">11:00 · Peter cancelled</text></g>
+
+          <g class="wait yes" transform="translate(420 310)"><circle class="ring" r="11"/><circle class="dot" r="9"/><text class="lbl" x="-30" y="34">Margaret</text></g>
+          <g class="wait no" transform="translate(612 438)"><circle class="ring" r="11"/><circle class="dot" r="8"/><text class="lbl-s" x="14" y="-12">Sylvia</text></g>
+          <g class="wait no" transform="translate(252 74)"><circle class="ring" r="11"/><circle class="dot" r="8"/><text class="lbl-s" x="16" y="5">Geoffrey</text></g>
+
+          <g class="done-tag" transform="translate(24 24)"><rect width="268" height="40" rx="20" fill="rgba(108,197,146,.16)" stroke="rgba(108,197,146,.55)"/><circle cx="22" cy="20" r="9" fill="#6CC592"/><path d="M17.5 20.5 l3 3 l6-6.5" fill="none" stroke="#0C1412" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><text class="lbl" x="40" y="25" style="fill:#EDF4F0">11:00 refilled. No phone calls.</text></g>
+        </svg>
+        <div class="feed" aria-hidden="true">
+          <div class="feed-head"><span><img src="logo.svg" alt="" width="20" height="20"></span>Texts<small>Live</small></div>
+          <div class="feed-body">
+          <p class="bub in" data-at="1"><b>Peter Dunn · 10:20</b>CANCEL</p>
+          <p class="bub out" data-at="2"><b>Domi → 3 patients nearby</b>An 11:00 visit is free today. Reply YES to take it.</p>
+          <p class="bub in yes" data-at="3"><b>Margaret Holt · 10:24</b>YES</p>
+          <p class="bub out" data-at="3"><b>Domi → Margaret</b>You’re booked for 11:00 today.</p>
+          <p class="bub out" data-at="4"><b>Domi → Sylvia, Geoffrey</b>That slot has gone. You keep your place.</p>
+          <p class="bub sys" data-at="5"><b>Amira’s phone</b>Your diary changed. Margaret Holt is now booked at 11:00.</p>
+          </div>
+        </div>
+      </div>
+      <ol class="beats">
+        <li><b>Round planned</b>Six visits in the order that drives least.</li>
+        <li><b>Peter cancels</b>He replies CANCEL to his reminder.</li>
+        <li><b>Three texted</b>The best-matched patients nearby get the slot.</li>
+        <li><b>Margaret says yes</b>The first YES is booked.</li>
+        <li><b>Nobody loses out</b>The others keep their place on the list.</li>
+        <li><b>The day re-plans</b>Amira’s phone updates. The office did nothing.</li>
+      </ol>
+      <div class="scene-ctl"><button type="button" class="scene-toggle" aria-pressed="false">Pause</button></div>
+    </div>
+  </section>
+
   <section id="sectors">
     <div class="wrap">
       <p class="kicker">Who it's for</p>
@@ -524,87 +752,130 @@
 
   <section id="coming">
     <div class="wrap">
-      <p class="kicker">What's coming</p>
-      <h2>What’s built, and what isn’t yet.</h2>
-      <div class="plans">
-        <form class="picker" id="picker" aria-label="Choose what to see" onsubmit="return false">
-          <fieldset class="rows">
-            <legend class="sr">Show</legend>
-            <span class="glide" aria-hidden="true"></span>
-            <label class="row"><input type="radio" name="plan" value="built" checked>
-              <span class="row-text"><span class="row-name">Built <span class="badge">Working today</span></span><span class="row-price"><b>28</b> features you can try now</span></span><span class="dot" aria-hidden="true"></span></label>
-            <label class="row"><input type="radio" name="plan" value="next">
-              <span class="row-text"><span class="row-name">Coming next <span class="badge soon">Not built yet</span></span><span class="row-price"><b>9</b> smaller pieces, first</span></span><span class="dot" aria-hidden="true"></span></label>
-            <label class="row"><input type="radio" name="plan" value="later">
-              <span class="row-text"><span class="row-name">Coming later <span class="badge soon">Not built yet</span></span><span class="row-price"><b>5</b> bigger pieces, with partners</span></span><span class="dot" aria-hidden="true"></span></label>
-          </fieldset>
-          <p class="soon-line">No dates on purpose. Ask where any item stands and we’ll tell you straight.</p>
-        </form>
+      <div class="built-head">
+        <p class="kicker">What’s built</p>
+        <h2>Everything it does, working today.</h2>
+        <p class="count" data-count="28" aria-hidden="true">28</p>
+        <p class="count-label">features you can try in the live demo now</p>
+      </div>
 
-        <div class="plan" aria-live="polite">
-          <div class="panel" data-plan="built">
-            <h3>Built and working</h3>
-            <p class="fine" style="margin-top:6px">Built, tested and running. Try any of it in the live demo, with invented patients.</p>
-            <ul>
-              <li>Cancellations refilled by text: the best-matched patients, by where they live and how soon they need seeing, one at a time or the top three at once</li>
-              <li>A CANCEL reply to a reminder refills the slot, with nobody in the office involved</li>
-              <li>A call list for patients who’d rather be rung than texted</li>
-              <li>Day-before reminders, booking confirmations and new-time texts, each kept to a single text</li>
-              <li>Recall texts sent automatically when a test falls due, and recalls that join the refill pool</li>
-              <li>Facebook lead ads arriving in Domi with the patient’s answers</li>
-              <li>A referral form for patients, family, carers and care homes, instead of documents and emails</li>
-              <li>A booking page for patients, offering only travel-efficient times</li>
-              <li>Booking by drive time across every clinician’s round</li>
-              <li>Route planning: every round put in the order that drives least, with patients told any new time</li>
-              <li>Three ways a day can change: reorder it yourself, text and re-plan after a refill, or add late bookings to the end</li>
-              <li>Patients’ own time limits, such as mornings only or after 2pm, kept by booking and route planning</li>
-              <li>A traffic-light bar showing how full each clinician’s next two weeks are</li>
-              <li>Each clinician’s day on a map</li>
-              <li>PCSE notice rules checked at booking: 48 hours, 3 weeks for three or more patients at one address, 8 weeks at most, with any ICB approval recorded</li>
-              <li>A list of notifications to lodge or cancel, with the form details ready to copy into PCSE Online</li>
-              <li>NHS sight-test eligibility dates, with an early retest needing a reason</li>
-              <li>Eye tests offered only to optometrists, not dispensing opticians</li>
-              <li>CC1, CC2 and CC3 confirmation calls with arrival windows, marked on the diary</li>
-              <li>The clinician app on any phone or tablet, working offline</li>
-              <li>Frames and lenses sold at the visit, with totals only the office sees</li>
-              <li>Reports on sales, visits, cancellations, where bookings came from and mileage, every one exportable</li>
-              <li>Mileage and utilisation, valued at HMRC’s 45p rate</li>
-              <li>Invoices raised from completed visits</li>
-              <li>Patient import from a spreadsheet or Opticabase, every row checked, and a list of diary changes to copy back</li>
-              <li>Hosting in London, encrypted, with daily backups we test</li>
-              <li>Two-factor sign-in, staff invitations, resets from the office and remote sign-out</li>
-              <li>A full audit log of every booking, offer, text and record viewed</li>
-            </ul>
-          </div>
-          <div class="panel" data-plan="next">
-            <h3>Coming next</h3>
-            <p class="fine" style="margin-top:6px">Planned, and shown in the demo as “Soon”. Not built yet.</p>
-            <ul>
-              <li>Leads sorted as they arrive<small>Likely NHS, likely private or to check, each with its own instant reply. Anyone who may not qualify for a free NHS visit is offered a private one.</small></li>
-              <li>Bring visits and the waiting list across<small>Patients import today. Next, upcoming visits and the waiting list too.</small></li>
-              <li>Repeating visits and courses<small>Nail care every 6 to 8 weeks, a course of physio, booked in one go and refilled like any other visit.</small></li>
-              <li>Care-home sessions<small>Several residents on one visit, booked and notified together.</small></li>
-              <li>Fundus photos and scans<small>Photos from a handheld fundus camera saved into the record from the phone.</small></li>
-              <li>Card payments, Xero and care-home billing<small>Take payment on the doorstep, sync invoices, bill a care home for several residents at once.</small></li>
-              <li>AI-drafted visit notes<small>A draft to check and save. Nothing is saved without the clinician approving it.</small></li>
-              <li>Letters and pre-visit forms<small>GP and referrer letters from templates; consent and history forms before the visit.</small></li>
-              <li>Self-service password reset<small>Reset by email with recovery codes, without asking the office.</small></li>
-            </ul>
-          </div>
-          <div class="panel" data-plan="later">
-            <h3>Coming later</h3>
-            <p class="fine" style="margin-top:6px">Bigger pieces that depend on partners or more work. Not built yet.</p>
-            <ul>
-              <li>PCSE Online<small>Lodge and cancel pre-visit notifications from Domi. This needs PCSE to accept Domi as a connected system, so we won’t promise a date.</small></li>
-              <li>Eye examinations and NHS claims<small>The full eye examination, GOS claims including GOS6, and your history moved across, so Domi can replace your practice system. Also needs PCSE’s approval first.</small></li>
-              <li>AI calling assistant<small>An automated voice that makes confirmation calls and records each answer, only for patients who agree to it. A paid add-on.</small></li>
-              <li>Lab orders and frames<small>Follow each pair of glasses to the lab and back, and book the delivery visit the day they arrive.</small></li>
-              <li>iPhone and Android apps<small>In the App Store and Google Play. Today the clinician app runs in the browser and works offline.</small></li>
-            </ul>
-          </div>
+      <div class="bento">
+        <article class="tile w7" data-reveal>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <g class="ab" style="--ad:0s"><rect x="14" y="10" width="150" height="34" rx="15" fill="#1F2C28"/><text x="30" y="32" font-size="13" font-weight="600" fill="#EDF4F0">Peter: CANCEL</text></g>
+            <g class="ab" style="--ad:.7s"><rect x="96" y="56" width="192" height="34" rx="15" fill="#2C6B58"/><text x="112" y="78" font-size="13" font-weight="600" fill="#F7FBF9">11:00 is free today. YES?</text></g>
+            <g class="ab" style="--ad:1.4s"><rect x="14" y="102" width="140" height="34" rx="15" fill="rgba(108,197,146,.22)" stroke="rgba(108,197,146,.55)"/><text x="30" y="124" font-size="13" font-weight="600" fill="#EDF4F0">Margaret: YES</text></g>
+          </svg>
+          <h3>Fills the diary</h3>
+          <p>Cancellations, reminders, recalls and new leads, handled by text.</p>
+          <ul class="chips">
+            <li>Refill by text, best match first</li><li>A CANCEL reply refills the slot</li><li>Call list for non-texters</li><li>Reminders and confirmations</li>
+            <li>Automatic recall texts</li><li>Facebook leads straight in</li><li>Referral form</li><li>Self-booking by drive time</li>
+          </ul>
+        </article>
+        <article class="tile w5" data-reveal style="--d:.08s">
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="rgba(247,251,249,.07)" stroke-width="9" stroke-linecap="round"><path d="M0 120 C80 110 120 50 300 40"/><path d="M60 0 C90 60 130 110 160 150"/></g>
+            <path class="rt" pathLength="1" d="M24 122 L84 64 L146 98 L206 40 L272 92"/>
+            <g fill="#0E1916" stroke="#F4A27D" stroke-width="3"><circle cx="24" cy="122" r="7"/><circle cx="84" cy="64" r="7"/><circle cx="146" cy="98" r="7"/><circle cx="206" cy="40" r="7"/></g>
+            <circle class="pulse" cx="272" cy="92" r="8" fill="#6CC592"/>
+          </svg>
+          <h3>Plans the day</h3>
+          <p>Every round in the order that drives least, re-planned when the day changes.</p>
+          <ul class="chips">
+            <li>Booking by drive time</li><li>Least-driving routes</li><li>Three ways to re-plan</li><li>Patients’ own time limits</li><li>Two-week traffic lights</li><li>Every round on a map</li>
+          </ul>
+        </article>
+        <article class="tile" data-reveal>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <rect x="20" y="78" width="50" height="10" rx="5" fill="rgba(229,72,77,.45)"/>
+            <rect x="70" y="78" width="170" height="10" fill="rgba(108,197,146,.45)"/>
+            <rect x="240" y="78" width="40" height="10" rx="5" fill="rgba(229,72,77,.45)"/>
+            <g fill="#A9BCB4" font-size="12" font-weight="600" text-anchor="middle"><text x="20" y="112">Today</text><text x="70" y="112">48 h</text><text x="122" y="112">3 wk</text><text x="240" y="112">8 wk</text></g>
+            <g stroke="rgba(247,251,249,.35)" stroke-width="1.5"><path d="M70 72 V94"/><path d="M122 72 V94"/><path d="M240 72 V94"/></g>
+            <g class="slide">
+              <path d="M38 70 l8 -12 h-16 z" fill="#F4A27D"/>
+              <g class="flip-a"><rect x="0" y="22" width="78" height="26" rx="13" fill="rgba(229,72,77,.2)" stroke="rgba(229,72,77,.6)"/><text x="39" y="40" text-anchor="middle" font-size="12" font-weight="600" fill="#FFB3B5">Too soon</text></g>
+              <g class="flip-b"><rect x="-6" y="22" width="90" height="26" rx="13" fill="rgba(108,197,146,.2)" stroke="rgba(108,197,146,.6)"/><text x="39" y="40" text-anchor="middle" font-size="12" font-weight="600" fill="#CFEBDC">Can notify ✓</text></g>
+            </g>
+          </svg>
+          <h3>Keeps PCSE happy</h3>
+          <p>Only books NHS sight tests that can be notified in time.</p>
+          <ul class="chips"><li>48 h, 3 week, 8 week rules</li><li>Notifications ready to lodge</li><li>Eligibility dates</li><li>Tests to optometrists only</li><li>CC1 · CC2 · CC3 calls</li></ul>
+        </article>
+        <article class="tile" data-reveal style="--d:.08s">
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <rect x="110" y="8" width="80" height="136" rx="16" fill="#0E1916" stroke="rgba(247,251,249,.25)" stroke-width="2"/>
+            <g fill="#F4A27D"><rect class="bar" style="--bd:0s" x="168" y="24" width="4" height="5" rx="1"/><rect class="bar" style="--bd:.08s" x="174" y="21" width="4" height="8" rx="1"/><rect class="bar" style="--bd:.16s" x="180" y="18" width="4" height="11" rx="1"/></g>
+            <g fill="rgba(247,251,249,.18)"><rect x="122" y="42" width="56" height="8" rx="4"/><rect x="122" y="58" width="40" height="8" rx="4"/><rect x="122" y="80" width="56" height="22" rx="6" fill="rgba(108,197,146,.25)"/></g>
+            <g class="off"><rect x="94" y="112" width="112" height="22" rx="11" fill="#1F2C28"/><text x="150" y="127" text-anchor="middle" font-size="11.5" font-weight="600" fill="#A9BCB4">No signal: working</text></g>
+            <g class="on"><rect x="104" y="112" width="92" height="22" rx="11" fill="rgba(108,197,146,.25)"/><text x="150" y="127" text-anchor="middle" font-size="11.5" font-weight="600" fill="#CFEBDC">Synced ✓</text></g>
+          </svg>
+          <h3>Works at the door</h3>
+          <p>On any phone, signal or not, and the office sees what happened.</p>
+          <ul class="chips"><li>Works offline</li><li>Frames and lenses sales</li><li>Exportable reports</li><li>Mileage at 45p</li><li>Invoices</li><li>Opticabase import</li></ul>
+        </article>
+        <article class="tile" data-reveal style="--d:.16s">
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <circle class="ring2" cx="150" cy="70" r="40" fill="none" stroke="#6CC592" stroke-width="2"/>
+            <circle cx="150" cy="70" r="40" fill="rgba(108,197,146,.1)" stroke="rgba(108,197,146,.35)" stroke-width="1.5"/>
+            <path d="M138 66 V58 a12 12 0 0 1 24 0 V66" fill="none" stroke="#CFEBDC" stroke-width="4" stroke-linecap="round"/>
+            <rect x="132" y="64" width="36" height="28" rx="7" fill="#6CC592"/>
+            <circle cx="150" cy="76" r="3.5" fill="#0C1412"/><path d="M150 78 v6" stroke="#0C1412" stroke-width="3" stroke-linecap="round"/>
+            <text x="150" y="134" text-anchor="middle" font-size="12.5" font-weight="600" fill="#A9BCB4">Held in London</text>
+          </svg>
+          <h3>Safe by design</h3>
+          <p>Hosted in London, two-step sign-in, every record logged.</p>
+          <ul class="chips"><li>London hosting, tested backups</li><li>Two-step sign-in</li><li>Full audit log</li></ul>
+          <a class="more" href="/security/">How we look after your data →</a>
+        </article>
+      </div>
+
+      <div class="road" data-reveal>
+        <div class="road-now"><b>28</b><span>working today</span></div>
+        <div class="road-col">
+          <h3>Coming next <span>Not built yet</span></h3>
+          <ul class="chips"><li>Leads sorted as they arrive</li><li>Visits and waiting list import</li><li>Repeating visits and courses</li><li>Care-home sessions</li><li>Fundus photos</li><li>Card payments and Xero</li><li>AI-drafted visit notes</li><li>Letters and pre-visit forms</li><li>Self-service password reset</li></ul>
+        </div>
+        <div class="road-col later">
+          <h3>Coming later <span>Needs partners</span></h3>
+          <ul class="chips"><li>PCSE Online</li><li>Eye exams and NHS claims</li><li>AI calling assistant</li><li>Lab orders</li><li>iPhone and Android apps</li></ul>
         </div>
       </div>
-      <p class="fine"><b>From £160 a month</b> for up to 3 clinicians, with 1,500 patient texts a month included. A one-off set-up fee covers importing your patients and setting Domi up for your service; we quote it in writing before you commit.</p>
+      <p class="road-note">No dates on purpose. PCSE Online and NHS claims need PCSE’s approval first. Ask where anything stands and we’ll tell you straight.</p>
+    </div>
+  </section>
+
+  <section id="price">
+    <div class="wrap">
+      <p class="kicker">Price</p>
+      <h2>One monthly price. Texts included.</h2>
+      <div class="price-grid">
+        <div class="price-card" data-reveal>
+          <p class="price-from">From</p>
+          <p class="price-big">£<span data-count="160">160</span><small>a month</small></p>
+          <ul>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Up to 3 clinicians</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>1,500 patient texts a month</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Hosting in London, support and updates</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Founding practices: fixed for two years</li>
+          </ul>
+          <p class="fine">A one-off set-up fee covers importing your patients and setting Domi up for your service. We quote it in writing before you commit.</p>
+          <a class="btn btn-main" href="#contact">Book a demo</a>
+        </div>
+        <div class="payback" data-reveal style="--d:.1s">
+          <h3>Three refilled visits cover it.</h3>
+          <p>For a domiciliary optician, each cancelled NHS home sight test that Domi refills earns about £65 in NHS fees, before any glasses are sold.</p>
+          <div class="slots">
+            <div class="slot" style="--sd:.3s"><b>+£65</b><span>Refill 1</span></div>
+            <div class="slot" style="--sd:.8s"><b>+£65</b><span>Refill 2</span></div>
+            <div class="slot" style="--sd:1.3s"><b>+£65</b><span>Refill 3</span></div>
+          </div>
+          <div class="meter" aria-hidden="true"><i></i><em></em></div>
+          <div class="meter-scale"><span>£0</span><b>£195</b></div>
+          <p class="src">£24.13 sight-test fee plus the £40.80 domiciliary supplement for the first or second patient at an address, from NHS England’s fees from April 2025.</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -628,11 +899,13 @@
         <p class="kicker">Your patients' data</p>
         <h2>Health data, treated like health data.</h2>
       </div>
-      <dl>
-        <div><dt>Kept in the UK</dt><dd>Your practice’s data is held in London, encrypted, with daily backups we test. The demo holds only invented patients. <a href="/security/">How we look after your data</a>.</dd></div>
-        <div><dt>Only what’s needed</dt><dd>Route planning sends postcodes, never names. The patient booking page never shows anyone else’s details.</dd></div>
-        <div><dt>Paperwork done with you</dt><dd>Before any real patient is added, we complete a data protection impact assessment with you and sign a processing agreement. If anything ever goes wrong, we tell you within 24 hours.</dd></div>
-      </dl>
+      <div class="vault">
+        <div data-reveal><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/></svg><b>London</b><span>where your practice’s data is held, encrypted</span></div>
+        <div data-reveal style="--d:.06s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10 6h4M9.5 14l1.8 1.8 3.4-3.6"/></svg><b>2-step</b><span>sign-in for every user, with a code from their phone</span></div>
+        <div data-reveal style="--d:.12s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b>24 hours</b><span>to tell you if anything goes wrong, in writing</span></div>
+        <div data-reveal style="--d:.18s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><b>Daily</b><span>backups, and we test restoring them</span></div>
+      </div>
+      <div class="vault-foot"><span>Route planning sends postcodes, never names. A processing agreement is signed before any real patient goes in.</span><a class="btn btn-line" href="/security/">How we look after your data</a></div>
     </div>
   </section>
 
@@ -898,25 +1171,6 @@
   })();
 </script>
 <script>
-  // What's coming: the outline glides to the chosen row, whose list shows alongside. Without this script the form
-  // still works as radios and every list shows.
-  (function () {
-    var form = document.getElementById('picker'); if (!form) return;
-    var rows = form.querySelector('.rows'), glide = rows.querySelector('.glide');
-    var panels = document.querySelectorAll('.plan .panel');
-    function place() {
-      var row = form.querySelector('input[name=plan]:checked').closest('.row');
-      glide.style.transform = 'translateY(' + row.offsetTop + 'px)';
-      glide.style.height = row.offsetHeight + 'px';
-      var plan = row.querySelector('input').value;
-      panels.forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-plan') === plan); });
-    }
-    form.addEventListener('change', place);
-    window.addEventListener('resize', place);
-    place(); requestAnimationFrame(function () { form.classList.add('ready'); });
-  })();
-</script>
-<script>
   // Inside Domi: the card deck. Drag the top card and let go to throw it (it slides back in at the bottom), or use
   // the arrows, the arrow keys or autoplay. Autoplay waits while someone is interacting, stops off-screen, can be
   // paused, and is off for anyone who asks for less motion.
@@ -1034,6 +1288,73 @@
     es.forEach(function (e) { if (!e.isIntersecting && !v.paused) v.pause(); });
   }, { threshold: 0.25 }).observe(v);
 })();
+</script>
+<script>
+  // Motion for the sections below the intro: each one rises in as it's reached, numbers count up, tiles catch the
+  // pointer, and the round on the map plays its six steps while it's on screen. With less motion asked for, the
+  // round shows its last step and nothing moves.
+  (function () {
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches, io = 'IntersectionObserver' in window;
+    function countUp(el) {
+      var to = +el.getAttribute('data-count'), t0 = null, dur = 1200;
+      if (reduce) { el.textContent = to; return; }
+      el.textContent = '0';
+      requestAnimationFrame(function step(t) {
+        if (t0 === null) t0 = t;
+        var k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+        el.textContent = Math.round(to * e);
+        if (k < 1) requestAnimationFrame(step);
+      });
+    }
+    var shown = [].slice.call(document.querySelectorAll('[data-reveal], [data-count], .payback'));
+    if (!io) shown.forEach(function (el) { el.classList.add('in'); });
+    else {
+      var watch = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          e.target.classList.add('in'); watch.unobserve(e.target);
+          if (e.target.hasAttribute('data-count')) countUp(e.target);
+        });
+      }, { threshold: 0.18 });
+      shown.forEach(function (el) { watch.observe(el); });
+    }
+    [].forEach.call(document.querySelectorAll('.tile'), function (t) {
+      t.addEventListener('pointermove', function (e) {
+        var r = t.getBoundingClientRect();
+        t.style.setProperty('--mx', (e.clientX - r.left) + 'px'); t.style.setProperty('--my', (e.clientY - r.top) + 'px');
+      });
+    });
+
+    var scene = document.querySelector('.scene'); if (!scene) return;
+    var beats = [].slice.call(document.querySelectorAll('.beats li')), btn = document.querySelector('.scene-toggle');
+    var STEPS = [2400, 2200, 2600, 2400, 2000, 4400], at = 5, timer = null, paused = false, seen = false;
+    function light(n) {
+      beats.forEach(function (b, i) { b.classList.toggle('past', i < n); b.classList.toggle('on', i === n); b.style.setProperty('--t', STEPS[n] + 'ms'); });
+    }
+    function show(n) {
+      at = n;
+      if (n === 0) {
+        scene.classList.add('reset'); scene.removeAttribute('data-step'); light(-1);
+        void scene.offsetWidth; scene.classList.remove('reset');
+        setTimeout(function () { scene.setAttribute('data-step', '0'); light(0); }, 40);
+      } else { scene.setAttribute('data-step', String(n)); light(n); }
+      clearTimeout(timer);
+      timer = setTimeout(function () { if (!paused && seen) show((n + 1) % STEPS.length); }, STEPS[n] + (n === 0 ? 40 : 0));
+    }
+    if (reduce) { light(6); btn.parentNode.hidden = true; return; }
+    scene.classList.add('playing');
+    function resume() { if (!paused && seen) show(at === 5 && !scene.dataset.started ? 0 : at); scene.dataset.started = '1'; }
+    btn.addEventListener('click', function () {
+      paused = !paused; btn.textContent = paused ? 'Play' : 'Pause'; btn.setAttribute('aria-pressed', String(paused));
+      scene.classList.toggle('playing', !paused);
+      if (paused) clearTimeout(timer); else resume();
+    });
+    if (!io) { seen = true; resume(); return; }
+    new IntersectionObserver(function (es) {
+      seen = es[0].isIntersecting;
+      if (seen) resume(); else clearTimeout(timer);
+    }, { threshold: 0.35 }).observe(scene);
+  })();
 </script>
 </body>
 </html>
