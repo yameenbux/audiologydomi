@@ -472,3 +472,29 @@ test("patient availability: recorded on a visit or for good, kept by moving, boo
   // Back to any time.
   assert.strictEqual((await call("PUT", `/api/appointments/${a.id}/availability`, o.token, { tw: "any", always: true })).data.label, "Any time");
 });
+
+test("sales at the visit: recorded when the clinician completes it, seen by the office, listed for Opticabase", async () => {
+  const o = await office();
+  const amira = await signIn("amira@airevalleyeyecare.example", o.sandbox);
+  // a2 is under way (live): completing it carries the sale. A bad price stops both.
+  assert.strictEqual((await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true, frames: "abc" } })).status, 400);
+  assert.strictEqual((await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true } })).status, 400, "a price is needed");
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.appts.find((a) => a.id === "a2").status, "live", "still open");
+  const r = await call("POST", "/api/appointments/a2/status", amira.token, { status: "done", sale: { sold: true, frames: "129.00", frameRef: "Ray-Ban RB5154", lenses: "99", lensDesc: "Varifocals", voucher: true } });
+  assert.strictEqual(r.status, 200);
+  const st = (await call("GET", "/api/state", o.token)).data;
+  const s = st.appts.find((a) => a.id === "a2").sale;
+  assert.deepStrictEqual([s.sold, s.framesPence, s.lensesPence, s.totalPence, s.voucher, s.method], [true, 12900, 9900, 22800, true, "card"]);
+  assert.ok((await call("GET", "/api/state", amira.token)).data.appts.every((a) => a.sale === undefined), "clinicians don't get the office's sales figures");
+  // It's on the Copy to Opticabase list, and can be ticked off.
+  const d = (await call("GET", "/api/diary-changes", o.token)).data;
+  const row = d.todo.find((x) => x.change === "sold" && x.appointmentId === "a2");
+  assert.ok(row && /Frames £129\.00 \(Ray-Ban RB5154\); Lenses £99\.00 \(Varifocals\); NHS voucher/.test(row.reason), row && row.reason);
+  assert.strictEqual((await call("POST", "/api/diary-changes/copied", o.token, { ids: [row.id] })).status, 200);
+  assert.ok(!(await call("GET", "/api/diary-changes", o.token)).data.todo.some((x) => x.id === row.id));
+  // The office can correct it: nothing sold, with a reason. Only on a finished visit.
+  assert.strictEqual((await call("PUT", "/api/appointments/a2/sale", o.token, { sold: false, reason: "Price" })).status, 200);
+  assert.strictEqual((await call("GET", "/api/state", o.token)).data.appts.find((a) => a.id === "a2").sale.reason, "Price");
+  assert.strictEqual((await call("PUT", "/api/appointments/a3/sale", o.token, { sold: false, reason: "Price" })).status, 409);
+  assert.strictEqual((await call("PUT", "/api/appointments/a2/sale", amira.token, { sold: false, reason: "Price" })).status, 403);
+});

@@ -248,16 +248,26 @@ function diaryLog(change, a, { was = null, reason = null } = {}) {
 function diaryChanges() {
   const row = (r) => { const p = getPatient(r.patient_id) || {}; return { id: r.id, appointmentId: r.appointment_id, change: r.change, at: r.at, obId: p.obId || null, patient: p.name, dob: p.dob || null, pc: p.pc,
     visitDate: r.visit_date, visitTime: r.visit_time, clinician: r.clinician, type: r.type, wasDate: r.was_date, wasTime: r.was_time, wasClinician: r.was_clinician, reason: r.reason, copiedAt: r.copied_at, copiedBy: r.copied_by }; };
-  return { todo: all("SELECT * FROM diary_log WHERE copied_at IS NULL ORDER BY id").map(row), done: all("SELECT * FROM diary_log WHERE copied_at IS NOT NULL ORDER BY id DESC LIMIT 50").map(row) };
+  // Glasses sold at a visit go into Opticabase too (the order and any voucher claim are made there).
+  const sale = (r) => { const p = getPatient(r.patient_id) || {}, a = getAppt(r.appointment_id) || {}, c = getClinician(r.clinician_id) || {};
+    return { id: "s" + r.id, appointmentId: r.appointment_id, change: "sold", at: r.at, obId: p.obId || null, patient: p.name, dob: p.dob || null, pc: p.pc,
+      visitDate: cal.iso(a.day || 0), visitTime: hm(a.start || 0), clinician: c.name, type: TYPES[a.type] ? TYPES[a.type].name : "",
+      reason: [r.frames_pence && `Frames £${(r.frames_pence / 100).toFixed(2)}${r.frame_ref ? ` (${r.frame_ref})` : ""}`, r.lenses_pence && `Lenses £${(r.lenses_pence / 100).toFixed(2)}${r.lens_desc ? ` (${r.lens_desc})` : ""}`, r.voucher && "NHS voucher (GOS3)", "paid by card"].filter(Boolean).join("; "),
+      copiedAt: r.copied_at, copiedBy: r.copied_by }; };
+  const byAt = (x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0);
+  return { todo: all("SELECT * FROM diary_log WHERE copied_at IS NULL ORDER BY id").map(row).concat(all("SELECT * FROM sales WHERE sold = 1 AND copied_at IS NULL").map(sale)).sort(byAt),
+    done: all("SELECT * FROM diary_log WHERE copied_at IS NOT NULL ORDER BY id DESC LIMIT 50").map(row).concat(all("SELECT * FROM sales WHERE sold = 1 AND copied_at IS NOT NULL ORDER BY id DESC LIMIT 20").map(sale)).sort(byAt).reverse() };
 }
 /** The office has put these changes into Opticabase: tick them off. */
 function markDiaryCopied(ids, user) {
   return tx(() => {
-    const list = Array.isArray(ids) ? ids.map(Number).filter(Number.isInteger) : [];
-    if (!list.length) throw new HttpError(400, "Choose the changes you've copied.");
+    const raw = Array.isArray(ids) ? ids.map(String) : [];
+    const list = raw.filter((x) => /^\d+$/.test(x)).map(Number), sold = raw.filter((x) => /^s\d+$/.test(x)).map((x) => Number(x.slice(1)));
+    if (!list.length && !sold.length) throw new HttpError(400, "Choose the changes you've copied.");
     const at = `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`;
     let n = 0;
     for (const id of list) n += run("UPDATE diary_log SET copied_at = ?, copied_by = ? WHERE id = ? AND copied_at IS NULL", at, user.name, id).changes;
+    for (const id of sold) n += run("UPDATE sales SET copied_at = ?, copied_by = ? WHERE id = ? AND copied_at IS NULL", at, user.name, id).changes;
     audit(user.name, "diary.copied", "diary_log", `${n} diary change${n === 1 ? "" : "s"} copied to Opticabase`);
     bus.emit({ type: "appointment.updated" });
     return { copied: n };
@@ -484,7 +494,45 @@ function sweepExpired() {
   });
 }
 
-function setStatus(id, status, user) {
+/* ---------- Sales at the visit: frames and lenses ---------- */
+const NO_SALE = ["Not needed", "Price", "Wants to think about it", "Has glasses already"];
+const pence = (v, what) => {
+  if (v == null || v === "") return 0;
+  const n = Math.round(Number(v) * 100);
+  if (!Number.isFinite(n) || n < 0 || n > 500000) throw new HttpError(400, `Enter the ${what} price in pounds, up to £5,000.`);
+  return n;
+};
+/** What was sold at a visit (frames, lenses, paid by card, an NHS voucher towards it), or why nothing was. One per visit. */
+function recordSale(a, input, user) {
+  if (!input || typeof input !== "object") throw new HttpError(400, "Say whether anything was sold.");
+  const sold = input.sold === true;
+  const frames = sold ? pence(input.frames, "frames") : 0, lenses = sold ? pence(input.lenses, "lenses") : 0;
+  if (sold && !frames && !lenses) throw new HttpError(400, "Enter the price of the frames or the lenses.");
+  const reason = sold ? null : NO_SALE.includes(input.reason) ? input.reason : null;
+  if (!sold && !reason) throw new HttpError(400, "Choose why nothing was sold.");
+  const clip = (v) => (v == null ? null : String(v).trim().slice(0, 120) || null);
+  run("DELETE FROM sales WHERE appointment_id = ?", a.id);
+  run(`INSERT INTO sales (appointment_id, patient_id, clinician_id, day, sold, frames_pence, frame_ref, lenses_pence, lens_desc, total_pence, voucher, method, reason, by_name, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.id, a.patientId, a.clinicianId, a.day, sold ? 1 : 0, frames, sold ? clip(input.frameRef) : null,
+    lenses, sold ? clip(input.lensDesc) : null, frames + lenses, sold && input.voucher === true ? 1 : 0, sold ? "card" : null, reason, user.name, `${cal.iso(0)} ${sandbox.stamp().slice(0, 5)}`);
+  const p = getPatient(a.patientId), c = getClinician(a.clinicianId);
+  const what = [frames && "frames", lenses && "lenses"].filter(Boolean).join(" and ");
+  audit(user.name, sold ? "sale.recorded" : "sale.none", a.id, sold ? `${p.name}: ${what}, £${((frames + lenses) / 100).toFixed(2)}` : `${p.name}: nothing sold (${reason})`);
+  bus.emit({ type: "sale.recorded", appointmentId: a.id, clinicianId: c.id, clinician: c.first, patient: p.name, sold, what, totalPence: frames + lenses, reason });
+  return saleOf(a.id);
+}
+const saleOf = (apptId) => { const r = one("SELECT * FROM sales WHERE appointment_id = ?", apptId); return r && map.sale(r); };
+/** The office records or corrects the sale on a finished visit (when the clinician couldn't). */
+function saveSale(id, input, user) {
+  return tx(() => {
+    const a = getAppt(String(id));
+    if (!a) throw new HttpError(404, "That visit no longer exists.");
+    if (a.status !== "done") throw new HttpError(409, "Sales are recorded once the visit is complete.");
+    return recordSale(a, input, user);
+  });
+}
+
+function setStatus(id, status, user, sale = null) {
   return tx(() => {
     const a = getAppt(id);
     if (!a) throw new HttpError(404, "That visit no longer exists.");
@@ -492,6 +540,7 @@ function setStatus(id, status, user) {
     if (a.day !== 0) throw new HttpError(409, `That visit is on ${cal.label(a.day)}, not today.`);
     const flow = { booked: ["enroute"], enroute: ["live"], live: ["done"] };
     if (!(flow[a.status] || []).includes(status)) throw new HttpError(409, `A visit that is ${a.status} can't move to ${status}.`);
+    if (status === "done" && sale) recordSale(a, sale, user); // checked before the visit is closed, so a bad price stops both
     run("UPDATE appointments SET status = ?, seen = 1 WHERE id = ?", status, id);
     const p = getPatient(a.patientId);
     const c = getClinician(a.clinicianId);
@@ -734,8 +783,9 @@ function dismissRecall(id, user) {
 /** What the office's income panel shows. Fee is the office's own figure, set in settings. */
 function metrics() {
   const fee = settings().fee;
-  const cancelled = all("SELECT * FROM appointments WHERE status = 'cancelled'").map(map.appt);
-  const filled = all("SELECT * FROM appointments WHERE moved = 1").map(map.appt);
+  const since = -cal.weekday(0); // "this week": from Monday (day numbers count from today)
+  const cancelled = all("SELECT * FROM appointments WHERE status = 'cancelled' AND day >= ?", since).map(map.appt);
+  const filled = all("SELECT * FROM appointments WHERE moved = 1 AND day >= ?", since).map(map.appt);
   const byId = Object.fromEntries(cancelled.map((a) => [a.id, a]));
   const times = filled.map((f) => byId[f.filledFrom] ? f.bookedMin - byId[f.filledFrom].cancelledMin : null).filter((x) => x != null);
   const open = cancelled.filter((a) => !filled.some((f) => f.filledFrom === a.id));
@@ -1809,4 +1859,4 @@ function setStaffActive(id, active, user) {
   });
 }
 
-module.exports = { setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };
+module.exports = { recordSale, saveSale, saleOf, NO_SALE, setAvailability, diaryChanges, markDiaryCopied, skipCandidate, lodgePvn, setPvnDetails, validNhsNumber, setLikelihood, sourceFor, nhsFrom, sweepRecalls, notDone, pvnStatus, NOT_DONE, saveSettings, messagePreviews, createPatient, updatePatient, exportPatient, erasePatient, moveOptions, moveAppointment, recordOutcome, gapCandidates, bookCandidate, officeCancelLink, publicVisit, publicCancel, teamList, saveClinician, setClinicianActive, saveStaff, setStaffActive, submitReferral, acceptReferral, declineReferral, referralOptions, planRoute, applyRoute, previewImport, commitImport, pcseList, completePcse, invoiceList, payInvoice, voidInvoice, getInvoice, weekReport, textRecall, dismissRecall, publicFindSlots, publicBook, onlineTypes, routeFor, sendReminders, sweepReminders, findSlots, bookVisit, settings, HttpError, cancelAppointment, handleInbound, sweepExpired, setStatus, addNote, addToWaitlist, rank, metrics, getAppt, getPatient, getClinician, audit, tx };

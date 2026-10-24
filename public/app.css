@@ -1189,3 +1189,13 @@ button.rm-row:hover { background: var(--subtle) }
 .blk:has(> .row1 + .ccline) { padding-top: 4px; padding-bottom: 3px; gap: 0 }
 .blk:has(> .row1 + .ccline) .row1 { line-height: 1.15 }
 .blk:has(> .row1 + .ccline) .ccp i { padding-top: 2px; padding-bottom: 2px }
+
+/* Sales at the visit: the clinician's step before completing a visit */
+.sale { padding: 16px 16px 24px }
+.sale-h { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 14px } .sale-h h2 { font-size: 21px; margin-top: 4px }
+.sale-yn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px }
+.sale-opt { position: relative } .sale-opt input { position: absolute; opacity: 0 }
+.sale-opt span { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 52px; border-radius: 12px; box-shadow: inset 0 0 0 1.5px var(--line); background: var(--surface); font-weight: 600; font-size: 14px; cursor: pointer }
+.sale-opt input:checked + span { box-shadow: inset 0 0 0 2px var(--forest); background: var(--forest-soft); color: var(--forest) }
+.sale-opt input:focus-visible + span { outline: 2px solid var(--forest); outline-offset: 2px }
+.sale-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px }
