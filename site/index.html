@@ -452,7 +452,7 @@
   @keyframes onl { 0% { opacity: 0; } 62% { opacity: 1; } 95% { opacity: 0; } }
 
   /* What's coming: a track from today, through the next pieces, to the bigger ones */
-  .road { position: relative; display: grid; grid-template-columns: auto 1fr 1fr; gap: 18px; margin-top: 18px; align-items: stretch; }
+  .road { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 18px; margin-top: 18px; align-items: stretch; }
   .road-now { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 150px; padding: 20px; border-radius: 24px;
     background: linear-gradient(160deg, var(--forest-2), var(--forest)); text-align: center; box-shadow: 0 20px 40px -20px rgba(0,0,0,.7); }
   .road-now b { font-size: 34px; letter-spacing: -0.03em; line-height: 1; }
@@ -507,6 +507,24 @@
   .vault-foot { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px 22px; margin-top: 26px; color: var(--soft); font-size: 15px; text-align: center; }
   @media (max-width: 900px) { .vault { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 480px) { .vault { grid-template-columns: 1fr; } }
+
+  /* What we're building next: three bigger pieces, each with its picture and what it depends on */
+  .next-head { margin-top: 96px; text-align: center; }
+  .next-head h2 { max-width: 22ch; margin: 0 auto; text-wrap: balance; }
+  .spots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+  .spot { position: relative; background: linear-gradient(170deg, rgba(244,162,125,.07), var(--card) 40%); border: 1px solid rgba(244,162,125,.22); border-radius: 24px; padding: 22px; display: flex; flex-direction: column; }
+  .spot-tag { align-self: flex-start; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--amber); padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(244,162,125,.45); margin-bottom: 12px; }
+  .spot .art { display: block; width: 100%; height: 150px; margin-bottom: 14px; }
+  .spot h3 { font-size: 21px; }
+  .spot p { margin: 8px 0 0; color: var(--on-forest-soft); font-size: 15.5px; line-height: 1.55; }
+  @media (prefers-reduced-motion: no-preference) {
+    .spot.in .art .ab { animation: ab 6s cubic-bezier(.22,1,.36,1) infinite; animation-delay: var(--ad); }
+    .spot.in .art .bar { animation: wave 1.1s ease-in-out infinite alternate; animation-delay: var(--bd); transform-box: fill-box; transform-origin: center; }
+    .spot.in .art .ring2 { animation: ping 2.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+    .spot.in .art .rt { animation: rt 5s cubic-bezier(.45,.05,.3,1) infinite; }
+  }
+  @keyframes wave { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
+  @media (max-width: 900px) { .spots { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -831,18 +849,62 @@
         </article>
       </div>
 
+      <div class="next-head" data-reveal>
+        <p class="kicker">What we’re building next</p>
+        <h2>Where Domi goes from here.</h2>
+        <p class="sect-lead">Three bigger pieces, each designed with a domiciliary practice. None of them is built yet, and each is labelled with what it depends on.</p>
+      </div>
+      <div class="spots">
+        <article class="spot" data-reveal>
+          <span class="spot-tag">Next · included</span>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <g class="ab" style="--ad:0s"><rect x="100" y="6" width="100" height="30" rx="10" fill="#1F2C28" stroke="rgba(247,251,249,.18)"/><text x="150" y="25" text-anchor="middle" font-size="12" font-weight="600" fill="#EDF4F0">New Facebook lead</text></g>
+            <g fill="none" stroke="rgba(247,251,249,.2)" stroke-width="1.5" stroke-dasharray="3 4"><path d="M150 38 V58 H50 V80"/><path d="M150 58 V80"/><path d="M150 58 H250 V80"/></g>
+            <g class="ab" style="--ad:.6s"><rect x="6" y="84" width="88" height="30" rx="10" fill="rgba(108,197,146,.2)" stroke="rgba(108,197,146,.55)"/><text x="50" y="103" text-anchor="middle" font-size="12" font-weight="600" fill="#CFEBDC">Likely NHS</text></g>
+            <g class="ab" style="--ad:1s"><rect x="106" y="84" width="88" height="30" rx="10" fill="rgba(244,162,125,.16)" stroke="rgba(244,162,125,.5)"/><text x="150" y="103" text-anchor="middle" font-size="12" font-weight="600" fill="#F6D3C2">Likely private</text></g>
+            <g class="ab" style="--ad:1.4s"><rect x="206" y="84" width="88" height="30" rx="10" fill="#1F2C28" stroke="rgba(247,251,249,.25)"/><text x="250" y="103" text-anchor="middle" font-size="12" font-weight="600" fill="#EDF4F0">To check</text></g>
+            <text x="150" y="140" text-anchor="middle" font-size="11.5" font-weight="600" fill="#A9BCB4">Each with its own instant reply</text>
+          </svg>
+          <h3>Leads sorted as they arrive</h3>
+          <p>Every new enquiry is sorted by its answers: likely NHS, likely private, or one to check, and gets the right reply straight away. Anyone who may not qualify for a free NHS visit is offered a private one instead of being turned away.</p>
+        </article>
+        <article class="spot" data-reveal style="--d:.08s">
+          <span class="spot-tag">Planned · paid add-on</span>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <circle class="ring2" cx="46" cy="58" r="26" fill="none" stroke="#6CC592" stroke-width="2"/>
+            <circle cx="46" cy="58" r="26" fill="rgba(108,197,146,.14)" stroke="rgba(108,197,146,.45)"/>
+            <path d="M37 50c0 9 7 17 17 17l4-4-5-4-3 2c-3-1-6-4-7-7l2-3-4-5z" fill="#6CC592"/>
+            <g fill="#F4A27D"><rect class="bar" style="--bd:0s" x="86" y="52" width="4" height="12" rx="2"/><rect class="bar" style="--bd:.1s" x="94" y="46" width="4" height="24" rx="2"/><rect class="bar" style="--bd:.2s" x="102" y="40" width="4" height="36" rx="2"/><rect class="bar" style="--bd:.3s" x="110" y="48" width="4" height="20" rx="2"/><rect class="bar" style="--bd:.4s" x="118" y="44" width="4" height="28" rx="2"/><rect class="bar" style="--bd:.5s" x="126" y="52" width="4" height="12" rx="2"/></g>
+            <g class="ab" style="--ad:.4s"><rect x="130" y="18" width="166" height="30" rx="12" fill="#2C6B58"/><text x="213" y="37" text-anchor="middle" font-size="11.5" font-weight="600" fill="#F7FBF9">“Can we confirm Tuesday?”</text></g>
+            <g class="ab" style="--ad:1.1s"><rect x="160" y="58" width="134" height="30" rx="12" fill="#1F2C28"/><text x="172" y="77" font-size="11.5" font-weight="600" fill="#EDF4F0">“Yes, that’s fine.”</text></g>
+            <g class="ab" style="--ad:1.8s"><rect x="142" y="98" width="152" height="30" rx="12" fill="rgba(108,197,146,.2)" stroke="rgba(108,197,146,.55)"/><text x="154" y="117" font-size="11.5" font-weight="600" fill="#CFEBDC">CC2 done · logged in Domi</text></g>
+          </svg>
+          <h3>An AI calling assistant</h3>
+          <p>An automated voice that makes your CC1, CC2 and CC3 confirmation calls and records each answer in Domi, then cancellation and recall calls. Only for patients who agree to it. It says it’s automated, hands over to the office on request, and never gives clinical advice.</p>
+        </article>
+        <article class="spot" data-reveal style="--d:.16s">
+          <span class="spot-tag">Later · needs PCSE approval</span>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <rect x="70" y="8" width="112" height="134" rx="10" fill="#0E1916" stroke="rgba(247,251,249,.22)" stroke-width="1.5"/>
+            <text x="84" y="30" font-size="12" font-weight="700" fill="#F4A27D">GOS6</text>
+            <g fill="rgba(247,251,249,.16)"><rect x="84" y="40" width="84" height="7" rx="3.5"/><rect x="84" y="54" width="64" height="7" rx="3.5"/><rect x="84" y="68" width="76" height="7" rx="3.5"/><rect x="84" y="82" width="52" height="7" rx="3.5"/></g>
+            <path d="M84 116 c8 -10 14 6 22 -4 s12 4 18 -2" fill="none" stroke="#CFEBDC" stroke-width="2" stroke-linecap="round"/>
+            <g fill="none" stroke="rgba(108,197,146,.6)" stroke-width="2" stroke-dasharray="4 5"><path class="rt" pathLength="1" d="M186 76 H232"/></g>
+            <g class="ab" style="--ad:.8s"><circle cx="258" cy="76" r="24" fill="rgba(108,197,146,.18)" stroke="rgba(108,197,146,.55)"/><text x="258" y="74" text-anchor="middle" font-size="11" font-weight="700" fill="#CFEBDC">PCSE</text><text x="258" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#6CC592">✓</text></g>
+          </svg>
+          <h3>The eye exam and NHS claims, in Domi</h3>
+          <p>The full eye examination on the tablet, GOS claims sent to PCSE including GOS6, pre-visit notifications lodged from Domi, and your history moved across, so one system replaces your practice software. It needs PCSE to approve Domi as a connected system first, so we don’t give a date.</p>
+        </article>
+      </div>
+
       <div class="road" data-reveal>
         <div class="road-now"><b>28</b><span>working today</span></div>
         <div class="road-col">
-          <h3>Coming next <span>Not built yet</span></h3>
-          <ul class="chips"><li>Leads sorted as they arrive</li><li>Visits and waiting list import</li><li>Repeating visits and courses</li><li>Care-home sessions</li><li>Fundus photos</li><li>Card payments and Xero</li><li>AI-drafted visit notes</li><li>Letters and pre-visit forms</li><li>Self-service password reset</li></ul>
-        </div>
-        <div class="road-col later">
-          <h3>Coming later <span>Needs partners</span></h3>
-          <ul class="chips"><li>PCSE Online</li><li>Eye exams and NHS claims</li><li>AI calling assistant</li><li>Lab orders</li><li>iPhone and Android apps</li></ul>
+          <h3>Also on the list <span>Not built yet</span></h3>
+          <ul class="chips"><li>Visits and waiting list import</li><li>Repeating visits and courses</li><li>Care-home sessions</li><li>Fundus photos</li><li>Card payments and Xero</li><li>AI-drafted visit notes</li><li>Letters and pre-visit forms</li><li>Self-service password reset</li><li>Lab orders</li><li>iPhone and Android apps</li></ul>
         </div>
       </div>
-      <p class="road-note">No dates on purpose. PCSE Online and NHS claims need PCSE’s approval first. Ask where anything stands and we’ll tell you straight.</p>
+      <p class="road-note">No dates on purpose. Ask where anything stands and we’ll tell you straight.</p>
     </div>
   </section>
 
@@ -933,7 +995,7 @@
           </details>
           <details name="faq">
             <summary><span>Do we have to replace our current system?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-            <div class="answer"><p>No. Domi runs the admin around your visits: the diary, refills, routes, referrals and recalls. Clinical records, such as the eye examination or an audiogram, stay in the clinical system you already use, and Domi works alongside it. For Opticabase users, patients import straight in, and Domi keeps a list of diary changes to copy back.</p></div>
+            <div class="answer"><p>Not today. Domi runs the admin around your visits: the diary, refills, routes, referrals and recalls. Clinical records, such as the eye examination or an audiogram, stay in the clinical system you already use, and Domi works alongside it. For eye care, we plan to bring the examination and NHS claims into Domi so one system can do both, once PCSE approves Domi as a connected system. For Opticabase users, patients import straight in, and Domi keeps a list of diary changes to copy back.</p></div>
           </details>
           <details name="faq">
             <summary><span>How does it handle PCSE notifications?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
