@@ -55,6 +55,7 @@
   .proc { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
   .proc h3 { font-size: 18px; margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .proc h3 small { font-size: 13px; font-weight: 600; color: var(--soft); white-space: nowrap; }
+  .proc-note { margin: 18px 0 0; color: var(--on-forest-soft); font-size: 15px; }
   .proc p { margin: 0; color: var(--on-forest-soft); font-size: 15px; line-height: 1.45; }
   .sees { margin-top: auto; padding-top: 12px; }
   .sees em { font-style: normal; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; color: var(--soft); }
@@ -178,15 +179,16 @@
   </section>
 
   <section aria-labelledby="h-proc">
-    <h2 id="h-proc">Six companies, and exactly what each one sees.</h2>
+    <h2 id="h-proc">Six suppliers, and exactly what each one sees.</h2>
     <div class="procs" data-reveal>
-      <div class="proc"><h3>Supabase <small>London</small></h3><p>The database.</p><div class="sees"><em>Your practice’s data</em><i style="--w:100%"></i></div></div>
-      <div class="proc"><h3>Fly.io <small>London</small></h3><p>Runs the Domi server.</p><div class="sees"><em>Your practice’s data, while in use</em><i style="--w:100%"></i></div></div>
-      <div class="proc"><h3>Twilio <small>EU and US</small></h3><p>Sends texts, only if you switch texts on.</p><div class="sees"><em>Name, mobile number, the message</em><i style="--w:40%"></i></div></div>
-      <div class="proc"><h3>Resend <small>Ireland</small></h3><p>Sends staff invitations, resets and enquiry replies.</p><div class="sees"><em>Name, email address, the message</em><i style="--w:30%"></i></div></div>
-      <div class="proc"><h3>openrouteservice <small>Germany</small></h3><p>Works out driving times.</p><div class="sees"><em>Postcode map points only, never names</em><i style="--w:8%;--c:#6CC592"></i></div></div>
-      <div class="proc"><h3>postcodes.io <small>UK</small></h3><p>Finds where a postcode is.</p><div class="sees"><em>Postcodes only</em><i style="--w:6%;--c:#6CC592"></i></div></div>
+      <div class="proc"><h3>Database hosting <small>London</small></h3><p>Stores your practice’s records.</p><div class="sees"><em>Your practice’s data</em><i style="--w:100%"></i></div></div>
+      <div class="proc"><h3>Application hosting <small>London</small></h3><p>Runs the Domi server.</p><div class="sees"><em>Your practice’s data, while in use</em><i style="--w:100%"></i></div></div>
+      <div class="proc"><h3>Text messages <small>EU and US</small></h3><p>Sends texts, only if you switch texts on.</p><div class="sees"><em>Name, mobile number, the message</em><i style="--w:40%"></i></div></div>
+      <div class="proc"><h3>Email delivery <small>Ireland</small></h3><p>Sends staff invitations, resets and enquiry replies.</p><div class="sees"><em>Name, email address, the message</em><i style="--w:30%"></i></div></div>
+      <div class="proc"><h3>Driving times <small>Germany</small></h3><p>Works out driving times.</p><div class="sees"><em>Postcode map points only, never names</em><i style="--w:8%;--c:#6CC592"></i></div></div>
+      <div class="proc"><h3>Postcode lookup <small>UK</small></h3><p>Finds where a postcode is.</p><div class="sees"><em>Postcodes only</em><i style="--w:6%;--c:#6CC592"></i></div></div>
     </div>
+    <p class="proc-note">Each supplier is bound by a data processing agreement. Customers get the names and those agreements on request, in confidence.</p>
   </section>
 
   <section aria-labelledby="h-leave">

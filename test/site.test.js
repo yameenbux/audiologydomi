@@ -90,3 +90,17 @@ test("the contact form falls back to email without a Web3Forms key; analytics on
   on.done();
   assert.throws(() => build({ CF_BEACON_TOKEN: "not a token" }));
 });
+
+test("the technical page that names Domi's suppliers is off unless a developer switches it on", async () => {
+  const { spawn } = require("node:child_process");
+  const port = 3900 + Math.floor(Math.random() * 90);
+  const env = { ...process.env, PORT: String(port) }; delete env.UNDER_THE_HOOD;
+  const srv = spawn(process.execPath, ["--experimental-sqlite", "--no-warnings", path.join(__dirname, "..", "server", "index.js")], { env, stdio: "ignore" });
+  try {
+    let up = false;
+    for (let i = 0; i < 50 && !up; i++) { try { await fetch(`http://localhost:${port}/api/meta`); up = true; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    assert.ok(up, "server started");
+    for (const p of ["/under-the-hood", "/under-the-hood.html"]) assert.strictEqual((await fetch(`http://localhost:${port}${p}`)).status, 404, p);
+    assert.doesNotMatch(await (await fetch(`http://localhost:${port}/`)).text(), /under-the-hood/);
+  } finally { srv.kill(); }
+});

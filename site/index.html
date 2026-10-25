@@ -13,7 +13,7 @@
 <!--ANALYTICS-->
 <script>document.documentElement.classList.add('js')</script>
 <style>
-  /* Everything on this page is served from this site: no font services, no cookies. Visits are counted by Cloudflare's
+  /* Everything on this page is served from this site: no font services, no cookies. Visits are counted by
      cookieless analytics, added at build time only when a token is set (scripts/build-site.js). */
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-400-normal.woff2) format('woff2'); }
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 500; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-500-normal.woff2) format('woff2'); }
@@ -996,8 +996,8 @@
 
 <script>
   // Contact form: checks each field as people go, drops bots (a hidden box and a minimum time on the page), sends to
-  // Web3Forms, then goes to the thank-you page. Without a Web3Forms key it opens an email to us instead. Without
-  // JavaScript the form posts straight to Web3Forms, which redirects to the same thank-you page.
+  // the form service, then goes to the thank-you page. Without a form key it opens an email to us instead. Without
+  // JavaScript the form posts straight to the form service, which redirects to the same thank-you page.
   (function () {
     var form = document.getElementById('enquiry'); if (!form) return;
     var started = Date.now(), key = form.getAttribute('data-key'), to = form.getAttribute('data-email');

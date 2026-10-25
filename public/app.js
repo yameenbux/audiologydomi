@@ -462,7 +462,7 @@ function waitingPanel() {
 function textsPanel() {
   return `${remindersPanel()}
         <section class="panel" aria-label="Texts">
-          <div class="panel-h"><h2>Texts</h2><span class="sub">${S.messages.length} today · ${META.smsProvider === "twilio" ? "sending live" : "demo outbox"}</span></div>
+          <div class="panel-h"><h2>Texts</h2><span class="sub">${S.messages.length} today · ${META.smsLive ? "sending live" : "demo outbox"}</span></div>
           ${S.messages.length ? `<div class="feed" data-scroll="feed">${S.messages.map(smsBubble).join("")}</div>`
             : `<div class="empty"><b>No texts yet</b>Click a booked visit in a diary to cancel it, or to play the patient texting CANCEL.</div>`}
         </section>`;
@@ -1958,7 +1958,7 @@ function buildMap(el, r) {
   const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.25, attributionControl: true });
   // OpenStreetMap refuses tiles to requests that don't say which site they're for, and Domi's pages send no
   // referrer by default. Tiles alone send the site's origin (never a page address).
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", referrerPolicy: "origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' + (/openrouteservice/.test((typeof META !== "undefined" && META && META.routing) || "") ? ' · routes &copy; <a href="https://openrouteservice.org" target="_blank" rel="noopener">openrouteservice.org</a> by HeiGIT' : "") })
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "lmap-tiles", referrerPolicy: "origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' + (typeof META !== "undefined" && META && META.routeCredit ? ' · routes &copy; <a href="https://openrouteservice.org" target="_blank" rel="noopener">openrouteservice.org</a> by HeiGIT' : "") })
     .on("tileerror", () => { tileFailures++; }).addTo(map);
   map.attributionControl.setPrefix(false);
   const col = r.clinician.color, base = [r.base.lat, r.base.lon], pts = r.stops.map((s) => [s.lat, s.lon]);
