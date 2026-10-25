@@ -9,10 +9,11 @@
 <meta name="theme-color" content="#0C1412">
 <!--ICONS-->
 <!--SOCIAL-->
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"%%SITE_URL%%/#org","name":"YSB Ventures Ltd","brand":"Domi","url":"%%SITE_URL%%/","email":"%%EMAIL%%","identifier":"Companies House 16022339"},{"@type":"SoftwareApplication","name":"Domi","applicationCategory":"BusinessApplication","operatingSystem":"Web browser, offline on phones and tablets","url":"%%SITE_URL%%/","publisher":{"@id":"%%SITE_URL%%/#org"},"description":"The diary for healthcare that visits patients at home: cancellations refilled by text, routes planned by drive time, PCSE notice rules checked at booking, and an offline app for clinicians. Hosted in London.","offers":{"@type":"Offer","price":"160","priceCurrency":"GBP","description":"Founding price for the first five practices: per month for up to 3 clinicians (then £45 a month each), 1,500 patient texts included, fixed for the first year; one-off set-up quoted separately"}}]}</script>
 <!--ANALYTICS-->
 <script>document.documentElement.classList.add('js')</script>
 <style>
-  /* Everything on this page is served from this site: no font services, no cookies. Visits are counted by Cloudflare's
+  /* Everything on this page is served from this site: no font services, no cookies. Visits are counted by
      cookieless analytics, added at build time only when a token is set (scripts/build-site.js). */
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-400-normal.woff2) format('woff2'); }
   @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 500; font-display: swap; src: url(fonts/plus-jakarta-sans-latin-500-normal.woff2) format('woff2'); }
@@ -44,7 +45,7 @@
   /* Every section opens on a centred head, in line with the intro */
   .wrap > .kicker, .wrap > h2, .promise-head { text-align: center; }
   .wrap > h2, .promise-head h2 { text-wrap: balance; max-width: 22ch; margin-left: auto; margin-right: auto; }
-  .kicker { font: 600 14px/1.4 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--link); margin: 0 0 12px; }
+
   section { padding: 88px 0; }
   section + section { border-top: 1px solid var(--line); }
 
@@ -111,25 +112,20 @@
   .btn-main:hover { background: #FFFFFF; }
   .btn-line { color: var(--on-forest); border: 1.5px solid rgba(247,251,249,.32); }
   .btn-line:hover { background: rgba(247,251,249,.08); }
-  .proof { margin: 18px 0 0; font-size: 14px; font-weight: 600; color: var(--on-forest-soft); letter-spacing: .01em; }
-  .wake { margin: 6px 0 0; font-size: 13px; color: var(--soft); }
 
   /* Three devices: a tablet, a laptop and a phone. The frames are drawn into the images (transparent around them),
      so the shadow follows each device's outline rather than a box. The laptop sits behind; the tablet and phone in front. */
-  .fan { position: relative; display: flex; justify-content: center; align-items: flex-start; max-width: 1040px; margin: 64px auto 0; padding: 0 8px; }
+  .fan { position: relative; display: flex; justify-content: center; align-items: flex-start; max-width: 1040px; margin: 64px auto 0; padding: 0 8px 150px; }
   .card { margin: 0; flex: none; filter: drop-shadow(0 26px 34px rgba(0,0,0,.55)); }
   .card img { display: block; width: 100%; height: auto; }
   .card-l { width: 25%; z-index: 2; margin-right: -9%; transform: translateY(70px) rotate(-4deg); }
   .card-c { width: 66%; z-index: 1; transform: translateY(0); }
   .card-r { width: 17.5%; z-index: 2; margin-left: -8%; transform: translateY(84px) rotate(5deg); }
 
-  .points { list-style: none; margin: 132px auto 0; padding: 0 0 88px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; text-align: center; }
-  .points .h3 { font-size: 20px; letter-spacing: -0.015em; color: var(--on-forest); }
-  .points p { margin: 6px 0 0; color: var(--on-forest-soft); font-size: 16px; }
   @media (max-width: 760px) {
     .hero p.lede { font-size: 17px; }
-    .fan { margin-top: 44px; }
-    .points { grid-template-columns: 1fr; gap: 20px; margin-top: 100px; padding-bottom: 64px; }
+    .fan { margin-top: 44px; padding-bottom: 110px; }
+
   }
 
   /* Opening: the words rise in one after another, then the tablet and phone slide out from behind the laptop.
@@ -145,7 +141,6 @@
     .js .opened .card-l { transform: translateY(70px) rotate(-4deg); }
     .js .opened .card-r { transform: translateY(84px) rotate(5deg); }
   }
-
 
   /* Data promise */
   .promise dl { margin: 40px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center; }
@@ -180,27 +175,8 @@
   .faq mark { background: rgba(244,162,125,.35); color: inherit; border-radius: 3px; padding: 0 2px; }
   .faq-empty { color: var(--soft); text-align: center; padding: 28px 8px; margin: 0; }
   @media (prefers-reduced-motion: reduce) { .faq summary svg { transition: none; } }
-  .contact { margin: 36px auto 0; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px 26px; max-width: 760px; text-align: center; }
-  .contact p { margin: 4px 0 0; }
 
   /* The policy as a card of sections that open one at a time */
-  .policy { max-width: 800px; }
-  .policy-card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
-  .policy-head { padding: 24px 24px 20px; border-bottom: 1px solid var(--line); }
-  .policy-head h2 { font-size: 24px; letter-spacing: -0.015em; text-align: left; }
-  .policy-head .muted { color: var(--soft); margin: 6px 0 0; font-size: 15px; }
-  .policy-head .box { background: var(--mint-bg); border-radius: 14px; padding: 14px 16px; margin-top: 16px; font-size: 16px; }
-  .policy-card details + details { border-top: 1px solid var(--line); }
-  .policy-card summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    padding: 16px 24px; font: 600 16.5px/1.4 'Plus Jakarta Sans', sans-serif; }
-  .policy-card summary::-webkit-details-marker { display: none; }
-  .policy-card summary:hover span { color: var(--link); }
-  .policy-card summary:focus-visible { outline: 3px solid var(--amber); outline-offset: -3px; }
-  .policy-card summary svg { flex: none; width: 16px; height: 16px; color: var(--soft); transition: transform .25s cubic-bezier(.16,1,.3,1); }
-  .policy-card details[open] summary svg { transform: rotate(180deg); }
-  .policy-panel { padding: 0 24px 18px; color: var(--soft); font-size: 16px; }
-  .policy-panel p { margin: 0 0 10px; } .policy-panel p:last-child { margin-bottom: 0; }
-  @media (prefers-reduced-motion: reduce) { .policy-card summary svg { transition: none; } }
 
   /* Inside Domi: a pile of cards, the app's screens. Throw the top card (drag and let go) and it flies off and slides
      back in at the bottom; the arrows, arrow keys and autoplay do the same. Without the script the cards simply sit in
@@ -223,11 +199,11 @@
   .deck-screen img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; pointer-events: none; }
   .deck-card figcaption { display: none; }
   .deck-meta { display: flex; align-items: center; gap: 16px; width: min(100%, 560px); }
-  .deck-cap { flex: 1; min-width: 0; text-align: center; min-height: 128px; }
+  .deck-cap { flex: 1; min-width: 0; text-align: center; }
   .deck-cap > * { animation: deck-in .55s cubic-bezier(.2,.8,.2,1) both; }
   .deck-cap h3 { font-size: 22px; letter-spacing: -0.015em; margin-top: 2px; animation-delay: .03s; }
   .deck-cap p { margin: 6px 0 0; color: var(--soft); font-size: 16px; animation-delay: .06s; }
-  .deck-cap .tag { margin-bottom: 8px; }
+
   @keyframes deck-in { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
   .deck-btn { appearance: none; flex: none; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: rgba(21,31,28,.6);
     color: var(--ink); display: grid; place-items: center; cursor: pointer; transition: background-color .2s, color .2s; }
@@ -247,37 +223,30 @@
   html:not(.js) .deck-card figcaption { display: block; text-align: center; }
   html:not(.js) .deck-card figcaption p { color: var(--on-forest-soft); margin: 6px 0 0; }
   html:not(.js) .deck-meta, html:not(.js) .deck-foot, html:not(.js) .js-only { display: none; }
-  .tag { display: inline-block; font: 600 12px/1 'Plus Jakarta Sans', sans-serif; letter-spacing: .04em; text-transform: uppercase;
-    padding: 6px 10px; border-radius: 999px; margin-bottom: 12px; }
-  .tag-now { color: var(--mint); background: var(--mint-bg); }
+
   /* Who it's for */
-  .sect-lead { max-width: 720px; margin: 18px auto 0; text-align: center; color: var(--soft); }
+
   .sectors { list-style: none; margin: 40px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .sector { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px 22px 20px; }
   .sector.lead { grid-column: span 2; background: linear-gradient(170deg, rgba(30,77,64,.9), rgba(18,48,42,.9)); border-color: rgba(108,197,146,.35); }
   .sector h3 { margin: 12px 0 2px; font-size: 21px; letter-spacing: -0.015em; }
-  .sector .who { margin: 0 0 10px; color: var(--amber); font-size: 14.5px; font-weight: 600; }
   .sector p { margin: 0; font-size: 15.5px; }
-  .sector .gap { display: block; margin-top: 10px; color: var(--soft); font-size: 14px; }
+  .sector .more { display: block; margin-top: 12px; }
+
   .sector .more { display: inline-block; margin-top: 12px; font-weight: 600; font-size: 15px; }
-  .tag-set { color: var(--ink); background: rgba(234,244,239,.08); border: 1px solid var(--line); }
-  .sect-fine { max-width: 760px; margin: 22px auto 0; text-align: center; }
+
   @media (max-width: 960px) { .sectors { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sector.lead { grid-column: 1 / -1; } }
   @media (max-width: 620px) { .sectors { grid-template-columns: 1fr; } .sector.lead { grid-column: auto; } }
-  .tag-soon { color: var(--amber); border: 1px solid rgba(244,162,125,.45); }
-  .extras-note { text-align: center; color: var(--soft); font-size: 15px; max-width: 720px; margin: 22px auto 0; }
 
   /* Book a demo: what the call covers on the left, the form on the right; stacked on phones */
   .demo-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin-top: 40px; align-items: start; }
   @media (max-width: 900px) { .demo-grid { grid-template-columns: 1fr; gap: 28px; } }
-  .demo-lede { color: var(--soft); margin: 0 0 22px; }
+
   .demo-list { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 12px; }
   .demo-list li { display: flex; gap: 12px; align-items: flex-start; }
   .demo-list svg { flex: none; width: 22px; height: 22px; margin-top: 2px; padding: 3px; border-radius: 50%; color: var(--paper); background: var(--mint); }
   .demo-list b { color: var(--ink); }
-  .demo-shot { margin: 0; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
-  .demo-shot img { display: block; width: 100%; height: auto; }
-  .demo-alt { color: var(--soft); font-size: 15px; margin: 16px 0 0; }
+
   .btn-wide { width: 100%; justify-content: center; }
   /* Switching: four numbered steps */
   .move { counter-reset: m; list-style: none; margin: 36px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -289,8 +258,8 @@
   .move p { margin: 0; color: var(--soft); font-size: 15.5px; }
   /* Contact form */
   .enquiry { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; }
-  .f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-  @media (max-width: 640px) { .f-row { grid-template-columns: 1fr; } .enquiry { padding: 20px; } }
+
+  @media (max-width: 640px) { .enquiry { padding: 20px; } }
   .f { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; min-width: 0; }
   .f label { font-weight: 600; font-size: 15px; }
   .f label span { color: var(--soft); font-weight: 400; }
@@ -308,7 +277,6 @@
   footer a { color: var(--on-forest); }
   footer p { margin: 0; }
 
-  .fine { color: var(--soft); font-size: 15px; margin-top: 18px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
   /* Sections that rise into place as they're scrolled to. Without the script, or with less motion asked for, they're
@@ -321,7 +289,7 @@
   /* The round: one clinician's day on a map. A visit cancels, three nearby patients are texted, the first YES is
      booked and the route redraws. The script steps data-step from 0 to 5 and starts again; every change is a CSS
      transition on that step, so the drawing is vector all the way down and sharp on any screen. */
-  .story .sect-lead { margin-bottom: 40px; }
+
   .scene { position: relative; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px;
     background: linear-gradient(160deg, rgba(30,77,64,.32), rgba(12,20,18,.6) 60%); border: 1px solid var(--line); border-radius: 28px; padding: 18px;
     box-shadow: 0 40px 90px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(247,251,249,.05); }
@@ -370,8 +338,6 @@
   .feed-body::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 40px; background: linear-gradient(rgba(9,15,13,.95), transparent); z-index: 1; pointer-events: none; }
   .feed-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; font-weight: 700; font-size: 15px; }
   .feed-head span { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--forest); }
-  .feed-head small { margin-left: auto; font-weight: 600; font-size: 12px; color: var(--mint); display: flex; align-items: center; gap: 6px; }
-  .feed-head small::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 4px rgba(108,197,146,.18); }
   .bub { max-width: 92%; padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.4; margin: 0 0 9px; opacity: 0; transform: translateY(10px) scale(.98);
     transition: opacity .45s cubic-bezier(.22,1,.36,1), transform .45s cubic-bezier(.22,1,.36,1); }
   .bub b { display: block; font-size: 11.5px; letter-spacing: .02em; color: var(--soft); font-weight: 600; margin-bottom: 2px; }
@@ -390,7 +356,7 @@
   .beats li { position: relative; padding: 16px 14px 0; font-size: 14.5px; line-height: 1.45; color: var(--soft); transition: color .4s; }
   .beats li::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: 3px; background: var(--line); }
   .beats li::after { content: ''; position: absolute; left: 0; top: 0; height: 3px; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--amber), var(--apricot)); }
-  .beats li b { display: block; color: var(--on-forest); font-size: 15.5px; margin-bottom: 2px; }
+  .beats li b { display: block; color: var(--on-forest); font-size: 15.5px; }
   .beats li.on { color: var(--on-forest-soft); }
   .beats li.on::after { width: 100%; transition: width var(--t, 2s) linear; }
   .beats li.past::after { width: 100%; }
@@ -399,7 +365,7 @@
   .scene-ctl button:hover { color: var(--on-forest); border-color: rgba(247,251,249,.3); }
   @media (max-width: 860px) {
     .scene { grid-template-columns: 1fr; padding: 12px; border-radius: 22px; }
-    .feed { min-height: 430px; }
+    .feed { min-height: 320px; }
     .beats { grid-template-columns: 1fr; gap: 0; }
     .beats li { padding: 12px 0 12px 18px; }
     .beats li::before, .beats li::after { top: 12px; bottom: 12px; height: auto; width: 3px; right: auto; }
@@ -410,7 +376,7 @@
   .built-head { display: flex; flex-direction: column; align-items: center; text-align: center; }
   .count { font: 700 clamp(64px, 11vw, 120px)/1 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.05em; margin: 18px 0 0;
     background: linear-gradient(180deg, #fff, var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; font-variant-numeric: tabular-nums; }
-  .count-label { margin: 6px 0 0; font-weight: 600; color: var(--on-forest-soft); }
+
   .bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; margin-top: 44px; }
   .tile { grid-column: span 4; position: relative; overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 22px; display: flex; flex-direction: column; }
   .tile.w7 { grid-column: span 7; } .tile.w5 { grid-column: span 5; }
@@ -428,7 +394,7 @@
   /* The tiles' pictures loop gently once they're on screen */
   .js .art .ab { opacity: 0; }
   .art .rt { fill: none; stroke: var(--amber); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 0; }
-  .art .ruler-mark { transform-box: fill-box; }
+
   @media (prefers-reduced-motion: no-preference) {
     .tile.in .art .ab { animation: ab 6s cubic-bezier(.22,1,.36,1) infinite; animation-delay: var(--ad); }
     .tile.in .art .rt { animation: rt 5s cubic-bezier(.45,.05,.3,1) infinite; }
@@ -452,39 +418,31 @@
   @keyframes onl { 0% { opacity: 0; } 62% { opacity: 1; } 95% { opacity: 0; } }
 
   /* What's coming: a track from today, through the next pieces, to the bigger ones */
-  .road { position: relative; display: grid; grid-template-columns: auto 1fr 1fr; gap: 18px; margin-top: 18px; align-items: stretch; }
-  .road-now { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 150px; padding: 20px; border-radius: 24px;
-    background: linear-gradient(160deg, var(--forest-2), var(--forest)); text-align: center; box-shadow: 0 20px 40px -20px rgba(0,0,0,.7); }
-  .road-now b { font-size: 34px; letter-spacing: -0.03em; line-height: 1; }
-  .road-now span { font-size: 14px; color: var(--on-forest-soft); font-weight: 600; margin-top: 6px; }
+  .road { margin-top: 16px; }
+
   .road-col { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 22px; }
   .road-col h3 { font-size: 18px; display: flex; align-items: center; gap: 10px; }
-  .road-col h3 span { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; color: var(--amber); box-shadow: inset 0 0 0 1px rgba(244,162,125,.4); }
   .road-col .chips li { background: rgba(244,162,125,.08); color: #F6D3C2; box-shadow: inset 0 0 0 1px rgba(244,162,125,.22); }
-  .road-col.later .chips li { background: transparent; color: var(--on-forest-soft); box-shadow: inset 0 0 0 1px var(--line); }
-  .road-note { text-align: center; color: var(--soft); font-size: 15px; margin: 18px 0 0; }
-  @media (max-width: 900px) { .road { grid-template-columns: 1fr; } .road-now { flex-direction: row; gap: 10px; min-width: 0; } .road-now span { margin: 0; } }
+
 
   /* Price: the monthly figure counts up, and three refilled visits fill a bar past it */
   .price-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; margin-top: 44px; }
   .price-card { position: relative; overflow: hidden; border-radius: 28px; padding: 32px; background: linear-gradient(165deg, #2C6B58 0%, #1E4D40 45%, #12302A 100%);
     box-shadow: 0 40px 80px -40px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.12); }
   .price-card::after { content: ''; position: absolute; right: -120px; top: -120px; width: 320px; height: 320px; border-radius: 50%; background: radial-gradient(circle, rgba(244,162,125,.35), transparent 65%); pointer-events: none; }
-  .price-from { font-weight: 600; color: var(--on-forest-soft); margin: 0; }
+
   .price-big { font: 700 clamp(64px, 9vw, 96px)/1 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.05em; margin: 4px 0 0; font-variant-numeric: tabular-nums; }
   .price-big small { font-size: 20px; letter-spacing: 0; font-weight: 600; color: var(--on-forest-soft); margin-left: 6px; }
   .price-card ul { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 10px; }
   .price-card li { display: flex; gap: 10px; align-items: flex-start; font-size: 16px; }
   .price-card li svg { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--mint); }
-  .price-card .fine { color: var(--on-forest-soft); font-size: 14px; margin: 22px 0 0; }
+
   .price-card .btn { margin-top: 22px; }
   .payback { border-radius: 28px; padding: 32px; background: var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; }
   .payback h3 { font-size: 24px; }
-  .payback > p { color: var(--on-forest-soft); margin: 8px 0 0; }
   .slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 26px 0 0; }
   .slot { border-radius: 18px; padding: 16px 14px; background: rgba(9,15,13,.6); border: 1.5px dashed rgba(244,162,125,.35); text-align: center; transition: all .6s cubic-bezier(.22,1,.36,1); transition-delay: var(--sd); }
-  .slot b { display: block; font-size: 26px; letter-spacing: -0.03em; color: var(--soft); transition: color .6s; transition-delay: var(--sd); }
-  .slot span { font-size: 13px; color: var(--soft); }
+  .slot b { display: block; white-space: nowrap; font-size: clamp(20px, 5.4vw, 26px); letter-spacing: -0.03em; color: var(--soft); transition: color .6s; transition-delay: var(--sd); }
   .payback.in .slot { background: rgba(108,197,146,.14); border: 1.5px solid rgba(108,197,146,.5); }
   .payback.in .slot b { color: var(--mint); }
   .meter { position: relative; height: 16px; border-radius: 999px; background: rgba(9,15,13,.7); margin: 30px 0 10px; box-shadow: inset 0 0 0 1px var(--line); }
@@ -492,7 +450,7 @@
   .payback.in .meter i { width: 100%; }
   .meter em { position: absolute; top: -8px; bottom: -8px; left: 82%; width: 2px; background: var(--amber); font-style: normal; }
   .meter em::after { content: '£160 a month'; position: absolute; top: -24px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--amber); }
-  .meter-scale { display: flex; justify-content: space-between; font-size: 13px; color: var(--soft); }
+  .meter-scale { display: flex; justify-content: flex-end; font-size: 13px; color: var(--soft); }
   .meter-scale b { color: var(--mint); }
   .payback .src { margin: auto 0 0; padding-top: 22px; font-size: 13px; color: var(--soft); }
   @media (max-width: 900px) { .price-grid { grid-template-columns: 1fr; } .price-card, .payback { padding: 24px; } }
@@ -503,10 +461,27 @@
   .vault div { position: relative; border-radius: 22px; padding: 22px; background: var(--mint-bg); box-shadow: inset 0 0 0 1px rgba(108,197,146,.16); overflow: hidden; }
   .vault svg { width: 34px; height: 34px; color: var(--mint); }
   .vault b { display: block; font-size: 30px; letter-spacing: -0.03em; margin-top: 14px; line-height: 1.05; }
-  .vault span { display: block; color: var(--on-forest-soft); font-size: 15px; margin-top: 4px; }
   .vault-foot { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px 22px; margin-top: 26px; color: var(--soft); font-size: 15px; text-align: center; }
   @media (max-width: 900px) { .vault { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 480px) { .vault { grid-template-columns: 1fr; } }
+
+  /* What we're building next: three bigger pieces, each with its picture and what it depends on */
+  .next-head { margin-top: 96px; text-align: center; }
+  .next-head h2 { max-width: 22ch; margin: 0 auto; text-wrap: balance; }
+  .spots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+  .spot { position: relative; background: linear-gradient(170deg, rgba(244,162,125,.07), var(--card) 40%); border: 1px solid rgba(244,162,125,.22); border-radius: 24px; padding: 22px; display: flex; flex-direction: column; }
+  .spot-tag { align-self: flex-start; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--amber); padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(244,162,125,.45); margin-bottom: 12px; }
+  .spot .art { display: block; width: 100%; height: 150px; margin-bottom: 14px; }
+  .spot h3 { font-size: 21px; }
+  .spot p { margin: 8px 0 0; color: var(--on-forest-soft); font-size: 15.5px; line-height: 1.55; }
+  @media (prefers-reduced-motion: no-preference) {
+    .spot.in .art .ab { animation: ab 6s cubic-bezier(.22,1,.36,1) infinite; animation-delay: var(--ad); }
+    .spot.in .art .bar { animation: wave 1.1s ease-in-out infinite alternate; animation-delay: var(--bd); transform-box: fill-box; transform-origin: center; }
+    .spot.in .art .ring2 { animation: ping 2.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+    .spot.in .art .rt { animation: rt 5s cubic-bezier(.45,.05,.3,1) infinite; }
+  }
+  @keyframes wave { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
+  @media (max-width: 900px) { .spots { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -536,8 +511,6 @@
           <a class="btn btn-main" href="%%DEMO_URL%%" rel="noopener">Try the live demo</a>
           <a class="btn btn-line" href="#contact">Book a demo</a>
         </div>
-        <p class="proof rise">Laptop, tablet and phone · Nothing to install · Built for home visits</p>
-        <p class="wake rise">The demo uses invented patients. If nobody has opened it for a while, it takes about a minute to wake.</p>
       </div>
 
       <div class="fan" id="fan">
@@ -545,12 +518,6 @@
         <figure class="card card-c"><img src="shots/device-laptop.webp" width="1400" height="820" alt="A laptop showing Domi refilling an 11:00 slot: suitable patients ranked with their reasons, an NHS sight test held back for PCSE notice, and the top three offered the slot by text at once." decoding="async"></figure>
         <figure class="card card-r"><img src="shots/device-phone.webp" width="556" height="1163" alt="A phone showing the clinician's day: 'Your diary changed. Peter Dunn cancelled. Margaret Holt now booked today at 11:00', with the patient she's with now." decoding="async"></figure>
       </div>
-
-      <ul class="points" id="how">
-        <li><h2 class="h3">Refills on its own</h2><p>A cancelled visit is offered to the best-matched patient by text. The first yes is booked, and everyone else keeps their place.</p></li>
-        <li><h2 class="h3">Routes planned for you</h2><p>Each clinician’s day in the order that drives least, from home and back. Patients are told any new time.</p></li>
-        <li><h2 class="h3">No more paperwork</h2><p>Referrals arrive through a form, patient lists import from a spreadsheet, and the round is on every clinician’s phone.</p></li>
-      </ul>
     </div>
   </div>
 </header>
@@ -558,9 +525,7 @@
 <main id="main">
   <section id="story" class="story">
     <div class="wrap">
-      <p class="kicker">How it works</p>
       <h2>Watch a cancellation fill itself.</h2>
-      <p class="sect-lead">One clinician’s round. A patient cancels at 10:20. Nobody in the office picks up the phone.</p>
       <div class="scene" data-step="5" data-reveal role="group" aria-label="An example round, told in the steps below">
         <svg class="map" viewBox="0 0 760 500" aria-hidden="true" focusable="false">
           <defs>
@@ -597,7 +562,7 @@
           <g class="done-tag" transform="translate(24 24)"><rect width="268" height="40" rx="20" fill="rgba(108,197,146,.16)" stroke="rgba(108,197,146,.55)"/><circle cx="22" cy="20" r="9" fill="#6CC592"/><path d="M17.5 20.5 l3 3 l6-6.5" fill="none" stroke="#0C1412" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><text class="lbl" x="40" y="25" style="fill:#EDF4F0">11:00 refilled. No phone calls.</text></g>
         </svg>
         <div class="feed" aria-hidden="true">
-          <div class="feed-head"><span><img src="logo.svg" alt="" width="20" height="20"></span>Texts<small>Live</small></div>
+          <div class="feed-head"><span><img src="logo.svg" alt="" width="20" height="20"></span>Texts</div>
           <div class="feed-body">
           <p class="bub in" data-at="1"><b>Peter Dunn · 10:20</b>CANCEL</p>
           <p class="bub out" data-at="2"><b>Domi → 3 patients nearby</b>An 11:00 visit is free today. Reply YES to take it.</p>
@@ -609,12 +574,12 @@
         </div>
       </div>
       <ol class="beats">
-        <li><b>Round planned</b>Six visits in the order that drives least.</li>
-        <li><b>Peter cancels</b>He replies CANCEL to his reminder.</li>
-        <li><b>Three texted</b>The best-matched patients nearby get the slot.</li>
-        <li><b>Margaret says yes</b>The first YES is booked.</li>
-        <li><b>Nobody loses out</b>The others keep their place on the list.</li>
-        <li><b>The day re-plans</b>Amira’s phone updates. The office did nothing.</li>
+        <li><b>Round planned</b></li>
+        <li><b>Peter cancels</b></li>
+        <li><b>Three texted</b></li>
+        <li><b>Margaret says yes</b></li>
+        <li><b>Nobody loses out</b></li>
+        <li><b>The day re-plans</b></li>
       </ol>
       <div class="scene-ctl"><button type="button" class="scene-toggle" aria-pressed="false">Pause</button></div>
     </div>
@@ -622,35 +587,31 @@
 
   <section id="sectors">
     <div class="wrap">
-      <p class="kicker">Who it's for</p>
       <h2>For every service that visits patients at home.</h2>
-      <p class="sect-lead">Every home-visit service has the same hard part: a round of patients spread across towns, cancellations that leave a gap nobody can fill in time, and referrals arriving on paper. Domi does that part. Each service then gets its own visit types, rules and records.</p>
       <ul class="sectors">
-        <li class="sector lead"><span class="tag tag-now">Built for it</span><h3>Domiciliary eye care</h3><p class="who">Mobile and domiciliary opticians · the live demo is set up as one</p>
-          <p>NHS sight tests only offered 48 hours or more ahead, so PCSE can be told, with a list of notifications to lodge or cancel. Eye tests go to optometrists, never dispensing opticians. Glasses deliveries and repairs fill same-day gaps. Prescriptions on the clinician's phone. <a class="more" href="/domiciliary-opticians/">Domi for domiciliary opticians →</a></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Hearing care</h3><p class="who">Audiologists and hearing aid dispensers</p>
-          <p>Hearing tests, fittings, wax removal and aid reviews as visit types, with cancellations refilled and routes planned. <span class="gap">Hearing tests and audiograms stay in your audiology software, such as Noah.</span> <a class="more" href="/audiology/">Domi for audiology →</a></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Foot care</h3><p class="who">Podiatrists, chiropodists and foot health practitioners</p>
-          <p>Nail-care rounds fill whole days, so a cancellation is lost income and a lost slot. Domi refills it and keeps the round tight. <span class="gap">Coming next: repeating visits every 6 to 8 weeks. Until then each visit is booked on its own.</span> <a class="more" href="/podiatry/">Domi for podiatry and foot care →</a></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Dental care at home</h3><p class="who">Domiciliary dentists and hygienists</p>
-          <p>Visits to homes and care homes, with carers, access and capacity noted on the record, and each day's route planned for the least driving. <span class="gap">Dental charting stays in your clinical system.</span></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Physiotherapy and rehab</h3><p class="who">Home physios, including after a hospital discharge</p>
-          <p>Short-notice patients slot straight into cancelled visits, and the referral form takes discharges from family or ward staff. <span class="gap">Coming next: a course of sessions booked in one go.</span> <a class="more" href="/physiotherapy/">Domi for physiotherapy →</a></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Home blood tests</h3><p class="who">Mobile phlebotomists</p>
-          <p>Fasting patients marked mornings-only stay in the morning when routes are planned, and anyone who can't be texted is phoned. <span class="gap">Not built: a lab drop-off as a stop on the route.</span></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Nursing at home</h3><p class="who">Private and community nurses: wound care, injections, catheters</p>
-          <p>Visit notes on the phone even without signal, the day's route on a street map, and every record anyone opens logged. <span class="gap">Medicines and wound charts stay in your clinical system.</span></p></li>
-        <li class="sector"><span class="tag tag-set">Ready to set up</span><h3>Therapy assessments</h3><p class="who">Occupational therapists and speech and language therapists</p>
+        <li class="sector lead"><h3>Domiciliary eye care</h3>
+          <p>PCSE notice rules checked at booking, eye tests only offered to optometrists, and glasses deliveries filling same-day gaps. <a class="more" href="/domiciliary-opticians/">Domi for domiciliary opticians →</a></p></li>
+        <li class="sector"><h3>Hearing care</h3>
+          <p>Hearing tests, fittings, wax removal and aid reviews as visit types, with cancellations refilled and routes planned. <a class="more" href="/audiology/">Domi for audiology →</a></p></li>
+        <li class="sector"><h3>Foot care</h3>
+          <p>Nail-care rounds fill whole days, so a cancellation is lost income and a lost slot. Domi refills it and keeps the round tight. <a class="more" href="/podiatry/">Domi for podiatry and foot care →</a></p></li>
+        <li class="sector"><h3>Dental care at home</h3>
+          <p>Visits to homes and care homes, with carers, access and capacity noted on the record, and each day's route planned for the least driving.</p></li>
+        <li class="sector"><h3>Physiotherapy and rehab</h3>
+          <p>Short-notice patients slot straight into cancelled visits, and the referral form takes discharges from family or ward staff. <a class="more" href="/physiotherapy/">Domi for physiotherapy →</a></p></li>
+        <li class="sector"><h3>Home blood tests</h3>
+          <p>Fasting patients marked mornings-only stay in the morning when routes are planned, and anyone who can't be texted is phoned.</p></li>
+        <li class="sector"><h3>Nursing at home</h3>
+          <p>Visit notes on the phone even without signal, the day's route on a street map, and every record anyone opens logged.</p></li>
+        <li class="sector"><h3>Therapy assessments</h3>
           <p>Referrals from families, GPs and social workers through one form, then assessments booked by drive time across the patch.</p></li>
       </ul>
-      <p class="fine sect-fine">“Built for it” means the rules and records for that service are in the live demo today. “Ready to set up” means everything common to home visits works now (refills, routes, referrals, the phone app, sign-in), and that service's visit types are set up with you. Anything listed as not built isn't, until it is.</p>
     </div>
   </section>
 
   <!-- The tour film is off the page until it is re-recorded: the current cut still shows the old audiology demo.
   <section id="film">
     <div class="wrap">
-      <p class="kicker">Domi in two minutes</p>
       <h2>Every feature, one at a time.</h2>
       <div class="film">
         <video id="film-video" playsinline controls preload="metadata" poster="film/poster.webp" width="1920" height="1080"
@@ -666,73 +627,56 @@
 
   <section id="inside">
     <div class="wrap">
-      <p class="kicker">Inside Domi</p>
       <h2>Everything it does, one card at a time.</h2>
       <div class="deck" id="deck" role="region" aria-roledescription="carousel" aria-label="What Domi does" tabindex="0">
         <div class="deck-pile">
-          <figure class="deck-card tone-forest">
-            <div class="deck-screen"><img src="shots/deck/refill.webp" width="600" height="975" alt="Refilling an 11:00 slot: three suitable patients ranked by priority, patch, days waiting and preferred clinician, all three asked at once, and an NHS sight test held back because PCSE needs 48 hours' notice." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>A cancellation, refilled</h3><p>Peter’s visit is cancelled at 10:20. Three people fit the gap, and because the visit is 40 minutes away all three are texted at once.</p></figcaption>
-          </figure>
-          <figure class="deck-card tone-deep">
-            <div class="deck-screen"><img src="shots/deck/yes.webp" width="600" height="975" alt="Slot refilled: Sylvia said no, Margaret said yes and is booked for 11:00 to have her new glasses fitted, and Geoffrey was told it's gone." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>The first yes gets it</h3><p>Margaret replies YES and her new varifocals are fitted today. Sylvia said no, and Geoffrey is told the slot has gone and keeps his place.</p></figcaption>
-          </figure>
-          <figure class="deck-card tone-warm">
-            <div class="deck-screen"><img src="shots/deck/changed.webp" width="600" height="975" alt="The clinician's phone: 'Your diary changed. Peter Dunn cancelled. Margaret Holt now booked today at 11:00, 14 Ash Grove.'" loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>The phone updates itself</h3><p>Amira sees the new visit, the address and the notes within a second. Nobody had to ring her.</p></figcaption>
-          </figure>
           <figure class="deck-card tone-deep">
             <div class="deck-screen"><img src="shots/deck/plans.webp" width="600" height="975" alt="Planning the rounds: every clinician's day checked for a shorter order. Tom's round can be done with 20 minutes less driving, and three patients would get a new time." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Routes planned for you</h3><p>Every clinician’s day put in the order that drives least, from home and back. Apply it, and anyone with a new time is texted.</p></figcaption>
+            <figcaption><h3>Routes planned for you</h3></figcaption>
           </figure>
           <figure class="deck-card tone-warm">
             <div class="deck-screen"><img src="shots/deck/refer.webp" width="600" height="975" alt="The referral form on a phone: why a home visit is needed, with common conditions to tap, and NHS entitlement questions." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Referrals without paperwork</h3><p>Families, carers, care homes and GPs fill in one form. It lands with the office, and one click makes the patient record.</p></figcaption>
+            <figcaption><h3>Referrals without paperwork</h3></figcaption>
           </figure>
           <figure class="deck-card tone-forest">
             <div class="deck-screen"><img src="shots/deck/slots.webp" width="600" height="975" alt="Booking a visit for Irene Battye: the best slots this week, each with the extra driving it adds and the visits it sits between." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Booking by the drive</h3><p>Every gap this week, ranked by the extra driving it adds and weighed against how soon the patient needs to be seen.</p></figcaption>
+            <figcaption><h3>Booking by the drive</h3></figcaption>
           </figure>
           <figure class="deck-card tone-deep">
             <div class="deck-screen"><img src="shots/deck/route.webp" width="600" height="975" alt="A clinician's day on a street map on the phone: numbered pins in visiting order along the roads, and the matching list with each drive." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>The day on a map</h3><p>Every stop, every drive and the drive home. It’s drawn on the phone without a map service, so it works offline too.</p></figcaption>
+            <figcaption><h3>The day on a map</h3></figcaption>
           </figure>
           <figure class="deck-card tone-warm">
             <div class="deck-screen"><img src="shots/deck/route-office.webp" width="600" height="975" alt="Amira's route from the office: the map, then each leg with drive minutes and miles, and the day's totals." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Every round, from the office</h3><p>Open any clinician’s day on a map, with the drive times, the miles and the totals for the day.</p></figcaption>
+            <figcaption><h3>Every round, from the office</h3></figcaption>
           </figure>
           <figure class="deck-card tone-forest">
             <div class="deck-screen"><img src="shots/deck/today.webp" width="600" height="975" alt="The clinician's day on a phone: the patient they're with now, the address, care-home sign-in, and buttons to complete the visit or open the record." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Today’s round</h3><p>Who’s next, where, and what to know at the door. One tap for “On my way”, which texts the patient.</p></figcaption>
+            <figcaption><h3>Today’s round</h3></figcaption>
           </figure>
           <figure class="deck-card tone-deep">
             <div class="deck-screen"><img src="shots/deck/record.webp" width="600" height="975" alt="A patient's record on the phone with their last prescription: sphere, cylinder, axis, add and vision for each eye." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Records and prescriptions</h3><p>Notes, history and the last prescription on the phone, with quick note chips for the everyday jobs.</p></figcaption>
+            <figcaption><h3>Records and prescriptions</h3></figcaption>
           </figure>
           <figure class="deck-card tone-warm">
             <div class="deck-screen"><img src="shots/deck/offline.webp" width="600" height="975" alt="The clinician's phone with no signal: a banner says the round and records are saved on this phone." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>No signal, no problem</h3><p>The round and records are kept on the phone. Notes and updates made offline sync in order when signal comes back.</p></figcaption>
+            <figcaption><h3>No signal, no problem</h3></figcaption>
           </figure>
           <figure class="deck-card tone-forest">
             <div class="deck-screen"><img src="shots/deck/book.webp" width="600" height="975" alt="The patient booking page on a phone: 'These times are free near you', with times on Tuesday and Wednesday with Amira." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Patients book themselves</h3><p>Large text, one question at a time, and only times when a clinician is already nearby.</p></figcaption>
+            <figcaption><h3>Patients book themselves</h3></figcaption>
           </figure>
           <figure class="deck-card tone-deep">
             <div class="deck-screen"><img src="shots/deck/report.webp" width="600" height="975" alt="Mileage and utilisation for the week: miles driven, mileage value at 45p a mile, time booked and time on the road, per clinician and day." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Mileage and utilisation</h3><p>Booked time, driving time and estimated miles per clinician, valued at HMRC’s 45p rate. Downloads as CSV.</p></figcaption>
+            <figcaption><h3>Mileage and utilisation</h3></figcaption>
           </figure>
           <figure class="deck-card tone-warm">
             <div class="deck-screen"><img src="shots/deck/invoices.webp" width="600" height="975" alt="Invoices raised from completed visits: an unpaid £15 invoice for a repair, with buttons to mark it paid, void it or print it." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Invoices from finished visits</h3><p>Completing a private visit raises the invoice at your price for that visit type. NHS sight tests raise none. Mark it paid, void it or print it.</p></figcaption>
+            <figcaption><h3>Invoices from finished visits</h3></figcaption>
           </figure>
           <figure class="deck-card tone-forest">
             <div class="deck-screen"><img src="shots/deck/signin.webp" width="600" height="975" alt="Signing in on a phone: step 2 of 2, enter the six-digit code from your authenticator app." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-now">In the demo</span><h3>Two-factor sign-in</h3><p>A password and a six-digit code from an authenticator app. A lost phone can be signed out from the office.</p></figcaption>
-          </figure>
-          <figure class="deck-card tone-deep">
-            <div class="deck-screen"><img src="shots/deck/roadmap.webp" width="600" height="975" alt="What's coming, inside the app: features planned but not in the demo yet, such as a permanent UK database, password reset and card payments." loading="lazy" decoding="async" draggable="false"></div>
-            <figcaption><span class="tag tag-soon">Coming soon</span><h3>What’s next, inside the app</h3><p>Card payments, Xero, PCSE Online and more sit where they’ll live, marked Soon. Nothing pretends to work.</p></figcaption>
+            <figcaption><h3>Two-factor sign-in</h3></figcaption>
           </figure>
         </div>
         <div class="deck-meta">
@@ -741,22 +685,18 @@
           <button type="button" class="deck-btn" data-go="next" aria-label="Next card"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
         <div class="deck-foot">
-          <span class="deck-count" aria-hidden="true"><b>01</b> / 16</span>
+          <span class="deck-count" aria-hidden="true"><b>01</b> / 12</span>
           <button type="button" class="deck-play" aria-pressed="false">Pause</button>
         </div>
         <p class="deck-sr" aria-live="polite"></p>
       </div>
-      <p class="extras-note"><span class="js-only">Drag the top card away, or use the arrows. </span>Everything marked “In the demo” works in the live demo today, with invented patients. Cards marked “Coming soon” are planned and not built yet.</p>
     </div>
   </section>
 
   <section id="coming">
     <div class="wrap">
       <div class="built-head">
-        <p class="kicker">What’s built</p>
-        <h2>Everything it does, working today.</h2>
-        <p class="count" data-count="28" aria-hidden="true">28</p>
-        <p class="count-label">features you can try in the live demo now</p>
+        <h2><span class="count" data-count="28">28</span> features, working today.</h2>
       </div>
 
       <div class="bento">
@@ -767,7 +707,6 @@
             <g class="ab" style="--ad:1.4s"><rect x="14" y="102" width="140" height="34" rx="15" fill="rgba(108,197,146,.22)" stroke="rgba(108,197,146,.55)"/><text x="30" y="124" font-size="13" font-weight="600" fill="#EDF4F0">Margaret: YES</text></g>
           </svg>
           <h3>Fills the diary</h3>
-          <p>Cancellations, reminders, recalls and new leads, handled by text.</p>
           <ul class="chips">
             <li>Refill by text, best match first</li><li>A CANCEL reply refills the slot</li><li>Call list for non-texters</li><li>Reminders and confirmations</li>
             <li>Automatic recall texts</li><li>Facebook leads straight in</li><li>Referral form</li><li>Self-booking by drive time</li>
@@ -781,7 +720,6 @@
             <circle class="pulse" cx="272" cy="92" r="8" fill="#6CC592"/>
           </svg>
           <h3>Plans the day</h3>
-          <p>Every round in the order that drives least, re-planned when the day changes.</p>
           <ul class="chips">
             <li>Booking by drive time</li><li>Least-driving routes</li><li>Three ways to re-plan</li><li>Patients’ own time limits</li><li>Two-week traffic lights</li><li>Every round on a map</li>
           </ul>
@@ -800,7 +738,6 @@
             </g>
           </svg>
           <h3>Keeps PCSE happy</h3>
-          <p>Only books NHS sight tests that can be notified in time.</p>
           <ul class="chips"><li>48 h, 3 week, 8 week rules</li><li>Notifications ready to lodge</li><li>Eligibility dates</li><li>Tests to optometrists only</li><li>CC1 · CC2 · CC3 calls</li></ul>
         </article>
         <article class="tile" data-reveal style="--d:.08s">
@@ -812,7 +749,6 @@
             <g class="on"><rect x="104" y="112" width="92" height="22" rx="11" fill="rgba(108,197,146,.25)"/><text x="150" y="127" text-anchor="middle" font-size="11.5" font-weight="600" fill="#CFEBDC">Synced ✓</text></g>
           </svg>
           <h3>Works at the door</h3>
-          <p>On any phone, signal or not, and the office sees what happened.</p>
           <ul class="chips"><li>Works offline</li><li>Frames and lenses sales</li><li>Exportable reports</li><li>Mileage at 45p</li><li>Invoices</li><li>Opticabase import</li></ul>
         </article>
         <article class="tile" data-reveal style="--d:.16s">
@@ -825,55 +761,93 @@
             <text x="150" y="134" text-anchor="middle" font-size="12.5" font-weight="600" fill="#A9BCB4">Held in London</text>
           </svg>
           <h3>Safe by design</h3>
-          <p>Hosted in London, two-step sign-in, every record logged.</p>
           <ul class="chips"><li>London hosting, tested backups</li><li>Two-step sign-in</li><li>Full audit log</li></ul>
           <a class="more" href="/security/">How we look after your data →</a>
         </article>
       </div>
 
+      <div class="next-head" data-reveal>
+        <h2>What’s next.</h2>
+      </div>
+      <div class="spots">
+        <article class="spot" data-reveal>
+          <span class="spot-tag">Next</span>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <g class="ab" style="--ad:0s"><rect x="100" y="6" width="100" height="30" rx="10" fill="#1F2C28" stroke="rgba(247,251,249,.18)"/><text x="150" y="25" text-anchor="middle" font-size="12" font-weight="600" fill="#EDF4F0">New Facebook lead</text></g>
+            <g fill="none" stroke="rgba(247,251,249,.2)" stroke-width="1.5" stroke-dasharray="3 4"><path d="M150 38 V58 H50 V80"/><path d="M150 58 V80"/><path d="M150 58 H250 V80"/></g>
+            <g class="ab" style="--ad:.6s"><rect x="6" y="84" width="88" height="30" rx="10" fill="rgba(108,197,146,.2)" stroke="rgba(108,197,146,.55)"/><text x="50" y="103" text-anchor="middle" font-size="12" font-weight="600" fill="#CFEBDC">Likely NHS</text></g>
+            <g class="ab" style="--ad:1s"><rect x="106" y="84" width="88" height="30" rx="10" fill="rgba(244,162,125,.16)" stroke="rgba(244,162,125,.5)"/><text x="150" y="103" text-anchor="middle" font-size="12" font-weight="600" fill="#F6D3C2">Likely private</text></g>
+            <g class="ab" style="--ad:1.4s"><rect x="206" y="84" width="88" height="30" rx="10" fill="#1F2C28" stroke="rgba(247,251,249,.25)"/><text x="250" y="103" text-anchor="middle" font-size="12" font-weight="600" fill="#EDF4F0">To check</text></g>
+            <text x="150" y="140" text-anchor="middle" font-size="11.5" font-weight="600" fill="#A9BCB4">Each with its own instant reply</text>
+          </svg>
+          <h3>Leads sorted as they arrive</h3>
+          <p>Each enquiry sorted by its answers, with the right reply sent straight away.</p>
+        </article>
+        <article class="spot" data-reveal style="--d:.08s">
+          <span class="spot-tag">Paid add-on</span>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <circle class="ring2" cx="46" cy="58" r="26" fill="none" stroke="#6CC592" stroke-width="2"/>
+            <circle cx="46" cy="58" r="26" fill="rgba(108,197,146,.14)" stroke="rgba(108,197,146,.45)"/>
+            <path d="M37 50c0 9 7 17 17 17l4-4-5-4-3 2c-3-1-6-4-7-7l2-3-4-5z" fill="#6CC592"/>
+            <g fill="#F4A27D"><rect class="bar" style="--bd:0s" x="86" y="52" width="4" height="12" rx="2"/><rect class="bar" style="--bd:.1s" x="94" y="46" width="4" height="24" rx="2"/><rect class="bar" style="--bd:.2s" x="102" y="40" width="4" height="36" rx="2"/><rect class="bar" style="--bd:.3s" x="110" y="48" width="4" height="20" rx="2"/><rect class="bar" style="--bd:.4s" x="118" y="44" width="4" height="28" rx="2"/><rect class="bar" style="--bd:.5s" x="126" y="52" width="4" height="12" rx="2"/></g>
+            <g class="ab" style="--ad:.4s"><rect x="130" y="18" width="166" height="30" rx="12" fill="#2C6B58"/><text x="213" y="37" text-anchor="middle" font-size="11.5" font-weight="600" fill="#F7FBF9">“Can we confirm Tuesday?”</text></g>
+            <g class="ab" style="--ad:1.1s"><rect x="160" y="58" width="134" height="30" rx="12" fill="#1F2C28"/><text x="172" y="77" font-size="11.5" font-weight="600" fill="#EDF4F0">“Yes, that’s fine.”</text></g>
+            <g class="ab" style="--ad:1.8s"><rect x="142" y="98" width="152" height="30" rx="12" fill="rgba(108,197,146,.2)" stroke="rgba(108,197,146,.55)"/><text x="154" y="117" font-size="11.5" font-weight="600" fill="#CFEBDC">CC2 done · logged in Domi</text></g>
+          </svg>
+          <h3>An AI calling assistant</h3>
+          <p>Makes your CC1 to CC3 calls and logs each answer. Only for patients who agree, and never clinical advice.</p>
+        </article>
+        <article class="spot" data-reveal style="--d:.16s">
+          <span class="spot-tag">Once PCSE approves Domi</span>
+          <svg class="art" viewBox="0 0 300 150" aria-hidden="true" focusable="false">
+            <rect x="70" y="8" width="112" height="134" rx="10" fill="#0E1916" stroke="rgba(247,251,249,.22)" stroke-width="1.5"/>
+            <text x="84" y="30" font-size="12" font-weight="700" fill="#F4A27D">GOS6</text>
+            <g fill="rgba(247,251,249,.16)"><rect x="84" y="40" width="84" height="7" rx="3.5"/><rect x="84" y="54" width="64" height="7" rx="3.5"/><rect x="84" y="68" width="76" height="7" rx="3.5"/><rect x="84" y="82" width="52" height="7" rx="3.5"/></g>
+            <path d="M84 116 c8 -10 14 6 22 -4 s12 4 18 -2" fill="none" stroke="#CFEBDC" stroke-width="2" stroke-linecap="round"/>
+            <g fill="none" stroke="rgba(108,197,146,.6)" stroke-width="2" stroke-dasharray="4 5"><path class="rt" pathLength="1" d="M186 76 H232"/></g>
+            <g class="ab" style="--ad:.8s"><circle cx="258" cy="76" r="24" fill="rgba(108,197,146,.18)" stroke="rgba(108,197,146,.55)"/><text x="258" y="74" text-anchor="middle" font-size="11" font-weight="700" fill="#CFEBDC">PCSE</text><text x="258" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#6CC592">✓</text></g>
+          </svg>
+          <h3>The eye exam and NHS claims, in Domi</h3>
+          <p>The eye exam on the tablet and GOS claims, GOS6 included, sent to PCSE. One system instead of two.</p>
+        </article>
+      </div>
+
       <div class="road" data-reveal>
-        <div class="road-now"><b>28</b><span>working today</span></div>
         <div class="road-col">
-          <h3>Coming next <span>Not built yet</span></h3>
-          <ul class="chips"><li>Leads sorted as they arrive</li><li>Visits and waiting list import</li><li>Repeating visits and courses</li><li>Care-home sessions</li><li>Fundus photos</li><li>Card payments and Xero</li><li>AI-drafted visit notes</li><li>Letters and pre-visit forms</li><li>Self-service password reset</li></ul>
-        </div>
-        <div class="road-col later">
-          <h3>Coming later <span>Needs partners</span></h3>
-          <ul class="chips"><li>PCSE Online</li><li>Eye exams and NHS claims</li><li>AI calling assistant</li><li>Lab orders</li><li>iPhone and Android apps</li></ul>
+          <h3>Also planned</h3>
+          <ul class="chips"><li>Visits and waiting list import</li><li>Repeating visits and courses</li><li>Care-home sessions</li><li>Fundus photos</li><li>Card payments and Xero</li><li>AI-drafted visit notes</li><li>Letters and pre-visit forms</li><li>Self-service password reset</li><li>Lab orders</li><li>iPhone and Android apps</li></ul>
         </div>
       </div>
-      <p class="road-note">No dates on purpose. PCSE Online and NHS claims need PCSE’s approval first. Ask where anything stands and we’ll tell you straight.</p>
     </div>
   </section>
 
   <section id="price">
     <div class="wrap">
-      <p class="kicker">Price</p>
-      <h2>One monthly price. Texts included.</h2>
+      <!-- The founding price is for the first five practices to sign. When the fifth signs, change this section, the
+           FAQ "What does it cost?", the contact list and the Offer in the structured data at the top, together. -->
+      <h2>Founding price, for our first five practices.</h2>
       <div class="price-grid">
         <div class="price-card" data-reveal>
-          <p class="price-from">From</p>
           <p class="price-big">£<span data-count="160">160</span><small>a month</small></p>
           <ul>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Up to 3 clinicians</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Up to 3 clinicians, then £45 a month each</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>1,500 patient texts a month</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Hosting in London, support and updates</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Founding practices: fixed for two years</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Fixed for the first year</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>One-off set-up, quoted before you commit</li>
           </ul>
-          <p class="fine">A one-off set-up fee covers importing your patients and setting Domi up for your service. We quote it in writing before you commit.</p>
           <a class="btn btn-main" href="#contact">Book a demo</a>
         </div>
         <div class="payback" data-reveal style="--d:.1s">
-          <h3>Three refilled visits cover it.</h3>
-          <p>For a domiciliary optician, each cancelled NHS home sight test that Domi refills earns about £65 in NHS fees, before any glasses are sold.</p>
+          <h3>Three refilled NHS home visits cover it.</h3>
           <div class="slots">
-            <div class="slot" style="--sd:.3s"><b>+£65</b><span>Refill 1</span></div>
-            <div class="slot" style="--sd:.8s"><b>+£65</b><span>Refill 2</span></div>
-            <div class="slot" style="--sd:1.3s"><b>+£65</b><span>Refill 3</span></div>
+            <div class="slot" style="--sd:.3s"><b>+£65</b></div>
+            <div class="slot" style="--sd:.8s"><b>+£65</b></div>
+            <div class="slot" style="--sd:1.3s"><b>+£65</b></div>
           </div>
           <div class="meter" aria-hidden="true"><i></i><em></em></div>
-          <div class="meter-scale"><span>£0</span><b>£195</b></div>
-          <p class="src">£24.13 sight-test fee plus the £40.80 domiciliary supplement for the first or second patient at an address, from NHS England’s fees from April 2025.</p>
+          <div class="meter-scale"><b>£195</b></div>
+          <p class="src">Each: £24.13 sight test + £40.80 home-visit supplement (NHS England, 2025/26).</p>
         </div>
       </div>
     </div>
@@ -881,9 +855,7 @@
 
   <section id="switch">
     <div class="wrap">
-      <p class="kicker">Switching to Domi</p>
       <h2>Moving across from spreadsheets and paper.</h2>
-      <p class="sect-lead">You don't retype anything, and you don't switch until your team is ready.</p>
       <ol class="move">
         <li><h3>Send us what you have</h3><p>Your spreadsheet, a practice-system export or the paper diary. Column headings first, so we can plan the move before any patient data changes hands.</p></li>
         <li><h3>We check every row</h3><p>The import flags postcodes that are really town names, duplicates, patients with only a landline and missing details, so nothing goes in wrong.</p></li>
@@ -896,22 +868,20 @@
   <section id="promise">
     <div class="wrap promise">
       <div class="promise-head">
-        <p class="kicker">Your patients' data</p>
         <h2>Health data, treated like health data.</h2>
       </div>
       <div class="vault">
-        <div data-reveal><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/></svg><b>London</b><span>where your practice’s data is held, encrypted</span></div>
-        <div data-reveal style="--d:.06s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10 6h4M9.5 14l1.8 1.8 3.4-3.6"/></svg><b>2-step</b><span>sign-in for every user, with a code from their phone</span></div>
-        <div data-reveal style="--d:.12s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b>24 hours</b><span>to tell you if anything goes wrong, in writing</span></div>
-        <div data-reveal style="--d:.18s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><b>Daily</b><span>backups, and we test restoring them</span></div>
+        <div data-reveal><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/></svg><b>Held in London</b></div>
+        <div data-reveal style="--d:.06s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10 6h4M9.5 14l1.8 1.8 3.4-3.6"/></svg><b>2-step sign-in</b></div>
+        <div data-reveal style="--d:.12s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b>24-hour breach notice</b></div>
+        <div data-reveal style="--d:.18s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><b>Tested daily backups</b></div>
       </div>
-      <div class="vault-foot"><span>Route planning sends postcodes, never names. A processing agreement is signed before any real patient goes in.</span><a class="btn btn-line" href="/security/">How we look after your data</a></div>
+      <div class="vault-foot"><a class="btn btn-line" href="/security/">How we look after your data</a></div>
     </div>
   </section>
 
   <section id="support">
     <div class="wrap">
-      <p class="kicker">Questions</p>
       <h2>Questions people ask.</h2>
       <div class="faq">
         <div class="faq-search">
@@ -933,7 +903,7 @@
           </details>
           <details name="faq">
             <summary><span>Do we have to replace our current system?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-            <div class="answer"><p>No. Domi runs the admin around your visits: the diary, refills, routes, referrals and recalls. Clinical records, such as the eye examination or an audiogram, stay in the clinical system you already use, and Domi works alongside it. For Opticabase users, patients import straight in, and Domi keeps a list of diary changes to copy back.</p></div>
+            <div class="answer"><p>Not today. Domi runs the admin around your visits: the diary, refills, routes, referrals and recalls. Clinical records, such as the eye examination or an audiogram, stay in the clinical system you already use, and Domi works alongside it. For eye care, we plan to bring the examination and NHS claims into Domi so one system can do both, once PCSE approves Domi as a connected system. For Opticabase users, patients import straight in, and Domi keeps a list of diary changes to copy back.</p></div>
           </details>
           <details name="faq">
             <summary><span>How does it handle PCSE notifications?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
@@ -941,7 +911,7 @@
           </details>
           <details name="faq">
             <summary><span>What does it cost?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-            <div class="answer"><p>From £160 a month for up to 3 clinicians, with 1,500 patient texts a month included, hosting, support and updates. A one-off set-up fee covers importing your patients and setting Domi up for your service; we quote it in writing before you commit. Founding practices keep their monthly price fixed for two years.</p></div>
+            <div class="answer"><p>Our first five practices pay a founding price of £160 a month for up to 3 clinicians, then £45 a month for each clinician beyond that. It includes 1,500 patient texts a month, hosting in London, support and updates, and is fixed for the first year, then reviewed once a year by no more than 5%. A one-off set-up fee covers importing your patients and setting Domi up for your service; we quote it in writing before you commit.</p></div>
           </details>
           <details name="faq">
             <summary><span>Does it work on a laptop, a tablet and a phone?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
@@ -978,30 +948,22 @@
         </div>
         <p class="faq-empty" role="status" hidden>No questions match that. Try another word, or email us below.</p>
       </div>
-      <div class="contact">
-        <h3>Still have a question?</h3>
-        <p><a href="#contact">Use the form below</a> or email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>. You’ll hear back from the person who builds Domi.</p>
-      </div>
     </div>
   </section>
 
   <section id="contact" class="contact-section">
     <div class="wrap">
-      <p class="kicker">Book a demo</p>
       <h2>See Domi running your own diary.</h2>
       <div class="demo-grid">
         <div class="demo-info">
-          <p class="demo-lede">Tell us a little about your service and we'll show you Domi set up for the way you work. You'll hear back within a working day from the person who builds it.</p>
           <ul class="demo-list">
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>A <b>20-minute video call</b> with the person who builds Domi</span></li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>Your own <b>visit types, towns and team</b> set up before we talk</span></li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>A cancelled visit <b>refilled from your waiting list</b> by text, live</span></li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>Each clinician's day <b>planned as a route</b>, with the driving saved</span></li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>How your <b>spreadsheet, forms and patient list</b> move across</span></li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span><b>Founding pricing</b>, fixed for two years, if you join now</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span><b>Founding price</b> for our first five practices</span></li>
           </ul>
-          <figure class="demo-shot"><img src="shots/device-laptop.webp" width="1400" height="820" alt="Domi on a laptop refilling an 11:00 slot: suitable patients ranked with their reasons, and the top three offered the slot by text at once." loading="lazy" decoding="async"></figure>
-          <p class="demo-alt">Rather look first? <a href="%%DEMO_URL%%" rel="noopener">Try the live demo</a> with sample patients, or email <a href="mailto:%%EMAIL%%">%%EMAIL%%</a>.</p>
         </div>
         <form class="enquiry" id="enquiry" action="https://api.web3forms.com/submit" method="POST" novalidate data-key="%%WEB3FORMS_KEY%%" data-email="%%EMAIL%%">
           <input type="hidden" name="access_key" value="%%WEB3FORMS_KEY%%">
@@ -1012,21 +974,9 @@
           <input type="checkbox" name="botcheck" class="trap" tabindex="-1" autocomplete="off" aria-hidden="true">
           <div class="f"><label for="e-name">Full name</label><input id="e-name" name="name" autocomplete="name" required maxlength="80"><p class="f-err" id="e-name-err" hidden></p></div>
           <div class="f"><label for="e-email">Work email</label><input id="e-email" name="email" type="email" autocomplete="email" required maxlength="120"><p class="f-err" id="e-email-err" hidden></p></div>
-          <div class="f"><label for="e-phone">Phone <span>(optional)</span></label><input id="e-phone" name="phone" type="tel" autocomplete="tel" maxlength="20" inputmode="tel"><p class="f-err" id="e-phone-err" hidden></p></div>
-          <div class="f-row">
-            <div class="f"><label for="e-org">Practice</label><input id="e-org" name="organisation" autocomplete="organization" required maxlength="120"><p class="f-err" id="e-org-err" hidden></p></div>
-            <div class="f"><label for="e-role">Your role <span>(optional)</span></label><input id="e-role" name="role" autocomplete="organization-title" maxlength="80" placeholder="e.g. Owner"></div>
-          </div>
-          <div class="f-row">
-            <div class="f"><label for="e-sector">Your service <span>(optional)</span></label>
-              <select id="e-sector" name="sector"><option value="">Choose…</option><option>Domiciliary eye care</option><option>Hearing care</option><option>Foot care</option><option>Dental care at home</option><option>Physiotherapy and rehab</option><option>Home blood tests</option><option>Nursing at home</option><option>Therapy assessments</option><option>Something else</option></select></div>
-            <div class="f"><label for="e-size">Clinicians who visit <span>(optional)</span></label>
-              <select id="e-size" name="clinicians"><option value="">Choose…</option><option>Just me</option><option>2 to 5</option><option>6 to 15</option><option>More than 15</option></select></div>
-          </div>
-          <div class="f"><label for="e-heard">How did you hear about us? <span>(optional)</span></label>
-            <select id="e-heard" name="heard"><option value="">Choose…</option><option>An email from us</option><option>Search engine</option><option>LinkedIn</option><option>A colleague or another practice</option><option>Something else</option></select></div>
-          <div class="f"><label for="e-msg">Anything we should know? <span>(optional)</span></label><textarea id="e-msg" name="message" rows="3" maxlength="3000" placeholder="For example: we're three optometrists in Bolton and spend hours on rounds and cancellations."></textarea></div>
-          <p class="f-note">We'll use your details only to arrange the demo and reply. No mailing list. See our <a href="/privacy/">privacy policy</a>.</p>
+          <div class="f"><label for="e-org">Practice</label><input id="e-org" name="organisation" autocomplete="organization" required maxlength="120"><p class="f-err" id="e-org-err" hidden></p></div>
+          <div class="f"><label for="e-msg">Anything we should know?</label><textarea id="e-msg" name="message" rows="3" maxlength="3000"></textarea></div>
+          <p class="f-note"><a href="/privacy/">How we use your details</a></p>
           <p class="f-err f-form" id="e-form-err" role="alert" hidden></p>
           <button class="btn btn-main btn-wide" type="submit">Book my demo</button>
         </form>
@@ -1037,6 +987,7 @@
 
 <footer>
   <div class="wrap">
+    <p><a href="mailto:%%EMAIL%%">%%EMAIL%%</a></p>
     <p>Domi is made by YSB Ventures Ltd, registered in England and Wales, company number 16022339.</p>
     <p>Domi for <a href="/domiciliary-opticians/">domiciliary opticians</a> · <a href="/audiology/">audiology</a> · <a href="/podiatry/">podiatry</a> · <a href="/physiotherapy/">physiotherapy</a></p>
     <p><a href="/security/">Security</a> · <a href="/privacy/">Privacy policy</a> · <a href="/terms/">Terms and conditions</a> · <a href="#contact">Contact</a></p>
@@ -1045,15 +996,14 @@
 
 <script>
   // Contact form: checks each field as people go, drops bots (a hidden box and a minimum time on the page), sends to
-  // Web3Forms, then goes to the thank-you page. Without a Web3Forms key it opens an email to us instead. Without
-  // JavaScript the form posts straight to Web3Forms, which redirects to the same thank-you page.
+  // the form service, then goes to the thank-you page. Without a form key it opens an email to us instead. Without
+  // JavaScript the form posts straight to the form service, which redirects to the same thank-you page.
   (function () {
     var form = document.getElementById('enquiry'); if (!form) return;
     var started = Date.now(), key = form.getAttribute('data-key'), to = form.getAttribute('data-email');
     var checks = {
       'e-name': function (v) { return v.trim().length < 2 ? 'Please enter your name.' : ''; },
       'e-email': function (v) { return !v.trim() ? 'Please enter your email address.' : /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v.trim()) ? '' : 'That email address doesn’t look right. Check it for typos.'; },
-      'e-phone': function (v) { var d = v.replace(/[\s()+-]/g, ''); return !d || /^\d{10,13}$/.test(d) ? '' : 'Please enter a phone number with 10 to 13 digits, or leave it blank.'; },
       'e-org': function (v) { return v.trim().length < 2 ? 'Please enter the name of your practice.' : ''; }
     };
     function check(id) {
@@ -1354,6 +1304,15 @@
       seen = es[0].isIntersecting;
       if (seen) resume(); else clearTimeout(timer);
     }, { threshold: 0.35 }).observe(scene);
+  })();
+</script>
+<script>
+  // The live demo sleeps when nobody has used it for a while and takes about a minute to wake. Nudge it awake
+  // while the visitor reads, so "Try the live demo" opens straight away. Its own address only; nothing is sent.
+  (function () {
+    var a = document.querySelector('.ctas a.btn-main'); if (!a || !window.fetch) return;
+    var wake = function () { try { fetch(new URL('/api/health', a.href).href, { mode: 'no-cors', cache: 'no-store' }).catch(function () {}); } catch (e) {} };
+    (window.requestIdleCallback || function (f) { setTimeout(f, 1500); })(wake);
   })();
 </script>
 </body>

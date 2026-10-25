@@ -25,7 +25,7 @@ async function deliver(to, body) {
     body: new URLSearchParams({ To: e164(to), From: from, Body: body }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.message || `Twilio returned ${res.status}`);
+  if (!res.ok) throw new Error(json.message || `Text provider returned ${res.status}`);
   return { providerId: json.sid };
 }
 
@@ -85,7 +85,7 @@ async function deliverEmail(to, subject, text, replyTo) {
     body: JSON.stringify({ from: emailFrom, to: [to], subject, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.message || `Resend returned ${res.status}`);
+  if (!res.ok) throw new Error(json.message || `Email provider returned ${res.status}`);
   return { providerId: json.id };
 }
 /**

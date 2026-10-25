@@ -119,7 +119,7 @@ route("GET", "/api/health", { public: true }, async () => {
   return { ok: true, db: db ? "ok" : "none", ms: db ? db.ms : undefined };
 });
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
-  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, noSale: svc.NO_SALE, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsProvider: provider, routing: travel.routingStatus().provider,
+  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, noSale: svc.NO_SALE, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsLive: provider === "twilio", routeCredit: !!travel.routingStatus().credit,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
@@ -624,7 +624,7 @@ route("POST", "/api/admin/reset", {}, (req, body, user) => {
 });
 
 /* ---------- "Under the hood" (demo only: office, own sandbox). A live practice's raw tables aren't browsable. */
-const needDemo = () => { if (!auth.DEMO) throw new svc.HttpError(404, "No such endpoint."); };
+const needDemo = () => { if (!auth.DEMO || process.env.UNDER_THE_HOOD !== "1") throw new svc.HttpError(404, "No such endpoint."); };
 route("GET", "/api/debug/overview", {}, (req, body, user) => {
   needDemo(); needAdmin(user);
   const sb = sandbox.current();
@@ -668,7 +668,9 @@ function serveStatic(req, res) {
   if (p === "/privacy" || p === "/privacy/") { res.writeHead(301, { Location: SITE + "privacy/" }); return res.end(); }
   if (p === "/terms" || p === "/terms/") { res.writeHead(301, { Location: SITE + "terms/" }); return res.end(); }
   if (p === "/") p = "/index.html";
-  if (p === "/under-the-hood") p = "/under-the-hood.html";
+  // The technical page names the services Domi runs on, so practices and prospects never see it: it exists only
+  // when a developer switches it on locally with UNDER_THE_HOOD=1.
+  if (p === "/under-the-hood" || p === "/under-the-hood.html") { if (process.env.UNDER_THE_HOOD !== "1") { res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found"); } p = "/under-the-hood.html"; }
   if (p === "/brand") p = "/brand.html";
   if (p.startsWith("/refer/")) p = "/refer.html";
   if (p.startsWith("/ad-form/")) p = "/ad-form.html"; // the practice's test ad form: /ad-form/<practice code> // the practice's referral form: /refer/<practice code>
@@ -792,7 +794,7 @@ if (require.main === module) {
     return start();
   }).then(() => {
     console.log(`Domi ${process.env.DEMO_MODE === "0" ? "live" : "demo"} running on http://localhost:${PORT}`);
-    console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
+    if (process.env.UNDER_THE_HOOD === "1") console.log(`  Under the hood:  http://localhost:${PORT}/under-the-hood`);
     console.log(`  SMS provider:    ${provider}${provider === "outbox" ? " (set TWILIO_* env vars to send real texts)" : ""}`);
   });
   // A deploy stops this machine (Fly sends SIGINT, others SIGTERM): stop taking requests, finish writing every

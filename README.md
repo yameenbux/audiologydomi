@@ -167,7 +167,7 @@ describe a *Ready to set up* service as built for it.
 | **Sign-in** | Password (scrypt) then a six-digit authenticator code (TOTP). Codes can't be reused; wrong passwords and wrong codes both count, and 5 lock the account for 15 minutes. Sessions end after 2 hours idle or 12 hours, and survive a restart on a live practice. In the demo, the office can see every signed-in device and sign a lost phone out; on a live practice, use *Reset sign-in* |
 | **Live updates** | Server-Sent Events. A change on the laptop reaches the phone within a second |
 | **What's coming** | Features not built yet sit where they'll live, with a *Soon* badge, and *What's coming* lists them all, split into next and later, with no dates. The list is `ROADMAP` in `public/app.js` |
-| **Under the hood** | Demo only. Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. Switched off on a live practice |
+| **Under the hood** | Developers only: start the server with `UNDER_THE_HOOD=1` (it names the services Domi runs on, so practices and prospects never see it). Architecture, the cancellation journey, live API traffic, the event stream, offers, the audit log and a database browser. Switched off on a live practice |
 
 ---
 
@@ -274,7 +274,7 @@ npm run site        # builds the website into _site/
 ```
 
 - App: `http://localhost:3000`
-- Technical view: `http://localhost:3000/under-the-hood` (office sign-in only)
+- Technical view: `UNDER_THE_HOOD=1 npm start`, then `http://localhost:3000/under-the-hood` (office sign-in only)
 - Brand and design tokens: `http://localhost:3000/brand`
 
 Sign in with a password and then a six-digit code from an authenticator app. In

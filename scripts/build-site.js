@@ -75,5 +75,11 @@ for (const file of pages) {
 const listed = pages.map((f) => path.relative(out, f)).filter((rel) => !/^(404\.html|thanks\/)/.test(rel)).map(urlOf).sort();
 fs.writeFileSync(path.join(out, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${listed.map((u) => `  <url><loc>${esc(cfg.SITE_URL + u)}</loc></url>`).join("\n")}\n</urlset>\n`);
 fs.writeFileSync(path.join(out, "robots.txt"), `User-agent: *\nAllow: /\nDisallow: /thanks/\n\nSitemap: ${cfg.SITE_URL}/sitemap.xml\n`);
+// For AI assistants and agents: what Domi is and every page, from each page's own title and description, so it
+// can never drift from the site (https://llmstxt.org).
+const about = (rel) => { const h = fs.readFileSync(path.join(out, rel), "utf8"); const g = (re) => ((h.match(re) || [])[1] || "").replace(/&amp;/g, "&").replace(/&quot;/g, '"'); return { title: g(/<title>([^<]*)<\/title>/), description: g(/<meta name="description" content="([^"]*)"/) }; };
+const home = about("index.html");
+const pageList = listed.map((u) => { const a = about(u === "/" ? "index.html" : u.slice(1) + "index.html"); return `- [${a.title}](${cfg.SITE_URL + u}): ${a.description}`; }).join("\n");
+fs.writeFileSync(path.join(out, "llms.txt"), `# Domi\n\n> ${home.description}\n\nMade by YSB Ventures Ltd (company number 16022339), England and Wales. Email: ${cfg.EMAIL}. Live demo with invented patients: ${cfg.DEMO_URL}\n\n## Pages\n\n${pageList}\n`);
 fs.writeFileSync(path.join(out, ".nojekyll"), "");
 console.log(`Built ${path.relative(root, out)}/ (${pages.length} pages; demo: ${cfg.DEMO_URL}; form: ${cfg.WEB3FORMS_KEY ? "Web3Forms" : "email fallback"}; analytics: ${beacon ? "Cloudflare" : "off"})`);

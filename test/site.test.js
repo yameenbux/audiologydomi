@@ -52,6 +52,17 @@ test("privacy, terms, thank-you, not-found and sector pages: titles, description
   assert.match(b.read("privacy/index.html"), /canonical" href="https:\/\/domi\.example\/privacy\/"/);
   assert.match(b.read("privacy/index.html"), /"@type":"BreadcrumbList"/);
   assert.match(b.read("terms/index.html"), /og:title" content="Terms and conditions · Domi"/);
+  // AI assistants get the same pages, each with its own description
+  const llms = b.read("llms.txt");
+  assert.match(llms, /^# Domi\n\n> .{40,}/);
+  for (const u of ["/", "/security/", "/domiciliary-opticians/"]) assert.ok(llms.includes(`](https://domi.example${u}): `), u);
+  assert.doesNotMatch(llms, /\]\([^)]*\): \n/, "every page has a description");
+  // The founding price is stated in four places on the homepage; they change together or not at all
+  const home = b.read("index.html");
+  const offer = JSON.parse(home.match(/<script type="application\/ld\+json">(\{"@context":"https:\/\/schema\.org","@graph".*?)<\/script>/)[1])["@graph"].find((n) => n.offers).offers;
+  const price = home.match(/data-count="(\d+)">\d+<\/span><small>a month/)[1];
+  assert.strictEqual(offer.price, price, "structured data and the price card agree");
+  for (const needle of [/Founding price, for our first five practices/, /first five practices pay a founding price of £160 a month/, /<b>Founding price<\/b> for our first five practices/, /Founding price for the first five practices/]) assert.match(home, needle);
   const sitemap = b.read("sitemap.xml");
   assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", ...SECTORS.slice().sort().map((s) => `https://domi.example/${s}/`), "https://domi.example/privacy/", "https://domi.example/security/", "https://domi.example/terms/", "https://domi.example/video/"]);
   // The homepage links to each sector page, and each one says what isn't built yet
@@ -78,4 +89,18 @@ test("the contact form falls back to email without a Web3Forms key; analytics on
   for (const f of ["index.html", "privacy/index.html", "thanks/index.html"]) assert.match(on.read(f), /static\.cloudflareinsights\.com\/beacon\.min\.js" data-cf-beacon='\{"token": "0123456789abcdef0123456789abcdef"\}'/);
   on.done();
   assert.throws(() => build({ CF_BEACON_TOKEN: "not a token" }));
+});
+
+test("the technical page that names Domi's suppliers is off unless a developer switches it on", async () => {
+  const { spawn } = require("node:child_process");
+  const port = 3900 + Math.floor(Math.random() * 90);
+  const env = { ...process.env, PORT: String(port) }; delete env.UNDER_THE_HOOD;
+  const srv = spawn(process.execPath, ["--experimental-sqlite", "--no-warnings", path.join(__dirname, "..", "server", "index.js")], { env, stdio: "ignore" });
+  try {
+    let up = false;
+    for (let i = 0; i < 50 && !up; i++) { try { await fetch(`http://localhost:${port}/api/meta`); up = true; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    assert.ok(up, "server started");
+    for (const p of ["/under-the-hood", "/under-the-hood.html"]) assert.strictEqual((await fetch(`http://localhost:${port}${p}`)).status, 404, p);
+    assert.doesNotMatch(await (await fetch(`http://localhost:${port}/`)).text(), /under-the-hood/);
+  } finally { srv.kill(); }
 });
