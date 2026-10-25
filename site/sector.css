@@ -2,12 +2,10 @@
 .wide { max-width: 1080px; }
 nav.top .btn { min-height: 42px; padding: 0 18px; font-size: 15px; }
 .hero-s { padding: 18px 0 8px; }
-.hero-s .kicker, .s-kicker { font: 600 14px/1.4 'Plus Jakarta Sans', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--link); margin: 0 0 12px; }
 .hero-s h1 { font-size: clamp(34px, 6vw, 56px); max-width: 18ch; }
 .hero-s .lede { color: var(--on-forest-soft); font-size: 19px; max-width: 60ch; margin: 14px 0 0; }
 .s-sec { padding: 56px 0 0; }
-.s-sec > h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -.025em; margin: 0 0 10px; max-width: 26ch; }
-.s-sec > .intro { color: var(--on-forest-soft); max-width: 64ch; margin: 0 0 24px; }
+.s-sec > h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -.025em; margin: 0 0 24px; max-width: 26ch; }
 .s-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 @media (max-width: 900px) { .s-grid { grid-template-columns: 1fr; } }
 .s-card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; }
@@ -47,7 +45,6 @@ nav.top .btn { min-height: 42px; padding: 0 18px; font-size: 15px; }
 .faq summary { cursor: pointer; font-weight: 600; }
 .faq details p { color: var(--on-forest-soft); margin: 10px 0 0; }
 .cta { margin-top: 56px; background: linear-gradient(135deg, #1E4D40, #12302A); border-radius: 26px; padding: 34px; text-align: center; }
-.cta h2 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 32px); }
-.cta p { color: var(--on-forest-soft); margin: 0 auto; max-width: 56ch; }
+.cta h2 { margin: 0 0 18px; font-size: clamp(24px, 4vw, 32px); }
 .cta .actions { justify-content: center; }
 .others { color: var(--soft); font-size: 15px; margin-top: 28px; text-align: center; }

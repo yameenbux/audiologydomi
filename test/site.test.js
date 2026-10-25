@@ -52,6 +52,11 @@ test("privacy, terms, thank-you, not-found and sector pages: titles, description
   assert.match(b.read("privacy/index.html"), /canonical" href="https:\/\/domi\.example\/privacy\/"/);
   assert.match(b.read("privacy/index.html"), /"@type":"BreadcrumbList"/);
   assert.match(b.read("terms/index.html"), /og:title" content="Terms and conditions · Domi"/);
+  // AI assistants get the same pages, each with its own description
+  const llms = b.read("llms.txt");
+  assert.match(llms, /^# Domi\n\n> .{40,}/);
+  for (const u of ["/", "/security/", "/domiciliary-opticians/"]) assert.ok(llms.includes(`](https://domi.example${u}): `), u);
+  assert.doesNotMatch(llms, /\]\([^)]*\): \n/, "every page has a description");
   const sitemap = b.read("sitemap.xml");
   assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", ...SECTORS.slice().sort().map((s) => `https://domi.example/${s}/`), "https://domi.example/privacy/", "https://domi.example/security/", "https://domi.example/terms/", "https://domi.example/video/"]);
   // The homepage links to each sector page, and each one says what isn't built yet
