@@ -57,6 +57,12 @@ test("privacy, terms, thank-you, not-found and sector pages: titles, description
   assert.match(llms, /^# Domi\n\n> .{40,}/);
   for (const u of ["/", "/security/", "/domiciliary-opticians/"]) assert.ok(llms.includes(`](https://domi.example${u}): `), u);
   assert.doesNotMatch(llms, /\]\([^)]*\): \n/, "every page has a description");
+  // The founding price is stated in four places on the homepage; they change together or not at all
+  const home = b.read("index.html");
+  const offer = JSON.parse(home.match(/<script type="application\/ld\+json">(\{"@context":"https:\/\/schema\.org","@graph".*?)<\/script>/)[1])["@graph"].find((n) => n.offers).offers;
+  const price = home.match(/data-count="(\d+)">\d+<\/span><small>a month/)[1];
+  assert.strictEqual(offer.price, price, "structured data and the price card agree");
+  for (const needle of [/Founding price, for our first five practices/, /first five practices pay a founding price of £160 a month/, /<b>Founding price<\/b> for our first five practices/, /Founding price for the first five practices/]) assert.match(home, needle);
   const sitemap = b.read("sitemap.xml");
   assert.deepStrictEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]), ["https://domi.example/", ...SECTORS.slice().sort().map((s) => `https://domi.example/${s}/`), "https://domi.example/privacy/", "https://domi.example/security/", "https://domi.example/terms/", "https://domi.example/video/"]);
   // The homepage links to each sector page, and each one says what isn't built yet

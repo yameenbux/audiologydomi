@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0C1412">
 <!--ICONS-->
 <!--SOCIAL-->
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"%%SITE_URL%%/#org","name":"YSB Ventures Ltd","brand":"Domi","url":"%%SITE_URL%%/","email":"%%EMAIL%%","identifier":"Companies House 16022339"},{"@type":"SoftwareApplication","name":"Domi","applicationCategory":"BusinessApplication","operatingSystem":"Web browser, offline on phones and tablets","url":"%%SITE_URL%%/","publisher":{"@id":"%%SITE_URL%%/#org"},"description":"The diary for healthcare that visits patients at home: cancellations refilled by text, routes planned by drive time, PCSE notice rules checked at booking, and an offline app for clinicians. Hosted in London.","offers":{"@type":"Offer","price":"160","priceCurrency":"GBP","description":"Founding price per month for up to 3 clinicians, 1,500 patient texts included; one-off set-up quoted separately"}}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"%%SITE_URL%%/#org","name":"YSB Ventures Ltd","brand":"Domi","url":"%%SITE_URL%%/","email":"%%EMAIL%%","identifier":"Companies House 16022339"},{"@type":"SoftwareApplication","name":"Domi","applicationCategory":"BusinessApplication","operatingSystem":"Web browser, offline on phones and tablets","url":"%%SITE_URL%%/","publisher":{"@id":"%%SITE_URL%%/#org"},"description":"The diary for healthcare that visits patients at home: cancellations refilled by text, routes planned by drive time, PCSE notice rules checked at booking, and an offline app for clinicians. Hosted in London.","offers":{"@type":"Offer","price":"160","priceCurrency":"GBP","description":"Founding price for the first five practices: per month for up to 3 clinicians (then £45 a month each), 1,500 patient texts included, fixed for the first year; one-off set-up quoted separately"}}]}</script>
 <!--ANALYTICS-->
 <script>document.documentElement.classList.add('js')</script>
 <style>
@@ -823,15 +823,17 @@
 
   <section id="price">
     <div class="wrap">
-      <h2>One price, texts included.</h2>
+      <!-- The founding price is for the first five practices to sign. When the fifth signs, change this section, the
+           FAQ "What does it cost?", the contact list and the Offer in the structured data at the top, together. -->
+      <h2>Founding price, for our first five practices.</h2>
       <div class="price-grid">
         <div class="price-card" data-reveal>
           <p class="price-big">£<span data-count="160">160</span><small>a month</small></p>
           <ul>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Up to 3 clinicians</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Up to 3 clinicians, then £45 a month each</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>1,500 patient texts a month</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Hosting in London, support and updates</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Founding practices: fixed for two years</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Fixed for the first year</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>One-off set-up, quoted before you commit</li>
           </ul>
           <a class="btn btn-main" href="#contact">Book a demo</a>
@@ -909,7 +911,7 @@
           </details>
           <details name="faq">
             <summary><span>What does it cost?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
-            <div class="answer"><p>From £160 a month for up to 3 clinicians, with 1,500 patient texts a month included, hosting, support and updates. A one-off set-up fee covers importing your patients and setting Domi up for your service; we quote it in writing before you commit. Founding practices keep their monthly price fixed for two years.</p></div>
+            <div class="answer"><p>Our first five practices pay a founding price of £160 a month for up to 3 clinicians, then £45 a month for each clinician beyond that. It includes 1,500 patient texts a month, hosting in London, support and updates, and is fixed for the first year, then reviewed once a year by no more than 5%. A one-off set-up fee covers importing your patients and setting Domi up for your service; we quote it in writing before you commit.</p></div>
           </details>
           <details name="faq">
             <summary><span>Does it work on a laptop, a tablet and a phone?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
@@ -960,7 +962,7 @@
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>A cancelled visit <b>refilled from your waiting list</b> by text, live</span></li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>Each clinician's day <b>planned as a route</b>, with the driving saved</span></li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span>How your <b>spreadsheet, forms and patient list</b> move across</span></li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span><b>Founding pricing</b>, fixed for two years, if you join now</span></li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span><b>Founding price</b> for our first five practices</span></li>
           </ul>
         </div>
         <form class="enquiry" id="enquiry" action="https://api.web3forms.com/submit" method="POST" novalidate data-key="%%WEB3FORMS_KEY%%" data-email="%%EMAIL%%">
