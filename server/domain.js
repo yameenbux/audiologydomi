@@ -4,25 +4,39 @@
 const DAY_START = 9 * 60;
 const DAY_END = 17 * 60 + 30; // 17:30, when Home Visiting Optics finish
 
-// optom: only an optometrist can do it (a dispensing optician can't test eyes).
-// pvn: an NHS sight test, so PCSE must be told about the visit in advance (see PVN_NOTICE_MIN).
-const TYPES = {
-  sight: { name: "NHS sight test", dur: 60, optom: true, pvn: true },
-  exam: { name: "Private eye examination", dur: 60, optom: true },
-  dispense: { name: "Glasses delivery & fitting", dur: 30 },
-  repair: { name: "Repair & adjustment", dur: 20 },
-  follow: { name: "Follow-up check", dur: 30, optom: true },
-};
+// The practice's visit types come from its sector (server/sectors.js): five fixed slots with the sector's names,
+// lengths and rules. Each type has:
+//   optom: only the team's lead role can do it (an optometrist, an audiologist, a podiatrist...). The name is kept
+//          from when Domi was for opticians only; it means "lead clinician only" in every sector.
+//   pvn:   an NHS sight test, so PCSE must be told about the visit in advance (see PVN_NOTICE_MIN). Opticians only.
 // Each practice sets its own visit lengths (Settings > Visits & prices). `dur` reads the practice in context, so
-// booking, refills, route planning and the diary all use the same length; outside a practice, the default above.
-const DEFAULT_DUR = Object.fromEntries(Object.entries(TYPES).map(([k, t]) => [k, t.dur]));
-for (const k of Object.keys(TYPES)) {
-  Object.defineProperty(TYPES[k], "dur", { enumerable: true, get() {
-    let sb = null; try { sb = require("./sandbox").current(); } catch { /* not inside a practice */ }
-    const v = sb && sb.settings && sb.settings.durations ? Number(sb.settings.durations[k]) : NaN;
-    return Number.isFinite(v) && v > 0 ? v : DEFAULT_DUR[k];
-  } });
+// booking, refills, route planning and the diary all use the same length; outside a practice, the sector's default.
+const sectors = require("./sectors");
+const typesOf = new Map(); // sector id -> its five types, built once
+function sectorTypes(sec) {
+  if (typesOf.has(sec.id)) return typesOf.get(sec.id);
+  const out = {};
+  for (const k of sectors.KEYS) {
+    const t = sec.types[k];
+    out[k] = { name: t.name, optom: !!t.lead, ...(t.pvn && sec.modules.pcse ? { pvn: true } : {}) };
+    Object.defineProperty(out[k], "dur", { enumerable: true, get() {
+      let sb = null; try { sb = require("./sandbox").current(); } catch { /* not inside a practice */ }
+      const v = sb && sb.settings && sb.settings.durations ? Number(sb.settings.durations[k]) : NaN;
+      return Number.isFinite(v) && v > 0 ? v : t.dur;
+    } });
+  }
+  typesOf.set(sec.id, out);
+  return out;
 }
+// TYPES[k] is the type for the practice in context, so every caller follows the practice's sector.
+const TYPES = new Proxy({}, {
+  get: (_, k) => sectorTypes(sectors.current())[k],
+  has: (_, k) => sectors.KEYS.includes(k),
+  ownKeys: () => [...sectors.KEYS],
+  getOwnPropertyDescriptor: (_, k) => (sectors.KEYS.includes(k) ? { value: sectorTypes(sectors.current())[k], enumerable: true, configurable: true } : undefined),
+});
+// The sector's own lengths, before a practice changes them.
+const DEFAULT_DUR = new Proxy({}, { get: (_, k) => (sectors.current().types[k] || {}).dur });
 
 /**
  * NHS domiciliary sight tests in England need a pre-visit notification (PVN) to PCSE at least 48 hours

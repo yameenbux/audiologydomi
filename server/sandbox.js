@@ -5,6 +5,7 @@
 const { AsyncLocalStorage } = require("node:async_hooks");
 const crypto = require("node:crypto");
 const brands = require("./brands");
+const sectors = require("./sectors");
 const { DAY_START, DAY_END } = require("./domain");
 
 const als = new AsyncLocalStorage();
@@ -18,18 +19,20 @@ let openDb = null; // injected by db.js to avoid a require cycle
 // reminderAt: when the day-before reminders go out (minutes after midnight on the demo clock).
 // practice: the practice's name, as patients see it in texts, on the booking page and on invoices. The product is Domi.
 // The default practice is invented for the demo (server/brands.js); a branded demo uses the practice's own name.
-const defaults = (brand = brands.get()) => ({ practice: brand.practice, mode: brand.id === "hvo" ? "phone" : "offer", /* HVO phone their patients */ routeMode: "manual", /* how a round changes during the day: manual, replan, end */ offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: brand.id === "hvo" ? 65 : 85, /* what an empty slot is worth; HVO: an NHS home sight test, £24.13 + £40.80 */ reminders: true, reminderAt: 17 * 60,
+// sector: the kind of service (server/sectors.js), which sets the visit types, roles and which features show.
+const sectorOf = (brand) => sectors.get(brand.sector || process.env.SECTOR);
+const defaults = (brand = brands.get()) => ({ practice: brand.practice, sector: sectorOf(brand).id, mode: brand.id === "hvo" ? "phone" : "offer", /* HVO phone their patients */ routeMode: "manual", /* how a round changes during the day: manual, replan, end */ offerMinutes: Number(process.env.OFFER_MINUTES || 20), fee: brand.id === "hvo" ? 65 : sectorOf(brand).fee, /* what an empty slot is worth; HVO: an NHS home sight test, £24.13 + £40.80 */ reminders: true, reminderAt: 17 * 60,
   // Given in the thank-you email each ad lead gets, so they know when the office will call.
   officeHours: brand.officeHours || "Monday to Friday, 9am to 5pm",
   // Price per visit type, in pounds. 0 = no invoice to the patient: NHS sight tests are claimed from the NHS
   // on a GOS 6 form, and glasses are charged when they're ordered (or paid for with an NHS voucher).
-  prices: { sight: 0, exam: 65, dispense: 0, repair: 15, follow: 35 },
+  prices: { ...sectorOf(brand).prices },
   // How patients and families reach the practice: on texts, emails, invoices and the booking page.
   phone: brand.phone || null, email: brand.email || null, logo: brand.logo || null,
   // When the practice's day runs. The diary shows these hours and clinicians' hours must fit inside them.
   dayStart: DAY_START, dayEnd: DAY_END,
   // Which kinds of visit patients can book for themselves on the booking page.
-  online: ["sight", "exam", "repair", "follow"],
+  online: [...sectorOf(brand).online],
   // Recall texts go out on their own, at this time each day, to patients due within a fortnight who take texts.
   autoRecalls: true, recallAt: 10 * 60,
   // How far ahead, in days: the office can book (12 months), patients can book online (6 weeks), and a cancelled

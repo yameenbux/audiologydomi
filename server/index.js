@@ -20,6 +20,7 @@ const leads = require("./leads");
 const auth = require("./auth");
 const bus = require("./bus");
 const { provider, verifyTwilio } = require("./notify");
+const sectors = require("./sectors");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -119,7 +120,7 @@ route("GET", "/api/health", { public: true }, async () => {
   return { ok: true, db: db ? "ok" : "none", ms: db ? db.ms : undefined };
 });
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
-  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, noSale: svc.NO_SALE, reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsLive: provider === "twilio", routeCredit: !!travel.routingStatus().credit,
+  types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, noSale: svc.NO_SALE, sector: sectors.view(sectors.get(brand.sector || process.env.SECTOR)), reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsLive: provider === "twilio", routeCredit: !!travel.routingStatus().credit,
   demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
@@ -323,6 +324,7 @@ route("GET", "/api/state", {}, (req, body, user) => {
     user, signedInAs: req.auth.real, sandbox: sb.id, now: sandbox.nowMin(), clinicians: isAdmin ? clinicians : [me], appts, patients, messages, waitlist, recalls, offers, pcse, referrals, referralOptions: isAdmin ? svc.referralOptions() : null, ...leadsState, staff,
     cal: require("./calendar").view(sb), // dates, weekends, bank holidays and booking limits for the diary
     types: Object.fromEntries(Object.entries(D.TYPES).map(([k, t]) => [k, { ...t }])), // this practice's own visit lengths, read now
+    sector: sectors.view(), // what kind of service this practice is: words, roles and which features show
     pvn: isAdmin ? pvn.list().counts : null,
     diaryTodo: isAdmin ? db.prepare("SELECT COUNT(*) AS n FROM diary_log WHERE copied_at IS NULL").get().n : 0, // changes still to copy into Opticabase // PCSE notifications by status, for the side menu and Needs you today
     calls: isAdmin ? (({ calls: c }) => ({ 1: c[1].length, 2: c[2].length, 3: c[3].length }))(calls.list()) : null, // confirmation calls due today, by stage

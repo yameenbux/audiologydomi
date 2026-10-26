@@ -1,5 +1,6 @@
 "use strict";
 // The refill engine. Pure functions with no database access, so the rules are easy to test and to tune.
+const sectors = require("./sectors");
 const { DAY_START, DAY_END, TYPES, PRIO, PVN_NOTICE_MIN, canDo, district, hm } = require("./domain");
 const { driveMinutes, driveInfo } = require("./travel");
 const cal = require("./calendar");
@@ -47,7 +48,7 @@ function rankCandidates({ slot, clinician, dayAppts, waitlist, patientsById, dec
     let reason = "";
     let score = PRIO[w.prio].pts;
 
-    if (!canDo(clinician, w.type)) { ok = false; reason = `Needs an optometrist; ${clinician.first} dispenses`; }
+    if (!canDo(clinician, w.type)) { ok = false; { const r = sectors.current().roles; reason = `Needs ${sectors.an(r.lead.toLowerCase())}; ${clinician.first} ${r.supportDoes}`; } }
     else if (t.pvn && leadMin < PVN_NOTICE_MIN) { ok = false; reason = "NHS test: PCSE needs 48h notice"; }
     else if (t.pvn && p.nhsFrom && slot.day < p.nhsFrom.day) { ok = false; reason = `NHS test not due until ${p.nhsFrom.label}`; }
     else if (!w.shortNotice && sameDay) { ok = false; reason = "Needs 24h notice"; }

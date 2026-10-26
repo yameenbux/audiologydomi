@@ -8,6 +8,7 @@ const auth = require("./auth");
 const travel = require("./travel");
 const { northWest } = require("./seed-nw");
 const { DAY_START, DAY_END } = require("./domain");
+const sectors = require("./sectors");
 const brands = require("./brands");
 
 // `db` always points at the database of the sandbox handling the current request.
@@ -473,7 +474,7 @@ function leadEmail(name, practice, phone, hours, email) {
 // Row mappers: database shape → API shape
 const J = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
 const map = {
-  clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === "Optometrist", color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
+  clinician: (r) => ({ id: r.id, name: r.name, first: r.first, role: r.role, optom: r.role === sectors.current().roles.lead, /* has the sector's lead role */ color: r.color, areaName: r.area_name, patch: J(r.patch, []), near: J(r.near, []), base: r.base, hours: J(r.hours, DEFAULT_HOURS), active: r.active !== 0 }),
   user: (r) => ({ id: r.id, name: r.name, role: r.role, clinicianId: r.clinician_id, email: r.email, title: r.title, color: r.color, active: r.active !== 0, office: r.role === "admin" || !!r.office }),
   patient: (r) => ({ id: r.id, name: r.name, age: r.age, addr: r.addr, pc: r.pc, phone: r.phone, contact: r.contact, alerts: J(r.alerts, []), specs: r.specs, rx: J(r.rx, null), dob: r.dob, email: r.email, eligibility: r.eligibility, rep: r.rep, poa: r.poa, share: r.share, lastTest: r.last_test, recallMonths: r.recall_months || null, nextExam: r.next_exam || null, obId: r.ob_id || null, nhsNo: r.nhs_no || null, premises: r.premises || "home", venue: r.venue || null, venueContact: r.venue_contact || null, erased: !!r.erased , tw: r.tw ? { k: r.tw, at: r.tw_at } : null }),
   appt: (r) => ({ id: r.id, clinicianId: r.clinician_id, patientId: r.patient_id, type: r.type, day: r.day, start: r.start_min, drive: r.drive, status: r.status, moved: !!r.moved, seen: !!r.seen, note: r.note, reason: r.reason, gap: !!r.gap, cancelledMin: r.cancelled_min, bookedMin: r.booked_min, filledFrom: r.filled_from, reminded: !!r.reminded, pvnIcb: r.pvn_icb || null, ert: r.ert || null, pvnEarly: !!r.pvn_early, source: r.source || "new", reliability: r.reliability, count: r.reliability != null ? r.reliability : ((require("./domain").SOURCES[r.source] || require("./domain").SOURCES.new).count), tw: r.tw ? { k: r.tw, at: r.tw_at } : null }),

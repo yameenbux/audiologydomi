@@ -1,4 +1,5 @@
 "use strict";
+const sectors = require("./sectors");
 // Patient import. Pure functions with no database access: read a CSV (from Google Sheets, Excel or another
 // system), work out which column is which, tidy and check every row, and spot people who are already on the
 // system. service.js runs it twice: once to show the office a preview, and again when they confirm, so nothing
@@ -245,15 +246,18 @@ function readRow(cells, mapping, { townOf } = {}) {
 
   let lastTest = null, recall = null;
   if (v.lastTest) {
+    const sec = sectors.current(), last = sec.fields.last;
     const d = parseDate(v.lastTest);
-    if (!d) warnings.push(`Last sight test "${v.lastTest}" not recognised`);
-    else if (d.t > today()) warnings.push(`Last sight test ${fmtDate(d.iso)} is in the future`);
+    if (!d) warnings.push(`${last} "${v.lastTest}" not recognised`);
+    else if (d.t > today()) warnings.push(`${last} ${fmtDate(d.iso)} is in the future`);
     else {
       lastTest = d.iso;
-      // NHS sight tests: yearly from 70, otherwise every two years.
-      const years = age != null && age >= 70 ? 1 : 2;
-      const due = Date.UTC(new Date(d.t).getUTCFullYear() + years, new Date(d.t).getUTCMonth(), new Date(d.t).getUTCDate());
-      recall = { dueDay: Math.round((due - today()) / DAY_MS), reason: years === 1 ? "Yearly NHS sight test (over 70)" : "NHS sight test (every 2 years)" };
+      // NHS sight tests: yearly from 70, otherwise every two years. Other services recall on their own cycle.
+      const months = sec.modules.pcse ? (age != null && age >= 70 ? 12 : 24) : sec.recall.months;
+      const due = Date.UTC(new Date(d.t).getUTCFullYear(), new Date(d.t).getUTCMonth() + months, new Date(d.t).getUTCDate());
+      const what = sec.recall.what.charAt(0).toUpperCase() + sec.recall.what.slice(1);
+      recall = { dueDay: Math.round((due - today()) / DAY_MS),
+        reason: sec.modules.pcse ? (months === 12 ? "Yearly NHS sight test (over 70)" : "NHS sight test (every 2 years)") : `${what} (every ${months} month${months === 1 ? "" : "s"})` };
     }
   }
 
