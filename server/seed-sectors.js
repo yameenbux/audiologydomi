@@ -1,0 +1,147 @@
+"use strict";
+// Sample data for the demos of services other than opticians. The demo diary, rounds, waiting list and care-home
+// visit are built once (server/db.js, in eye-care terms); this rewrites what a patient record, a referral and an
+// ad lead say, so each sector's demo reads like that kind of practice. Every person here is made up.
+
+// What the eye-care sample says about a patient's glasses, and what it becomes in each sector.
+const KIT = {
+  audiology: [[/lab/, "New aids ready to fit"], [/Varifocals/, "Both ears, behind the ear"], [/Bifocals/, "Right ear only"], [/Single/, "Both ears, in the ear"], [/Reading/, "None yet"], [/Lost/, "Lost on ward"]],
+  podiatry: [[/lab/, "New insoles on order"], [/Varifocals/, "Orthotic insoles"], [/Bifocals/, "Diabetic shoes"], [/Single/, "None noted"], [/Reading/, "Slippers only"], [/Lost/, "None noted"]],
+  physio: [[/lab/, "Perching stool on order"], [/Varifocals/, "Zimmer frame"], [/Bifocals/, "Wheelchair"], [/Single/, "None"], [/Reading/, "Walking stick"], [/Lost/, "Frame left at hospital"]],
+  nursing: [[/lab/, "Blood thinners"], [/Varifocals/, "Warfarin"], [/Bifocals/, "Insulin"], [/Single/, "None noted"], [/Reading/, "Allergic to plasters"], [/Lost/, "New medication from hospital"]],
+};
+
+// Each sample patient's history, by patient id: [label, note].
+const HISTORY = {
+  audiology: {
+    p1: [["10 Oct 2024", "Hearing assessment. Moderate loss both ears. Behind-the-ear aids fitted."]],
+    p2: [["29 Sep 2026", "Hearing assessment. Severe loss right ear. New aids ordered, ready to fit."]],
+    p3: [["2 Jul 2026", "Aids reprogrammed. Struggles with the small batteries: the carer helps."], ["8 Oct 2026", "Care home called: left aid whistling."]],
+    p4: [["Referral", "GP referral: housebound after a stroke, can't hear the TV."]],
+    p5: [["28 Sep 2026", "Hearing assessment. Hearing has dropped. New aids ordered, ready to fit."]],
+    p6: [["12 Oct 2026", "Aid follow-up. Settled in well."]],
+    p7: [["Referral", "Tube on the right aid has split."]],
+    p8: [["14 Aug 2026", "Wax in both ears. Softening drops for 2 weeks, then microsuction."]],
+    p9: [["Referral", "Daughter says the aids keep falling out."]],
+    p10: [["5 Aug 2026", "Private hearing check. Mild loss, aids not needed yet."]],
+    p11: [["Referral", "Discharged from hospital, hearing aids lost on the ward."]],
+    p13: [["15 Jul 2026", "Tinnitus, left ear. Review in 3 months."]],
+    p15: [["Referral", "Battery door broken on the left aid."]],
+    p16: [["Referral", "GP: sudden hearing loss in one ear over a week, can't leave home. Prioritise."]],
+    p31: [["Referral", "Aid stopped working. Needs a day's notice: works mornings at the church."]],
+    p41: [["14 Apr 2026", "Recurring wax. Microsuction every 6 months."]],
+  },
+  podiatry: {
+    p1: [["10 Oct 2024", "Assessment. Thickened nails, early bunion on the left. Nail care every 8 weeks."]],
+    p2: [["29 Sep 2026", "Diabetic foot check. Reduced feeling in both feet. Moderate risk: check every 6 months."]],
+    p3: [["2 Jul 2026", "Nail care. Fragile skin: no sharp debridement."], ["8 Oct 2026", "Care home called: red area on the right heel."]],
+    p4: [["Referral", "GP referral: housebound after a stroke, nails overgrown."]],
+    p5: [["28 Sep 2026", "Nail care. Corn on the left little toe treated."]],
+    p6: [["12 Oct 2026", "Nail care. All well."]],
+    p7: [["Referral", "Painful corn under the ball of the foot."]],
+    p8: [["14 Aug 2026", "Small ulcer on the right big toe. Dressed. Review every 2 weeks."]],
+    p9: [["Referral", "Daughter says her toenails catch on her socks."]],
+    p10: [["5 Aug 2026", "Private assessment. Plantar fasciitis. Insoles fitted."]],
+    p11: [["Referral", "Discharged from hospital, can't reach her feet to cut her nails."]],
+    p13: [["15 Jul 2026", "Ingrown toenail, left. Recheck in 3 months."]],
+    p15: [["Referral", "Hard skin on the heels, cracking."]],
+    p16: [["Referral", "GP: diabetic, new wound on the foot, can't leave home. Prioritise."]],
+    p31: [["Referral", "Painful corn. Needs a day's notice: works mornings at the church."]],
+    p41: [["14 Apr 2026", "Diabetic. Foot check every 6 months."]],
+  },
+  physio: {
+    p1: [["10 Oct 2024", "Assessment after a fall. Weak hips. Balance exercises, 6 sessions."]],
+    p2: [["29 Sep 2026", "Parkinson's. Neuro physio fortnightly. Walking more steadily."]],
+    p3: [["2 Jul 2026", "Review. Transfers with one carer."], ["8 Oct 2026", "Care home called: had a fall, no injury."]],
+    p4: [["Referral", "GP referral: stroke 6 weeks ago, weak left side."]],
+    p5: [["28 Sep 2026", "Knee replacement 4 weeks ago. Bending to 85°. Exercises progressed."]],
+    p6: [["12 Oct 2026", "Exercise session. Stairs practised, managing well."]],
+    p7: [["Referral", "Back pain after lifting, can't get in the car."]],
+    p8: [["14 Aug 2026", "COPD. Breathing exercises and a walking plan."]],
+    p9: [["Referral", "Daughter worried she's unsteady on her feet."]],
+    p10: [["5 Aug 2026", "Private assessment. Stiff shoulder. Home exercise plan."]],
+    p11: [["Referral", "Discharged from hospital after a hip fracture."]],
+    p13: [["15 Jul 2026", "MS. Neuro physio. Review in 3 months."]],
+    p15: [["Referral", "Walking frame wobbly, needs checking."]],
+    p16: [["Referral", "GP: new weakness in both legs, can't leave home. Prioritise."]],
+    p31: [["Referral", "Sciatica. Needs a day's notice: works mornings at the church."]],
+    p41: [["14 Apr 2026", "At risk of falls. Review every 3 months."]],
+  },
+  nursing: {
+    p1: [["10 Oct 2024", "On warfarin. INR blood test every 4 weeks."]],
+    p2: [["29 Sep 2026", "Leg ulcer, right. Dressing changed, healing."]],
+    p3: [["2 Jul 2026", "B12 injection every 12 weeks."], ["8 Oct 2026", "Care home called: skin tear on the left arm."]],
+    p4: [["Referral", "GP referral: housebound after a stroke, needs bloods every 3 months."]],
+    p5: [["28 Sep 2026", "Blood test for kidney function. Results to the GP."]],
+    p6: [["12 Oct 2026", "Blood pressure check: 142/86. GP told."]],
+    p7: [["Referral", "Needs a blood test before her hospital appointment."]],
+    p8: [["14 Aug 2026", "Diabetic. Bloods every 3 months."]],
+    p9: [["Referral", "Daughter asks for her B12 injection at home."]],
+    p10: [["5 Aug 2026", "Private health check. All bloods normal."]],
+    p11: [["Referral", "Discharged from hospital with a wound to dress."]],
+    p13: [["15 Jul 2026", "Pressure sore, grade 2. Dressing twice a week."]],
+    p15: [["Referral", "Blood pressure check and observations."]],
+    p16: [["Referral", "GP: wound getting worse, can't leave home. Prioritise."]],
+    p31: [["Referral", "Yearly bloods. Needs a day's notice: works mornings at the church."]],
+    p41: [["14 Apr 2026", "On warfarin. INR every 4 weeks."]],
+  },
+};
+
+// Recalls due soon, by recall id: [visit type, why].
+const RECALLS = {
+  audiology: { r1: ["sight", "Yearly hearing check"], r2: ["follow", "Wax removal every 6 months"], r3: ["sight", "Yearly hearing check"], r4: ["sight", "Yearly hearing check"] },
+  podiatry: { r1: ["dispense", "Nail care (every 8 weeks)"], r2: ["exam", "Diabetic foot check (every 6 months)"], r3: ["dispense", "Nail care (every 8 weeks)"], r4: ["dispense", "Nail care (every 8 weeks)"] },
+  physio: { r1: ["follow", "3-month progress review"], r2: ["follow", "Falls review (every 3 months)"], r3: ["follow", "3-month progress review"], r4: ["follow", "3-month progress review"] },
+  nursing: { r1: ["dispense", "Bloods (every 3 months)"], r2: ["dispense", "INR blood test (every 4 weeks)"], r3: ["dispense", "Bloods (every 3 months)"], r4: ["dispense", "Bloods (every 3 months)"] },
+};
+
+// The three website referrals, by id: [what's needed, the referrer's note].
+const REFERRALS = {
+  audiology: { rf1: ["sight", "Mum keeps turning the TV right up and misses the phone. Mornings are best."], rf2: ["repair", "New resident, room 4. His hearing aids came with him but don't seem to work."], rf3: ["follow", "Ears blocked for two weeks, the drops haven't helped."] },
+  podiatry: { rf1: ["dispense", "Mum can't reach her feet any more. Mornings are best."], rf2: ["exam", "New resident, room 4. Diabetic, hasn't had a foot check this year."], rf3: ["follow", "A sore on my heel that won't heal."] },
+  physio: { rf1: ["sight", "Mum's had two falls this month. Mornings are best."], rf2: ["exam", "Stroke last month, weak right side. Room 4."], rf3: ["dispense", "Hip replacement in September, I need help getting stronger."] },
+  nursing: { rf1: ["dispense", "Mum needs her bloods taken and can't get to the surgery. Mornings are best."], rf2: ["exam", "New resident, room 4. Leg wound needs dressing."], rf3: ["follow", "My B12 injection is due."] },
+};
+
+// The Facebook ad and its two questions, then each lead's two answers.
+const LEADS = {
+  audiology: { ad: "Free hearing check at home", q: ["Who is the hearing check for?", "Do they wear hearing aids?"], a: { ld1: ["My mum", "No"], ld2: ["Me", "Yes, but they don't work well"], ld3: ["My dad", "No"] } },
+  podiatry: { ad: "Podiatry at home, no travelling", q: ["Who is the visit for?", "What do they need help with?"], a: { ld1: ["My mum", "Cutting her toenails"], ld2: ["Me", "A painful corn"], ld3: ["My dad", "He's diabetic, needs a foot check"] } },
+  physio: { ad: "Physio at home, no waiting list", q: ["Who is the physio for?", "What's the main problem?"], a: { ld1: ["My mum", "She's had a fall"], ld2: ["Me", "Knee replacement"], ld3: ["My dad", "Weak after a stroke"] } },
+  nursing: { ad: "Blood tests and nursing care at home", q: ["Who is the visit for?", "What's needed?"], a: { ld1: ["My mum", "A blood test"], ld2: ["Me", "A wound dressing"], ld3: ["My dad", "His B12 injection"] } },
+};
+
+/** Rewrite the eye-care sample (inside the seed's transaction) for a practice in another sector. */
+function flavour(db, sector) {
+  const id = sector.id;
+  if (!KIT[id]) return; // opticians: the sample is already theirs
+  const run = (sql, ...a) => db.prepare(sql).run(...a);
+  // The team: the optometrists become the sector's lead role, the dispensing optician its support role.
+  run("UPDATE clinicians SET role = ? WHERE role = 'Optometrist'", sector.roles.lead);
+  run("UPDATE clinicians SET role = ? WHERE role = 'Dispensing optician'", sector.roles.support);
+  run("UPDATE users SET title = (SELECT role FROM clinicians WHERE clinicians.id = users.clinician_id) WHERE clinician_id IS NOT NULL");
+  // Patient records: no eye prescription, the sector's kit instead of glasses, and the sector's history.
+  for (const p of db.prepare("SELECT id, specs FROM patients").all()) {
+    const hit = KIT[id].find(([re]) => re.test(p.specs || ""));
+    run("UPDATE patients SET specs = ?, rx = NULL WHERE id = ?", hit ? hit[1] : sector.fields.kitNone, p.id);
+  }
+  run("DELETE FROM notes WHERE author IS NULL");
+  for (const [pid, notes] of Object.entries(HISTORY[id])) {
+    if (!db.prepare("SELECT 1 FROM patients WHERE id = ?").get(pid)) continue;
+    for (const [label, body] of notes) run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, NULL, '')", pid, label, body);
+  }
+  for (const [rid, [type, reason]] of Object.entries(RECALLS[id])) {
+    const r = db.prepare("SELECT waitlist_id FROM recalls WHERE id = ?").get(rid);
+    if (!r) continue;
+    run("UPDATE recalls SET type = ?, reason = ? WHERE id = ?", type, reason, rid);
+    run("UPDATE waitlist SET type = ?, note = ? WHERE id = ?", type, reason, r.waitlist_id);
+  }
+  for (const [rf, [need, notes]] of Object.entries(REFERRALS[id])) run("UPDATE referrals SET need = ?, notes = ?, entitlement = '[]', urgent = 0 WHERE id = ?", need, notes, rf);
+  const L = LEADS[id];
+  for (const [ld, ans] of Object.entries(L.a)) run("UPDATE leads SET campaign = ?, answers = ? WHERE id = ?", L.ad, JSON.stringify(L.q.map((q, i) => [q, ans[i]])), ld);
+  // No PCSE notifications or glasses sales outside eye care.
+  run("DELETE FROM pcse");
+  run("DELETE FROM sales");
+}
+
+module.exports = { flavour };

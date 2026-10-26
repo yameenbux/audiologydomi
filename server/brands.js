@@ -12,6 +12,24 @@ const BRANDS = {
     id: "domi", practice: "Aire Valley Eyecare", region: "leeds", emailDomain: "airevalleyeyecare.example",
     logo: null, wordmark: "Domi", tagline: "Eye care at home",
   },
+  // Demos for the other kinds of home-visit service: invented practices in Leeds, each with its sector's visits,
+  // roles and sample patients (server/sectors.js, server/seed-sectors.js). Opened with /?brand=<id>.
+  hearing: {
+    id: "hearing", sector: "audiology", practice: "Kestrel Hearing at Home", region: "leeds", emailDomain: "kestrelhearing.example",
+    logo: null, wordmark: "Domi", tagline: "Hearing care at home",
+  },
+  podiatry: {
+    id: "podiatry", sector: "podiatry", practice: "Kestrel Foot Care", region: "leeds", emailDomain: "kestrelfootcare.example",
+    logo: null, wordmark: "Domi", tagline: "Foot care at home",
+  },
+  physio: {
+    id: "physio", sector: "physio", practice: "Kestrel Home Physio", region: "leeds", emailDomain: "kestrelphysio.example",
+    logo: null, wordmark: "Domi", tagline: "Physiotherapy at home",
+  },
+  nursing: {
+    id: "nursing", sector: "nursing", practice: "Kestrel Home Nursing", region: "leeds", emailDomain: "kestrelnursing.example",
+    logo: null, wordmark: "Domi", tagline: "Nursing care at home",
+  },
   hvo: {
     id: "hvo", practice: "Home Visiting Optics", region: "nw", emailDomain: "homevisitingoptics.example",
     // Their own logo, served from their own site. If it can't load, the name is shown instead.
@@ -31,6 +49,6 @@ const BRANDS = {
 const SITE = process.env.MARKETING_URL || "https://domi.ysbdesigns.uk/";
 const get = (id) => BRANDS[String(id || "").toLowerCase()] || BRANDS[String(process.env.DEFAULT_BRAND || "").toLowerCase()] || BRANDS.domi;
 /** What the browser may know about a brand (everything here is already public on the practice's website). */
-const pub = (b) => ({ id: b.id, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, mobile: b.mobile || null, email: b.email || null, website: b.website || null, site: SITE });
+const pub = (b) => ({ id: b.id, sector: b.sector || null, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, mobile: b.mobile || null, email: b.email || null, website: b.website || null, site: SITE });
 
 module.exports = { BRANDS, get, pub };

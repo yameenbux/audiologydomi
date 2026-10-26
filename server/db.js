@@ -459,6 +459,8 @@ function seed(db, brand) {
     if (a.day <= 7) { cc(a.id, 1, how, "Earlier"); if (i % 3 === 0) cc(a.id, 2, "done", "Yesterday"); else if (i % 3 === 1) cc(a.id, 2, "no-answer", "Yesterday"); return; }
     if (i % 3) cc(a.id, 1, how, "Earlier");
   });
+  // A demo for another kind of service: the same diary, in that sector's words (server/seed-sectors.js).
+  require("./seed-sectors").flavour(db, sectors.get(brand.sector || process.env.SECTOR));
   ins("audit", { ts: "10:20:00", actor: "system", action: "seed", entity: "database", detail: "Demo data loaded" });
   db.exec("COMMIT");
 }
