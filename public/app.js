@@ -25,7 +25,7 @@ function applyBrand(b) {
     lock.innerHTML = b.logo
       ? `<img class="brand-logo" src="${esc(b.logo)}" alt="${esc(b.logoAlt)}" referrerpolicy="no-referrer"><span class="by">Powered by Domi</span>`
       : b.theme ? `<span class="wm keep"><b>${esc(b.practice)}</b><span>${esc(String(b.tagline || "").toUpperCase())}</span></span>`
-      : `<img src="/logo.svg" alt=""><span class="wm"><b>Domi</b><span>EYE CARE AT HOME</span></span>`;
+      : `<img src="/logo.svg" alt=""><span class="wm"><b>Domi</b><span>${esc(String(b.tagline || "Care at home").toUpperCase())}</span></span>`;
     // If their site can't be reached, show their name rather than a broken image.
     const img = lock.querySelector(".brand-logo");
     if (img) img.addEventListener("error", () => { lock.innerHTML = `<span class="wm keep"><b>${esc(b.practice || b.wordmark)}</b><span>${esc(b.tagline.toUpperCase())}</span></span>`; }, { once: true });
@@ -71,6 +71,14 @@ const active = (a) => a.status !== "cancelled";
 /** A visit type, with this practice's own length (from /api/state; /api/meta has the defaults). */
 const TYPES_NOW = () => (S && S.types) || META.types;
 const T = (k) => TYPES_NOW()[k];
+/** The practice's kind of service (server/sectors.js): its words, roles and which features it uses. */
+const SEC = () => (S && S.sector) || META.sector;
+const MOD = (k) => !!SEC().modules[k];
+/** "Opticabase", or "your practice system" for a practice we don't import from by name. */
+const SYS = () => SEC().modules.importFrom || "your practice system";
+/** A visit type inside a sentence: "a hearing assessment", but "an NHS sight test". */
+const lowerName = (n) => (/^[A-Z]{2}/.test(n) ? n : n.charAt(0).toLowerCase() + n.slice(1));
+const aVisit = (n) => `${/^([aeiou]|NHS)/i.test(lowerName(n)) ? "an" : "a"} ${lowerName(n)}`;
 const isAdmin = () => !!S && S.user.role === "admin";
 const pat = (id) => S.patients.find((p) => p.id === id) || { id, name: "Patient", pc: "", addr: "", alerts: [], phone: "" };
 const cln = (id) => S.clinicians.find((c) => c.id === id);
@@ -337,11 +345,11 @@ function signInView() {
   const A = UI.auth;
   const brand = `<section class="signin-brand">
       <div>
-        <div class="caps" style="color:inherit;opacity:.7">${META.brand && META.brand.logo ? esc(META.brand.practice) : "Domiciliary eye care"}</div>
+        <div class="caps" style="color:inherit;opacity:.7">${META.brand && META.brand.logo ? esc(META.brand.practice) : esc(SEC().name)}</div>
         ${META.brand && META.brand.logo ? `<h1 style="margin-top:14px">Every home visit, <em>in one place.</em></h1>
         <p>Patients, referrals, diaries and each clinician's route, all here: no spreadsheets, no documents. When someone cancels, the next patient who can be seen is offered the slot by text.</p>`
-        : `<h1 style="margin-top:14px">Eye care that <em>comes to you.</em></h1>
-        <p>A diary for home-visit opticians. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>`}
+        : `<h1 style="margin-top:14px">${SEC().hero}</h1>
+        <p>A diary for home-visit ${esc(SEC().trade)}s. When someone cancels, the next patient who can be seen is offered the slot by text, and the clinician's phone updates on its own.</p>`}
       </div>
       <ul class="features">
         <li><span class="ic">${icon("bolt")}</span><span><b>Cancellations refill themselves</b><em>Ranked by urgency, area, wait and travel time.</em></span></li>
@@ -478,7 +486,7 @@ function trayTabs() {
     { k: "refs", label: "Referrals", ic: "note", count: n((S.referrals || []).filter((r) => r.status === "new")), hot: (S.referrals || []).some((r) => r.status === "new" && r.urgent), body: referralsPanel },
     { k: "recalls", label: "Recalls", ic: "cal", count: n((S.recalls || []).filter((r) => r.status !== "dismissed" && r.status !== "booked")), body: recallsPanel },
     { k: "notseen", label: "Not seen", ic: "x", count: n(notSeenToday().filter((x) => !x.back)), hot: notSeenToday().some((x) => !x.back), body: notSeenPanel },
-    { k: "pcse", label: "PCSE", ic: "shield", count: n((S.pcse || []).filter((t) => t.status === "todo")), body: pcsePanel },
+    ...(MOD("pcse") ? [{ k: "pcse", label: "PCSE", ic: "shield", count: n((S.pcse || []).filter((t) => t.status === "todo")), body: pcsePanel }] : []),
     { k: "texts", label: "Texts", ic: "msg", count: n(S.messages.filter((m) => m.dir === "in" && !m.read)), body: textsPanel },
   ];
 }
@@ -517,15 +525,15 @@ function needsYou() {
   const ago = (m) => m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
   const cards = [
     { k: "leads", none: "No leads waiting", n: leads.length, what: leads.length === 1 ? "lead to call" : "leads to call", note: leads.length ? `Oldest waiting ${ago(oldest)}` : "Everyone's been called", hot: oldest > 60 },
-    { k: "refs", none: "No new referrals", n: refs.length, what: refs.length === 1 ? "referral to look at" : "referrals to look at", note: refs.some((r) => r.urgent) ? "One says their sight has changed" : refs.length ? "From your website form" : "All dealt with", hot: refs.some((r) => r.urgent) },
+    { k: "refs", none: "No new referrals", n: refs.length, what: refs.length === 1 ? "referral to look at" : "referrals to look at", note: refs.some((r) => r.urgent) ? `One says: ${SEC().urgent.toLowerCase()}` : refs.length ? "From your website form" : "All dealt with", hot: refs.some((r) => r.urgent) },
     { k: "recalls", none: "No recalls due", n: recalls.length, what: recalls.length === 1 ? "recall due" : "recalls due", note: overdue ? `${overdue} overdue` : "Offered cancelled visits nearby", hot: false },
-    (() => { const v = S.pvn || { breach: 0, todo: 0, cancels: 0 }, n = v.breach + v.todo + v.cancels; return { k: "pcse", go: "pvn", none: "PCSE is up to date", n, what: n === 1 ? "PCSE notice to do" : "PCSE notices to do", note: v.breach ? `${v.breach} inside the notice period` : n ? "Lodge before each deadline" : "Nothing to lodge", hot: v.breach > 0 }; })(),
+    MOD("pcse") && (() => { const v = S.pvn || { breach: 0, todo: 0, cancels: 0 }, n = v.breach + v.todo + v.cancels; return { k: "pcse", go: "pvn", none: "PCSE is up to date", n, what: n === 1 ? "PCSE notice to do" : "PCSE notices to do", note: v.breach ? `${v.breach} inside the notice period` : n ? "Lodge before each deadline" : "Nothing to lodge", hot: v.breach > 0 }; })(),
     (() => { const ns = notSeenToday(), todo = ns.filter((x) => !x.back).length; return { k: "notseen", none: ns.length ? `${ns.length} not seen, all rebooked` : "Every visit went ahead", n: todo, what: todo === 1 ? "visit not seen: rebook" : "visits not seen: rebook", note: todo ? "Marked from the clinician's phone" : ns.length ? "Back on the waiting list" : "Nothing missed today", hot: todo > 0 }; })(),
     (() => { const c = S.calls || { 1: 0, 2: 0, 3: 0 }, n = c[1] + c[2] + c[3]; return { k: "calls", go: "calls", none: "Every call is made", n, what: n === 1 ? "confirmation call" : "confirmation calls", note: n ? [c[3] && `${c[3]} for tomorrow`, c[2] && `${c[2]} this week`, c[1] && `${c[1]} new`].filter(Boolean).join(" · ") : S.settings.reminders ? `${unreminded} reminder text${unreminded === 1 ? "" : "s"} at ${hm(S.settings.reminderAt)}` : "Reminder texts are off", hot: c[3] > 0 }; })(),
   ];
   void tomorrow;
   return `<section class="needs" aria-label="Needs you today"><div class="needs-h caps">Needs you today</div>
-    <div class="needs-row">${cards.map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" ${c.go ? `data-act="go" data-v="${c.go}"` : `data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}"`}>
+    <div class="needs-row">${cards.filter(Boolean).map((c) => `<button type="button" class="need ${c.n ? "" : "clear"} ${c.hot ? "hot" : ""}" ${c.go ? `data-act="go" data-v="${c.go}"` : `data-act="tray" data-v="${c.k}" data-jump="1" aria-pressed="${UI.tray === c.k}"`}>
       <span class="nn">${c.n ? c.n : icon("check")}</span><span class="nw"><b>${c.n ? c.what : c.none}</b><span>${esc(c.note)}</span></span></button>`).join("")}</div></section>`;
 }
 /** How long a new lead has been waiting for a call, on the demo clock. */
@@ -601,9 +609,9 @@ function referralDrawer(d) {
   const born = r.dob ? new Date(r.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
   return `<div class="drawer-h"><div><div class="caps">Referral · ${esc(r.at)} · ${esc(o.from[r.fromKind])}</div><h2 style="margin-top:6px">${esc(r.name)}</h2></div>${closeX}</div>
     <div class="drawer-b">
-      ${r.urgent ? `<div class="callout apricot" style="margin-bottom:14px">${icon("bolt")}<div><b>Sight has changed suddenly</b><div style="margin-top:2px">Call today. If it's sudden loss of sight, flashes or a painful red eye, they need NHS 111 or A&amp;E, not a home visit. The form told them so.</div></div></div>` : ""}
+      ${r.urgent ? `<div class="callout apricot" style="margin-bottom:14px">${icon("bolt")}<div><b>${esc(SEC().urgent)}</b><div style="margin-top:2px">Call today. ${MOD("pcse") ? "If it's sudden loss of sight, flashes or a painful red eye, they need NHS 111 or A&amp;E, not a home visit." : "If it's an emergency, they need NHS 111 or 999, not a home visit."} The form told them so.</div></div></div>` : ""}
       <dl class="kv">${row("Needs", esc(o.need[r.need]))}${row("Born", esc(born))}${row("Address", esc(r.addr + ", " + r.pc))}${row("Phone", r.phone ? `<span class="mono">${esc(r.phone)}</span>` : "None given")}
-        ${row("Home visit because", esc(r.eligibility))}${row("NHS entitlement", esc(r.entitlement.map((k) => o.entitlement[k]).join(", ") || "None ticked"))}
+        ${row("Home visit because", esc(r.eligibility))}${o.entitlement ? row("NHS entitlement", esc(r.entitlement.map((k) => o.entitlement[k]).join(", ") || "None ticked")) : ""}
         ${row("Home", esc(META.avail[r.avail]))}${r.fromKind !== "self" ? row("Referred by", esc([r.fromName, r.fromPhone].filter(Boolean).join(", "))) : ""}${row("Notes", esc(r.notes || ""))}</dl>
       <div class="hr" style="margin:18px 0"></div>
       <div class="row2"><div class="field"><label for="rf-type">Waiting list for</label><select class="input" id="rf-type">${Object.entries(TYPES_NOW()).map(([k, v]) => `<option value="${k}" ${k === r.need ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
@@ -635,7 +643,7 @@ function recallsPanel() {
   const when = (d) => d < 0 ? `${-d} day${d === -1 ? "" : "s"} overdue` : d === 0 ? "due today" : `due in ${d} day${d === 1 ? "" : "s"}`;
   return `<section class="panel" aria-label="Recalls">
     <div class="panel-h"><h2>Recalls</h2><span class="sub">In the refill pool</span></div>
-    <p class="panel-note">Patients due a sight test are offered cancelled visits near them, 48 hours or more ahead so PCSE can be told. You can also text them your booking page.</p>
+    <p class="panel-note">Patients due a ${esc(SEC().recall.what)} are offered cancelled visits near them${MOD("pcse") ? ", 48 hours or more ahead so PCSE can be told" : ""}. You can also text them your booking page.</p>
     <p class="panel-note" style="padding-top:0">${S.settings.autoRecalls ? `${icon("check")} Recall texts go out automatically at ${hm(S.settings.recallAt)}. Patients who'd rather be phoned stay here for you to call.` : `Automatic recall texts are off.`} <a href="#/settings/refill">Change</a></p>
     <ul class="recalls">${due.map((r) => { const p = pat(r.patientId); return `<li>
       <div style="min-width:0"><div class="nm">${esc(p ? p.name : "")}</div><div class="meta"><span>${esc(r.reason)}</span><span class="${r.dueDay < 0 ? "late" : ""}">${when(r.dueDay)}</span>${p ? `<span>${esc(district(p.pc))}</span>` : ""}</div></div>
@@ -982,13 +990,13 @@ function record(p) {
     ${a && a.moved ? `<div class="banner">${icon("bolt")}<div><b>Moved forward today</b>${esc(a.note)}</div></div>` : ""}
     ${!a && later ? `<div class="callout forest" style="margin-top:12px">${icon("cal")}<div><b>Next visit: ${esc(dayName(later.day))} at ${hm(later.start)}</b><div style="margin-top:2px">${esc(T(later.type).name)}</div></div></div>` : ""}
     <div class="sec"><h3>Visit notes ${a && a.status === "live" ? `<span class="badge b-ok">In progress</span>` : ""}</h3>
-      <div class="chips">${["Vision recorded", "Pressures checked", "Fundus photos taken", "Frames chosen", "GOS 6 signed", "Glasses fitted & adjusted", "Referred to GP", "Recall in 12 months"].map((c) => `<button type="button" data-act="chip">${c}</button>`).join("")}</div>
+      <div class="chips">${[...SEC().outcomes, "Recall in 12 months"].map((c) => `<button type="button" data-act="chip">${c}</button>`).join("")}</div>
       <textarea class="note" id="note-${p.id}" data-keep placeholder="What did you do on this visit?"></textarea>
       <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" type="button" data-act="save-note" data-id="${p.id}">${icon("check")}Save to record</button></div>
     </div>
-    <div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
-</div>
-    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.poa ? `<dt>Power of attorney</dt><dd>${esc(p.poa)}</dd>` : ""}<dt>Talk to family?</dt><dd>${p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet"}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>Last sight test</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall</dd>` : ""}${p.nhsFrom ? `<dt>Next NHS test</dt><dd>${p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now (from ${esc(p.nhsFrom.label)})`}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
+    ${MOD("prescription") ? `<div class="sec"><h3>Prescription</h3>${p.rx ? prescription(p.rx) : `<p class="muted" style="margin:0;font-size:13.5px">No prescription on record yet. It's added after the sight test.</p>`}
+</div>` : ""}
+    <div class="sec"><h3>Details</h3><dl class="kv"><dt>Phone</dt><dd class="mono">${esc(p.phone)}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.poa ? `<dt>Power of attorney</dt><dd>${esc(p.poa)}</dd>` : ""}<dt>Talk to family?</dt><dd>${p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet"}</dd><dt>${esc(SEC().fields.kit)}</dt><dd>${esc(p.specs)}</dd>${p.dob ? `<dt>Born</dt><dd>${esc(new Date(p.dob).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))}</dd>` : ""}${p.lastTest ? `<dt>${esc(SEC().fields.last)}</dt><dd>${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall</dd>` : ""}${p.nhsFrom ? `<dt>Next NHS test</dt><dd>${p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now (from ${esc(p.nhsFrom.label)})`}</dd>` : ""}<dt>Home visit reason</dt><dd>${p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded</span>`}</dd>${p.rep ? `<dt>Next of kin</dt><dd>${esc(p.rep)}</dd>` : ""}${p.email ? `<dt>Email</dt><dd>${esc(p.email)}</dd>` : ""}<dt>Area</dt><dd>${esc(p.pc)}</dd></dl></div>
     <div class="sec"><h3>History</h3>${p.history.length ? `<ul class="hist">${p.history.map((h) => `<li><div><div class="d">${esc(h.label)}${h.by ? " · " + esc(h.by) : ""}</div>${esc(h.body)}</div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0;font-size:13.5px">First visit.</p>`}</div>
     ${a && UI.nd === a.id ? `<div class="sec">${notDoneForm(a)}</div>` : ""}
     ${a ? `<div class="actionbar">${a.status === "booked" ? `<button class="btn danger" type="button" data-act="open-appt" data-id="${a.id}">${icon("x")}Cancel</button>` : ""}${canNotDo(a) && UI.nd !== a.id ? `<button class="btn secondary" type="button" data-act="nd-open" data-id="${a.id}">Couldn't do it</button>` : ""}${act ? `<button class="btn" type="button" data-act="status" data-v="${act.v}" data-id="${a.id}">${icon(act.ic)}${act.label}</button>` : ""}</div>` : ""}`;
@@ -1005,6 +1013,8 @@ function parseRoute() {
   if (page === "team" && id) return { page: "person", k: id === "staff" ? "staff" : "clin", id: sub || "new" };
   if (page === "team") return { page: "team" };
   if (page === "leads" && id) return { page: "lead", id };
+  // PCSE notices and the copy-to-Opticabase list only exist for practices that use them.
+  if ((page === "pvn" && !MOD("pcse")) || (page === "opticabase" && !SEC().modules.importFrom)) return { page: "today" };
   if (["routes", "mileage", "invoices", "import", "coming-soon", "calls", "pvn", "pilot", "opticabase", "reports"].includes(page)) return { page };
   if (page === "leads") return { page: "leads" };
   if (page === "settings") return { page: "settings", sec: SET_SECS.some((x) => x.k === id) ? id : "practice" };
@@ -1090,7 +1100,7 @@ function sideNav() {
   const link = (k, ic, label, count) => `<a class="nav-i" href="#/${k === "today" ? "" : k}" ${on(k) ? 'aria-current="page"' : ""}>${icon(ic)}<span class="nl">${label}</span>${count ? `<span class="nc">${count}</span>` : ""}</a>`;
   const act = (a, ic, label) => `<button class="nav-i" type="button" data-act="${a}">${icon(ic)}<span class="nl">${label}</span></button>`;
   return `<nav class="side" aria-label="Office">
-    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0)}${link("opticabase", "copy", "Copy to Opticabase", S.diaryTodo || 0)}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
+    <div class="side-sec"><div class="side-h">Day to day</div>${link("today", "cal", "Today", needs)}${link("patients", "users", "Patients")}${link("calls", "phone", "Calls", S.calls ? S.calls[1] + S.calls[2] + S.calls[3] : 0)}${MOD("pcse") ? link("pvn", "note", "PCSE notices", S.pvn ? S.pvn.breach + S.pvn.todo + S.pvn.cancels : 0) : ""}${SEC().modules.importFrom ? link("opticabase", "copy", `Copy to ${esc(SYS())}`, S.diaryTodo || 0) : ""}${link("leads", "send", "Facebook leads", (S.leads || []).filter((l) => l.status === "new").length)}${link("team", "shield", "Team &amp; hours")}</div>
     <div class="side-sec"><div class="side-h">Planning</div>${link("routes", "pin", "Plan routes")}${link("mileage", "car", "Mileage")}${link("reports", "note", "Reports")}${link("pilot", "bolt", "Pilot results")}${link("invoices", "note", "Invoices")}</div>
     <div class="side-sec"><div class="side-h">Practice</div>${link("import", "copy", "Import patients")}${link("settings", "gear", "Settings")}${link("coming-soon", "next", "Coming soon")}</div>
   </nav>`;
@@ -1139,6 +1149,17 @@ async function loadReports() {
 const pct = (n) => (n == null ? "–" : n + "%");
 /** Each part of the reports, as a spreadsheet table: [key, title, head, rows]. Exported one at a time or all together. */
 function repSections(d) {
+  const all = repSectionsAll(d);
+  if (MOD("sales")) return all;
+  // A practice that doesn't sell at the visit: no sales rows or columns, and nothing about PCSE or Opticabase.
+  const drop = /sale|sold|frames|lenses|glasses|voucher|PCSE|Opticabase/i;
+  const keepCols = (head, rows) => { const idx = head.map((h, i) => (drop.test(h) ? -1 : i)).filter((i) => i >= 0); return [idx.map((i) => head[i]), rows.map((r) => idx.map((i) => r[i]))]; };
+  return all.filter((x) => x[0] !== "sales-list").map(([k, title, head, rows]) => {
+    if (head[0] === "Measure" || head[0] === "Item") return [k, title === "Sales and money" ? "Money" : title, head, rows.filter((r) => !drop.test(String(r[0])))];
+    const [h, r] = keepCols(head, rows); return [k, title, h, r];
+  });
+}
+function repSectionsAll(d) {
   const gbp = (p) => (p == null ? "" : (p / 100).toFixed(2));
   return [
     ["summary", "Summary", ["Measure", "Value"], [
@@ -1177,7 +1198,7 @@ function reportsPage() {
   const gbp0 = (p) => "£" + Math.round(p / 100).toLocaleString("en-GB");
   const g = UI.pg || {}, d = g.data;
   const head = pageHead({ eyebrow: esc(S.settings.practice), title: "Reports",
-    lead: "Sales, visits, mileage and the rest, for any period, worked out from the diary as it stands. Download it all as a spreadsheet, or print it.",
+    lead: `${MOD("sales") ? "Sales, visits" : "Visits"}, mileage and the rest, for any period, worked out from the diary as it stands. Download it all as a spreadsheet, or print it.`,
     actions: d ? `<button class="btn secondary" type="button" data-act="rep-print">${icon("note")}Print or save as PDF</button><button class="btn" type="button" data-act="rep-csv">${icon("copy")}Export everything</button>` : "" });
   const x = (k) => `<button class="btn ghost sm rep-x" type="button" data-act="rep-csv" data-v="${k}" title="Download this as a spreadsheet">${icon("copy")}Export</button>`;
   const ctl = `<div class="rep-ctl"><div class="seg" role="group" aria-label="Period">${REPORT_PERIODS.map(([k, l]) => `<button type="button" data-act="rep-period" data-v="${k}" aria-pressed="${g.period === k}">${l}</button>`).join("")}</div>
@@ -1185,7 +1206,7 @@ function reportsPage() {
     ${d ? `<span class="muted rep-when">${esc(d.period.label)}${d.period.from !== d.period.to ? `: ${esc(ukDate(d.period.fromIso))} to ${esc(ukDate(d.period.toIso))}` : `: ${esc(ukDate(d.period.toIso))}`}</span><span style="margin-left:auto">${x("summary").replace("rep-x", "").replace("Export</button>", "Export summary</button>")}</span>` : ""}</div>`;
   if (g.error) return `<div class="pg">${head}${ctl}<div class="callout warn">${icon("x")}<div>${esc(g.error)}</div></div></div>`;
   if (!d) return `<div class="pg">${head}${ctl}<p class="muted">${g.period === "custom" ? "Choose the dates." : "Working it out…"}</p></div>`;
-  const s = d.summary, f = d.finance;
+  const s = d.summary, f = d.finance, SL = MOD("sales");
   const kpi = (v, l, sub = "") => `<div class="rep-kpi"><b>${v}</b><span>${l}</span>${sub ? `<i>${sub}</i>` : ""}</div>`;
   const bars = (list, max) => list.length ? `<ul class="rep-bars">${list.map((r) => `<li><span>${esc(r.label)}</span><i><em style="width:${max ? Math.round((r.n / max) * 100) : 0}%"></em></i><b>${r.n}</b></li>`).join("")}</ul>` : `<p class="muted">None.</p>`;
   const maxN = (l) => Math.max(0, ...l.map((r) => r.n));
@@ -1193,29 +1214,29 @@ function reportsPage() {
   return `<div class="pg rep${g.loading ? " busy" : ""}">${head}${ctl}
     <section class="rep-kpis">
       ${kpi(s.visitsDone, "visits done", `${s.patientsSeen} patients · ${s.missed} nobody in`)}
-      ${kpi(gbp0(s.salesPence), "glasses sales", `${s.sales} sale${s.sales === 1 ? "" : "s"}`)}
-      ${kpi(pct(s.conversion), "visits with a sale", s.avgSalePence ? `average ${gbp(s.avgSalePence)}` : "")}
+      ${SL ? kpi(gbp0(s.salesPence), "glasses sales", `${s.sales} sale${s.sales === 1 ? "" : "s"}`) : kpi(gbp0(f.invoiced.pence), "invoiced", `${gbp0(f.invoiced.unpaidPence)} unpaid`)}
+      ${SL ? kpi(pct(s.conversion), "visits with a sale", s.avgSalePence ? `average ${gbp(s.avgSalePence)}` : "") : kpi(gbp0(f.recoveredPence), "recovered", "by refilling cancellations")}
       ${kpi(s.cancelled, "cancelled", `${s.refilled} refilled`)}
       ${kpi(Math.round(s.miles).toLocaleString("en-GB"), "miles driven", `${gbp0(s.mileagePence)} at ${d.mileage.ratePence}p`)}
     </section>
     <div class="rep-grid">
-      <section class="card"><div class="card-h">${x("money")}<h2>Sales and money</h2></div>
+      <section class="card"><div class="card-h">${x("money")}<h2>${SL ? "Sales and money" : "Money"}</h2></div>
         <table class="rep-t"><tbody>
-          <tr><td>Frames</td><td class="n">${gbp(f.framesPence)}</td></tr><tr><td>Lenses</td><td class="n">${gbp(f.lensesPence)}</td></tr>
+          ${SL ? `<tr><td>Frames</td><td class="n">${gbp(f.framesPence)}</td></tr><tr><td>Lenses</td><td class="n">${gbp(f.lensesPence)}</td></tr>
           <tr class="tot"><td>Glasses sold, paid by card</td><td class="n">${gbp(f.salesPence)}</td></tr>
-          <tr><td>NHS vouchers (GOS3) towards them</td><td class="n">${f.vouchers}</td></tr>
+          <tr><td>NHS vouchers (GOS3) towards them</td><td class="n">${f.vouchers}</td></tr>` : ""}
           <tr><td>Invoices raised</td><td class="n">${gbp(f.invoiced.pence)}</td></tr><tr><td>Invoices paid / unpaid</td><td class="n">${gbp(f.invoiced.paidPence)} / ${gbp(f.invoiced.unpaidPence)}</td></tr>
           <tr><td>Recovered by refilling cancellations</td><td class="n">${gbp(f.recoveredPence)}</td></tr>
         </tbody></table>
-        <div class="caps" style="margin:14px 0 6px">Why nothing was sold</div>${bars(f.noSale, maxN(f.noSale))}
-        ${f.notRecorded ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${f.notRecorded} finished visit${f.notRecorded === 1 ? " has" : "s have"} no sale recorded.</p>` : ""}</section>
-      <section class="card"><div class="card-h">${x("clinicians")}<h2>By clinician</h2></div>
+        ${SL ? `<div class="caps" style="margin:14px 0 6px">Why nothing was sold</div>${bars(f.noSale, maxN(f.noSale))}` : ""}
+        ${SL && f.notRecorded ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${f.notRecorded} finished visit${f.notRecorded === 1 ? " has" : "s have"} no sale recorded.</p>` : ""}</section>
+      ${SL ? `<section class="card"><div class="card-h">${x("clinicians")}<h2>By clinician</h2></div>
         <table class="rep-t"><thead><tr><th>Clinician</th><th class="n">Visits</th><th class="n">With a sale</th><th class="n">Sales</th><th class="n">Average</th></tr></thead><tbody>
           ${d.byClinician.map((r) => `<tr><td><b>${esc(r.name)}</b>${r.missed ? `<div class="muted" style="font-size:12px">${r.missed} nobody in</div>` : ""}</td><td class="n">${r.visits}</td><td class="n">${r.sales} <span class="muted">(${pct(r.conversion)})</span></td><td class="n">${gbp(r.salesPence)}</td><td class="n">${r.avgSalePence ? gbp(r.avgSalePence) : "–"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No visits in this period.</td></tr>`}
-        </tbody></table></section>
-      <section class="card wide"><div class="card-h">${x("days")}<h2>Day by day</h2><p>Visits done, and glasses sales.</p></div>
+        </tbody></table></section>` : ""}
+      <section class="card wide"><div class="card-h">${x("days")}<h2>Day by day</h2><p>${SL ? "Visits done, and glasses sales." : "Visits done each day."}</p></div>
         <div class="rep-days">${d.days.map((x) => `<div class="rep-day" title="${esc(x.label)}: ${x.visits} visits, ${x.sales} sales, ${gbp(x.salesPence)}"><div class="rep-col"><i class="v" style="height:${Math.round((x.visits / maxVis) * 100)}%"></i><i class="s" style="height:${Math.round((x.salesPence / maxDay) * 100)}%"></i></div><span>${esc(x.label.split(" ").slice(0, 2).join(" "))}</span></div>`).join("") || `<p class="muted">No open days in this period.</p>`}</div>
-        <div class="dst-key" style="margin-top:8px"><span><i class="dst-dot" style="background:var(--forest)"></i>Visits done</span><span><i class="dst-dot" style="background:var(--apricot)"></i>Sales (£)</span></div></section>
+        <div class="dst-key" style="margin-top:8px"><span><i class="dst-dot" style="background:var(--forest)"></i>Visits done</span>${SL ? `<span><i class="dst-dot" style="background:var(--apricot)"></i>Sales (£)</span>` : ""}</div></section>
       <section class="card"><div class="card-h">${x("visits")}<h2>Visits</h2></div>
         <table class="rep-t"><thead><tr><th>Visit type</th><th class="n">Done</th><th class="n">Nobody in</th><th class="n">Cancelled</th></tr></thead><tbody>
           ${d.visits.byType.map((r) => `<tr><td>${esc(r.label)}</td><td class="n">${r.done}</td><td class="n">${r.missed}</td><td class="n">${r.cancelled}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">None.</td></tr>`}
@@ -1227,13 +1248,13 @@ function reportsPage() {
           ${d.mileage.clinicians.map((r) => `<tr><td>${esc(r.name)}</td><td class="n">${r.miles}</td><td class="n">${mins(r.driveMin)}</td><td class="n">${gbp(r.mileagePence)}</td><td class="n">${pct(r.utilisation)}</td></tr>`).join("")}
         </tbody></table>
         <div class="caps" style="margin:14px 0 6px">Right now</div>
-        <ul class="rep-now"><li><b>${(d.now.leads.new || 0)}</b> new Facebook leads to call</li><li><b>${d.now.waiting}</b> on the waiting list</li><li><b>${d.now.recallsDue}</b> recalls due</li><li><b>${d.now.pcseToDo}</b> PCSE notices to do</li><li><b>${d.now.toCopy}</b> changes to copy to Opticabase</li></ul>
+        <ul class="rep-now"><li><b>${(d.now.leads.new || 0)}</b> new Facebook leads to call</li><li><b>${d.now.waiting}</b> on the waiting list</li><li><b>${d.now.recallsDue}</b> recalls due</li>${MOD("pcse") ? `<li><b>${d.now.pcseToDo}</b> PCSE notices to do</li>` : ""}${SEC().modules.importFrom ? `<li><b>${d.now.toCopy}</b> changes to copy to ${esc(SYS())}</li>` : ""}</ul>
         <div style="margin-top:8px">${x("now").replace("rep-x", "")}</div></section>
-      <section class="card wide"><div class="card-h">${x("sales-list")}<h2>Every sale</h2><p>Line by line, to check against the card reader and Opticabase.</p></div>
+      ${SL ? `<section class="card wide"><div class="card-h">${x("sales-list")}<h2>Every sale</h2><p>Line by line, to check against the card reader and Opticabase.</p></div>
         ${d.lists.sales.length ? `<div class="pvn-tw"><table class="rep-t"><thead><tr><th>Date</th><th>Clinician</th><th>Patient</th><th>Frames</th><th>Lenses</th><th class="n">Total</th><th>Opticabase</th></tr></thead><tbody>
           ${d.lists.sales.slice(-12).reverse().map((s) => `<tr><td>${esc(ukDate(s.date))} ${esc(s.time)}</td><td>${esc(s.clinician)}</td><td><b>${esc(s.patient)}</b>${s.obId ? `<div class="muted mono" style="font-size:12px">${esc(s.obId)}</div>` : ""}</td><td>${s.framesPence ? `${gbp(s.framesPence)}${s.frameRef ? ` <span class="muted">${esc(s.frameRef)}</span>` : ""}` : "–"}</td><td>${s.lensesPence ? `${gbp(s.lensesPence)}${s.lensDesc ? ` <span class="muted">${esc(s.lensDesc)}</span>` : ""}` : "–"}${s.voucher ? ` <span class="badge b-plain">Voucher</span>` : ""}</td><td class="n"><b>${gbp(s.totalPence)}</b></td><td>${s.inOpticabase ? `<span class="badge b-ok">Entered</span>` : `<span class="badge b-warn">To enter</span>`}</td></tr>`).join("")}
-          </tbody></table></div>${d.lists.sales.length > 12 ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">The latest 12 of ${d.lists.sales.length}. Export for them all.</p>` : ""}` : `<p class="muted">No sales in this period.</p>`}</section>
-      <section class="card wide"><div class="card-h">${x("visit-list")}<h2>Every visit</h2><p>All ${d.lists.visits.length} visits in this period, with the outcome, where they came from and what was sold. Export to see them all.</p></div></section>
+          </tbody></table></div>${d.lists.sales.length > 12 ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">The latest 12 of ${d.lists.sales.length}. Export for them all.</p>` : ""}` : `<p class="muted">No sales in this period.</p>`}</section>` : ""}
+      <section class="card wide"><div class="card-h">${x("visit-list")}<h2>Every visit</h2><p>All ${d.lists.visits.length} visits in this period, with the outcome, where they came from${SL ? " and what was sold" : ""}. Export to see them all.</p></div></section>
     </div></div>`;
 }
 
@@ -1432,7 +1453,7 @@ function patientsPage() {
       actions: `<button class="btn secondary" type="button" data-act="import">${icon("copy")}Import patients</button><button class="btn secondary" type="button" data-act="book">${icon("cal")}Book a visit</button><a class="btn" href="#/patients/new">${icon("plus")}Add a patient</a>` })}
     <div class="stats">${tile("all", all.length, "patients")}${tile("booked", all.filter(F.booked).length, "booked this week")}${tile("waiting", all.filter(F.waiting).length, "on the waiting list")}${tile("recall", all.filter(F.recall).length, "due a recall")}${tile("phone", all.filter(F.phone).length, "phone, don't text")}</div>
     <section class="card tbl-card" aria-label="Patient list">
-      <div class="tbl-tools"><div class="search-w">${icon("search")}<input class="input" id="pg-q" data-keep type="search" placeholder="Search by name, postcode, phone, date of birth or Opticabase ID" autocomplete="off" value="${esc(UI.pq || "")}" aria-label="Search patients"></div>
+      <div class="tbl-tools"><div class="search-w">${icon("search")}<input class="input" id="pg-q" data-keep type="search" placeholder="Search by name, postcode, phone, date of birth${SEC().modules.importFrom ? ` or ${esc(SYS())} ID` : ""}" autocomplete="off" value="${esc(UI.pq || "")}" aria-label="Search patients"></div>
         <span class="muted tbl-count">${list.length === all.length ? `${all.length} patients` : `${list.length} of ${all.length}`}</span></div>
       ${list.length ? `<div class="tbl-wrap"><table class="ptable"><thead><tr><th scope="col">Patient</th><th scope="col">Area</th><th scope="col">Contact</th><th scope="col">Next visit</th><th scope="col"><span class="sr">Status</span></th></tr></thead><tbody>
         ${list.slice(0, UI.plimit || PAGE).map((p) => { const a = nextVisit(p.id); return `<tr data-act="go" data-v="patients/${esc(p.id)}">
@@ -1471,7 +1492,7 @@ function patientPage() {
     const a = visits[0];
     body = `<div class="cards2">
       <section class="card"><div class="card-h"><h2>Contact</h2></div><dl class="kv lg">${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${row("How to reach them", p.contact === "Call" ? "Phone, don't text" : "Text messages")}${p.email ? row("Email", esc(p.email)) : ""}${row("Next of kin or carer", esc(p.rep || "None recorded"))}${row("Power of attorney", esc(p.poa || "None recorded"))}${row("May we talk to family?", p.share === "yes" ? "Yes" : p.share === "no" ? `<span class="late">No: only the patient</span>` : "Not asked yet")}</dl></section>
-      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded. The NHS claim needs it.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row("Glasses", esc(p.specs || "Not recorded"))}${p.obId ? row("Opticabase ID", `<span class="mono">${esc(p.obId)}</span>`) : ""}${row("NHS number", p.nhsNo ? `<span class="mono">${esc(nhsSpaced(p.nhsNo))}</span>` : `<span class="late">Not recorded. PCSE's notification and the GOS6 claim need it.</span>`)}${row("Seen at", esc(p.premises && p.premises !== "home" ? `${PREMISES_UI[p.premises]}${p.venue ? `: ${p.venue}` : ""}${p.venueContact ? ` (ask for ${p.venueContact})` : ""}` : "Their own home"))}${p.nextExam ? row("Next exam (Opticabase)", esc(new Date(p.nextExam).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))) : ""}${row("Last sight test", p.lastTest ? `${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall` : `<span class="muted">Not recorded</span>`)}${p.nhsFrom ? row("Next NHS sight test", p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now <span class="muted">(from ${esc(p.nhsFrom.label)})</span>`) : ""}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
+      <section class="card"><div class="card-h"><h2>Home visit</h2></div><dl class="kv lg">${row("Why at home", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded${MOD("pcse") ? ". The NHS claim needs it" : ""}.</span>`)}${p.dob || !p.age ? row("Date of birth", esc(dobText(p))) : row("Age", `${p.age}, date of birth not recorded`)}${row(SEC().fields.kit, esc(p.specs || "Not recorded"))}${p.obId ? row(`${SYS()} ID`, `<span class="mono">${esc(p.obId)}</span>`) : ""}${row("NHS number", p.nhsNo ? `<span class="mono">${esc(nhsSpaced(p.nhsNo))}</span>` : `<span class="late">Not recorded${MOD("pcse") ? ". PCSE's notification and the GOS6 claim need it" : ""}.</span>`)}${row("Seen at", esc(p.premises && p.premises !== "home" ? `${PREMISES_UI[p.premises]}${p.venue ? `: ${p.venue}` : ""}${p.venueContact ? ` (ask for ${p.venueContact})` : ""}` : "Their own home"))}${p.nextExam ? row("Next exam (Opticabase)", esc(new Date(p.nextExam).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))) : ""}${row(SEC().fields.last, p.lastTest ? `${esc(new Date(p.lastTest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }))} · ${p.recallMonths || 12}-month recall` : `<span class="muted">Not recorded</span>`)}${p.nhsFrom ? row("Next NHS sight test", p.nhsFrom.day > 0 ? `Not before <b>${esc(p.nhsFrom.label)}</b>` : `Due now <span class="muted">(from ${esc(p.nhsFrom.label)})</span>`) : ""}${row("Notes for the clinician", p.alerts.length ? esc(p.alerts.join(". ")) : "None")}</dl></section>
       <section class="card"><div class="card-h"><h2>Next visit</h2></div>${a ? `<div class="nv"><b>${a.day ? esc(dayName(a.day)) : "Today"} at ${hm(a.start)}</b><span>${esc(T(a.type).name)} with ${esc((cln(a.clinicianId) || {}).name || "")}</span></div><a class="linkish" href="#/patients/${esc(p.id)}/visits">All visits and actions</a>` : `<p class="muted">Nothing booked.</p><button class="btn secondary sm" type="button" data-act="book-for" data-id="${p.id}">${icon("plus")}Book a visit</button>`}</section>
       <section class="card"><div class="card-h"><h2>Waiting list${rec ? " and recall" : ""}</h2></div>${waits.length || rec ? `<ul class="mini">${waits.map((w) => `<li><b>${T(w.type).name}</b> · ${esc(META.prio[w.prio].label)} priority${w.note ? `<div>${esc(w.note)}</div>` : ""}</li>`).join("")}${rec ? `<li><b>Recall</b> · ${esc(rec.reason)}</li>` : ""}</ul><p class="muted" style="font-size:13px;margin:10px 0 0">Offered any cancelled visit nearby that fits.</p>` : `<p class="muted">Not waiting for anything.</p>`}</section>
     </div>`;
@@ -1501,7 +1522,7 @@ const TOOL_LEADS = {
   plans: "Domi puts each clinician's visits in the order that drives least, from their home base and back. Nothing changes until you apply it, and patients whose time moves are told by text.",
   report: "How far each clinician drove and how full their days were, from the diary. Download it for mileage claims.",
   invoices: "Raised automatically when a visit is completed, at your prices in Settings. Mark them paid, void them, or print one.",
-  import: "Bring patients across from Opticabase or any spreadsheet. Every row is checked, duplicates are caught, and nothing is saved until you say so.",
+  get import() { return `Bring patients across from ${SEC().modules.importFrom ? `${SEC().modules.importFrom} or ` : "your current system or "}any spreadsheet. Every row is checked, duplicates are caught, and nothing is saved until you say so.`; },
 };
 function toolPage(kind) {
   const P = UI.pg || {};
@@ -1629,9 +1650,9 @@ function hoursPreview(s, e) {
 
 /** How many of the most common visit fit in a clinician's day at these lengths, with typical driving between. */
 function dayFit(st) {
-  const len = T("sight").dur, drive = 20, day = st.dayEnd - st.dayStart;
+  const len = T(SEC().recall.type).dur, drive = 20, day = st.dayEnd - st.dayStart;
   const n = Math.floor((day + drive) / (len + drive));
-  return `<div class="callout plain" style="margin:0 0 12px">${icon("clock")}<div>At ${len} minutes for an NHS sight test and about ${drive} minutes' driving between patients, a ${hm(st.dayStart)}–${hm(st.dayEnd)} day fits about <b>${n} sight tests</b>.</div></div>`;
+  return `<div class="callout plain" style="margin:0 0 12px">${icon("clock")}<div>At ${len} minutes for ${esc(aVisit(T(SEC().recall.type).name))} and about ${drive} minutes' driving between patients, a ${hm(st.dayStart)}–${hm(st.dayEnd)} day fits about <b>${n} of them</b>.</div></div>`;
 }
 /** How far ahead each kind of booking can go. */
 function aheadCard(st) {
@@ -1688,9 +1709,9 @@ function settingsPage() {
   } else if (sec === "visits") {
     const types = Object.entries(TYPES_NOW() || {});
     body = `<form id="set-visits" class="pg-form" novalidate>
-      <section class="card tbl-card"><div class="card-h" style="padding:20px 22px 0"><h2>Visits and prices</h2><p>The price is what the patient is invoiced when a visit is done. £0 means no invoice: NHS sight tests are claimed on a GOS form, and glasses are charged when ordered.</p></div>
+      <section class="card tbl-card"><div class="card-h" style="padding:20px 22px 0"><h2>Visits and prices</h2><p>The price is what the patient is invoiced when a visit is done. £0 means no invoice${MOD("pcse") ? ": NHS sight tests are claimed on a GOS form, and glasses are charged when ordered" : ""}.</p></div>
         <div class="tbl-wrap"><table class="ptable vtable"><thead><tr><th scope="col">Visit</th><th scope="col">Length</th><th scope="col">Price</th><th scope="col">Patients can book online</th></tr></thead><tbody>
-        ${types.map(([k, t]) => { const can = k !== "dispense"; const on = (st.online || []).includes(k); return `<tr><td><b>${esc(t.name)}</b>${t.optom ? `<span class="muted">Optometrists only${t.pvn ? " · PCSE notice 48 hours before" : ""}</span>` : `<span class="muted">Any clinician</span>`}</td>
+        ${types.map(([k, t]) => { const can = !(MOD("sales") && k === "dispense") /* opticians' glasses deliveries wait for the lab */; const on = (st.online || []).includes(k); return `<tr><td><b>${esc(t.name)}</b>${t.optom ? `<span class="muted">${esc(SEC().roles.leadPlural.charAt(0).toUpperCase() + SEC().roles.leadPlural.slice(1))} only${t.pvn ? " · PCSE notice 48 hours before" : ""}</span>` : `<span class="muted">Any clinician</span>`}</td>
           <td><select class="input len-in" data-dur="${k}" aria-label="Length of ${esc(t.name)}">${[10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 75, 90, 105, 120].concat(t.dur).filter((m, i, a) => a.indexOf(m) === i).sort((a, b) => a - b).map((m) => `<option value="${m}" ${m === t.dur ? "selected" : ""}>${m} min</option>`).join("")}</select></td>
           <td><label class="money-in"><span>£</span><input class="input" type="number" min="0" max="5000" step="1" data-price="${k}" value="${Number((st.prices || {})[k] || 0)}" aria-label="Price for ${esc(t.name)}"></label></td>
           <td>${can ? `<label class="chk"><input type="checkbox" data-online="${k}" ${on ? "checked" : ""}><span>${on ? "Yes" : "No"}</span></label>` : `<span class="muted">Arranged by the practice</span>`}</td></tr>`; }).join("")}
@@ -1719,7 +1740,7 @@ function settingsPage() {
         <label class="chk big"><input type="checkbox" id="set-rem" ${st.reminders ? "checked" : ""}><span>Send reminders</span></label>
         <div class="field" style="max-width:320px;margin-top:12px"><label for="set-ra">Send them at</label><select class="input" id="set-ra">${quarters(8 * 60, 21 * 60).map((m) => `<option value="${m}" ${m === st.reminderAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
         ${uses(["Reminder texts", "Cancellation links"])}</section>
-      <section class="card"><div class="card-h"><h2>Recall texts</h2><p>Patients due a sight test within a fortnight, or overdue, are texted your booking page once. They also stay in the refill pool, so a cancelled visit near them is offered first.</p></div>
+      <section class="card"><div class="card-h"><h2>Recall texts</h2><p>Patients due a ${esc(SEC().recall.what)} within a fortnight, or overdue, are texted your booking page once. They also stay in the refill pool, so a cancelled visit near them is offered first.</p></div>
         <label class="chk big"><input type="checkbox" id="set-arc" ${st.autoRecalls ? "checked" : ""}><span>Send recall texts automatically</span></label>
         <div class="field" style="max-width:320px;margin-top:12px"><label for="set-rat">Send them at</label><select class="input" id="set-rat">${quarters(8 * 60, 18 * 60).map((m) => `<option value="${m}" ${m === st.recallAt ? "selected" : ""}>${hm(m)}</option>`).join("")}</select></div>
         <p class="set-note">Patients who'd rather be phoned are never texted: they stay on the Recalls list for the office to call.</p>
@@ -1768,7 +1789,7 @@ function newPatientPage() {
         <div class="row2">${f("poa", "Power of attorney (health and welfare)", 'maxlength="120"', "Who holds it, and their number. Optional.")}<div class="field"><label for="np-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="np-share"><option value="" ${!pre.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${pre.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${pre.share === "no" ? "selected" : ""}>No: only the patient</option></select></div></div></section>
       <section class="card"><div class="card-h"><h2>Their visit</h2><p>What the clinician needs to know before they knock.</p></div>
         ${f("elig", "Why they need a home visit", 'maxlength="200" placeholder="e.g. Dementia, or Parkinson\'s"', "The condition itself. The NHS claim needs it, so “housebound” alone isn't enough.")}
-        ${f("specs", "Glasses", 'maxlength="80" placeholder="e.g. Varifocals"')}
+        ${f("specs", SEC().fields.kit, `maxlength="80" placeholder="${esc(SEC().fields.kitHint)}"`)}
         ${nhsFields("np", pre)}
         <div class="field"><label for="np-alerts">Notes for the clinician, one per line</label><textarea class="input" id="np-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door"></textarea></div></section>
       <div id="np-err" aria-live="polite"></div>
@@ -1790,10 +1811,10 @@ function patientFormFields(p) {
       <div class="field"><label for="pe-contact">How to reach them</label><select class="input" id="pe-contact"><option value="Text" ${p.contact === "Text" ? "selected" : ""}>Text (needs a mobile)</option><option value="Call" ${p.contact === "Call" ? "selected" : ""}>Phone, don't text</option></select></div></div>
     ${f("email", "Email", p.email, 'type="email" maxlength="120"')}
     ${f("elig", "Why they need a home visit", p.eligibility, 'maxlength="200" placeholder="The condition, e.g. Dementia, not just housebound"')}
-    <div class="row2">${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}${f("specs", "Glasses", p.specs, 'maxlength="80"')}</div>
-<div class="row2">${f("ob", "Opticabase ID", p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", "Next exam (from Opticabase)", p.nextExam, 'type="date"')}</div>
+    <div class="row2">${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}${f("specs", SEC().fields.kit, p.specs, 'maxlength="80"')}</div>
+${SEC().modules.importFrom ? `<div class="row2">${f("ob", `${esc(SYS())} ID`, p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", `Next exam (from ${esc(SYS())})`, p.nextExam, 'type="date"')}</div>` : ""}
     ${nhsFields("pe", p)}
-    <div class="row2">${f("last", "Last sight test", p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the optometrist)</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div class="row2">${f("last", SEC().fields.last, p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the ${esc(SEC().roles.lead.toLowerCase())})</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
     <div class="row2">${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120" placeholder="Leave empty if nobody holds one"')}<div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="form-f"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
@@ -1837,14 +1858,14 @@ function personPage(t, edit) {
         <div class="form-f sticky"><a class="btn ghost" href="#/team">Cancel</a><button class="btn" type="submit">${icon("check")}${edit.id ? "Save changes" : "Add and create their sign-in"}</button></div>
       </form></div>`;
   }
-  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: WD().map(() => [dayS(), dayE()]) };
+  const c = t.clinicians.find((x) => x.id === edit.id) || { name: "", role: SEC().roles.lead, color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", active: true, hours: WD().map(() => [dayS(), dayE()]) };
   const opts = (sel) => quarters().map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
   const f = (k, label, v, extra = "", hint = "") => `<div class="field"><label for="tm-${k}">${label}</label>${hint ? `<span class="hint">${hint}</span>` : ""}<input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
   return `<div class="pg narrow">${pageHead({ crumbs: crumbsOf([["#/team", "Team & hours"], ["", c.name || "New clinician"]]), eyebrow: edit.id ? esc(c.role) : "New clinician", title: esc(c.name || "Add a clinician"),
       lead: edit.id ? "Changes reach booking, refills and route planning straight away." : "They can sign in as soon as you save." })}
     <form id="tm-clin" data-id="${esc(edit.id || "")}" class="pg-form">
       <section class="card"><div class="card-h"><h2>Profile</h2><p>How they appear in the diary and on patients' texts.</p></div>
-        <div class="row2">${f("name", "Full name", c.name, 'maxlength="60" required')}<div class="field"><label for="tm-role">Role</label><span class="hint">Only optometrists are offered eye examinations.</span><select class="input" id="tm-role">${t.roles.map((r) => `<option ${r === c.role ? "selected" : ""}>${r}</option>`).join("")}</select></div></div>
+        <div class="row2">${f("name", "Full name", c.name, 'maxlength="60" required')}<div class="field"><label for="tm-role">Role</label><span class="hint">Only ${esc(SEC().roles.leadPlural)} are offered ${esc(Object.values(TYPES_NOW()).filter((x) => x.optom).map((x) => lowerName(x.name)).join(", "))}.</span><select class="input" id="tm-role">${t.roles.map((r) => `<option ${r === c.role ? "selected" : ""}>${r}</option>`).join("")}</select></div></div>
         <div class="row2">${f("email", "Signs in with (email)", c.email, 'type="email" required')}<div class="field"><label for="tm-color">Colour in the diary</label><input class="input" id="tm-color" type="color" value="${esc(c.color)}" style="height:46px;padding:4px"></div></div>
         <label class="chk"><input type="checkbox" id="tm-office" ${c.office ? "checked" : ""}><span><b>Also runs the practice</b> <span class="muted">(for a director: office access to every diary, patient and setting, as well as their own round)</span></span></label></section>
       <section class="card"><div class="card-h"><h2>Area</h2><p>Who they're offered: patients in these postcode areas first, then the ones they'll also go to.</p></div>
@@ -2152,30 +2173,35 @@ async function loadPlans(day) {
 const ROADMAP = [
   { id: "persist", when: "golive", area: "Platform", title: "Your data kept for good, hosted in the UK", body: "A permanent database in a UK data centre, encrypted, with daily backups and tested restores. This demo resets on purpose." },
   { id: "reset", when: "golive", area: "Sign-in", title: "Invitations, password reset and your own authenticator", body: "New staff are emailed an invitation to set their own password and link their own authenticator app, with recovery codes and reset by email." },
-  { id: "exam", when: "clinical", area: "Records", title: "The eye-exam record on the clinician's phone", body: "History and symptoms, vision, refraction, pressures, the eye health check and referrals, recorded during the visit. The new prescription and recall interval feed straight into recalls." },
-  { id: "pcse-online", when: "clinical", area: "NHS claims", title: "NHS claims and notifications sent to PCSE", body: "Lodge and cancel pre-visit notifications, and send GOS sight test claims and vouchers, straight from Domi, with a list of claims still to submit, oldest first. Needs PCSE to approve Domi as a connected system." },
-  { id: "glasses", when: "clinical", area: "Glasses", title: "Glasses from order to fitting", body: "Each pair followed through the lab and back, with the fitting visit offered and booked the day they arrive." },
-  { id: "carevisit", when: "clinical", area: "Care homes", title: "Care-home visits", body: "Several residents seen on one visit, under one notification, with the three-week notice PCSE needs for three or more people at one address." },
+  { only: "optical", id: "exam", when: "clinical", area: "Records", title: "The eye-exam record on the clinician's phone", body: "History and symptoms, vision, refraction, pressures, the eye health check and referrals, recorded during the visit. The new prescription and recall interval feed straight into recalls." },
+  { only: "optical", id: "pcse-online", when: "clinical", area: "NHS claims", title: "NHS claims and notifications sent to PCSE", body: "Lodge and cancel pre-visit notifications, and send GOS sight test claims and vouchers, straight from Domi, with a list of claims still to submit, oldest first. Needs PCSE to approve Domi as a connected system." },
+  { only: "optical", id: "glasses", when: "clinical", area: "Glasses", title: "Glasses from order to fitting", body: "Each pair followed through the lab and back, with the fitting visit offered and booked the day they arrive." },
+  { id: "records", not: "optical", when: "clinical", area: "Records", title: "The clinical record on the clinician's phone", body: "Assessment forms and outcome measures for your service, filled in at the visit and saved to the patient's record, with referral letters to the GP." },
+  { id: "courses", not: "optical", when: "clinical", area: "Diary", title: "Repeating visits and courses", body: "Book a course in one go, like six weekly sessions or nail care every eight weeks, and keep each patient's regular slot when the diary changes." },
+  { only: "optical", id: "carevisit", when: "clinical", area: "Care homes", title: "Care-home visits", body: "Several residents seen on one visit, under one notification, with the three-week notice PCSE needs for three or more people at one address." },
+  { not: "optical", id: "carehome-session", when: "clinical", area: "Care homes", title: "Care-home sessions", body: "Several residents seen in one session at a care home, booked with the home as one visit and shown as one stop on the round." },
   { id: "import", when: "later", area: "Getting started", title: "Bring visits and the waiting list across", body: "Patients can already be imported from a spreadsheet. Next: upcoming visits and the waiting list too, so nothing has to be typed in twice." },
-  { id: "images", when: "later", area: "Records", title: "Fundus photos and scans", body: "Photos from a handheld fundus camera, and scan reports, saved into the patient's record from the clinician's phone." },
+  { only: "optical", id: "images", when: "later", area: "Records", title: "Fundus photos and scans", body: "Photos from a handheld fundus camera, and scan reports, saved into the patient's record from the clinician's phone." },
   { id: "letters", when: "later", area: "Records", title: "Letters and pre-visit forms", body: "GP and referrer letters from templates, and forms patients or carers fill in before the visit (consent, history), saved to the record." },
   { id: "ai-notes", when: "later", area: "Records", title: "Draft notes with AI", body: "Dictate or record the visit and get a draft note to check and save. Nothing is saved without the clinician approving it." },
   { id: "card", when: "later", area: "Payments", title: "Take card payments on the doorstep", body: "Take a card payment on the clinician's phone or a card reader at the end of the visit, marked paid on the invoice straight away." },
   { id: "xero", when: "later", area: "Payments", title: "Sync invoices to Xero or QuickBooks", body: "Invoices and payments flow into your accounts package, so nothing is typed in twice." },
   { id: "carehome", when: "later", area: "Payments", title: "Care-home billing", body: "Bill a care home for several residents seen on one visit, on one invoice." },
-  { id: "stock", when: "later", area: "Practice", title: "Frame stock", body: "The frames each clinician carries in the car, with what's been sold and what to restock." },
+  { only: "optical", id: "stock", when: "later", area: "Practice", title: "Frame stock", body: "The frames each clinician carries in the car, with what's been sold and what to restock." },
   { id: "apps", when: "later", area: "Clinicians", title: "iPhone and Android apps", body: "The clinician app in the App Store and Google Play. Today it runs in the phone's browser, installs to the home screen and works offline." },
 ];
 const RM = Object.fromEntries(ROADMAP.map((r) => [r.id, r]));
+/** What's planned for this practice's kind of service: the eye-care items only for opticians. */
+const roadmap = () => ROADMAP.filter((r) => (!r.only || r.only === SEC().id) && r.not !== SEC().id);
 const RM_GROUPS = {
   golive: { short: "Comes with going live", title: "Comes with going live", lead: "Part of setting your practice up for real patients." },
-  clinical: { short: "Next", title: "Next: eye-exam records and NHS claims", lead: "Everything needed to run the clinical side in Domi too, so one system does it all." },
+  get clinical() { return { short: "Next", title: SEC().id === "optical" ? "Next: eye-exam records and NHS claims" : "Next: clinical records and courses of visits", lead: "Everything needed to run the clinical side in Domi too, so one system does it all." }; },
   later: { short: "Later", title: "Later", lead: "Planned, in no fixed order. Tell us which matter most to you." },
 };
 /** Everything planned but not built, in one place on the office side. The clinicians' phones don't show any of it. */
 function comingSoonPage() {
-  const group = (k) => `<section class="pg-sec"><div class="sec-h"><h2>${RM_GROUPS[k].title}</h2><span class="muted">${ROADMAP.filter((r) => r.when === k).length} items</span></div><p class="muted" style="margin:0">${RM_GROUPS[k].lead}</p>
-    <div class="rm-cards">${ROADMAP.filter((r) => r.when === k).map((r) => `<article class="rm-card" id="rm-${r.id}"><span class="rm-area">${esc(r.area)}</span><h3>${esc(r.title)}</h3><p>${esc(r.body)}</p></article>`).join("")}</div></section>`;
+  const group = (k) => `<section class="pg-sec"><div class="sec-h"><h2>${RM_GROUPS[k].title}</h2><span class="muted">${roadmap().filter((r) => r.when === k).length} items</span></div><p class="muted" style="margin:0">${RM_GROUPS[k].lead}</p>
+    <div class="rm-cards">${roadmap().filter((r) => r.when === k).map((r) => `<article class="rm-card" id="rm-${r.id}"><span class="rm-area">${esc(r.area)}</span><h3>${esc(r.title)}</h3><p>${esc(r.body)}</p></article>`).join("")}</div></section>`;
   return `<div class="pg">${pageHead({ eyebrow: "Roadmap", title: "Coming soon", lead: "What's planned but not in Domi yet. Nothing on this page works today. Buttons marked Soon around the office open these notes; the clinicians' phones don't show any of it." })}
     ${group("golive")}${group("clinical")}${group("later")}</div>`;
 }
@@ -2207,12 +2233,12 @@ function apptDrawer(id) {
   return `<div class="drawer-h"><div><div class="caps">${a.day ? dayName(a.day) + " · " : ""}${hm(a.start)}–${hm(a.start + t.dur)} · ${esc(c.name)}</div><h2 style="margin-top:6px">${esc(p.name)}</h2>
       <div style="display:flex;gap:6px;margin-top:8px"><span class="badge ${status[0]}">${status[1]}</span>${a.moved ? `<span class="badge b-apricot">${icon("bolt")}Moved forward</span>` : ""}</div></div>${closeX}</div>
     <div class="drawer-b">
-      <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd>${p.obId ? `<dt>Opticabase</dt><dd class="mono">${esc(p.obId)}</dd>` : ""}<dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>Glasses</dt><dd>${esc(p.specs)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
+      <dl class="kv"><dt>Visit</dt><dd>${t.name} · ${t.dur} min</dd>${p.obId ? `<dt>Opticabase</dt><dd class="mono">${esc(p.obId)}</dd>` : ""}<dt>Address</dt><dd>${esc(p.addr)}, ${esc(p.pc)}</dd><dt>Phone</dt><dd><span class="mono">${esc(p.phone)}</span> · prefers ${esc(p.contact.toLowerCase())}</dd><dt>${esc(SEC().fields.kit)}</dt><dd>${esc(p.specs)}</dd>${p.alerts.length ? `<dt>Notes</dt><dd>${esc(p.alerts.join(". "))}</dd>` : ""}</dl>
       ${isAdmin() && ["booked", "enroute"].includes(a.status) ? `<div class="likely">
         <div class="field"><label for="ap-src">How they came to us</label><select class="input" id="ap-src" data-id="${a.id}">${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}" ${k === a.source ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>
         <div class="field"><label for="ap-count">True count <span class="muted">(how likely they are to be in)</span></label><select class="input" id="ap-count" data-id="${a.id}">${(META.counts || [1, 0.5]).map((n) => `<option value="${n}" ${n === countOf(a) ? "selected" : ""}>${n}${n === ((META.sources || {})[a.source] || { count: 0.5 }).count ? " (usual for this source)" : ""}</option>`).join("")}</select></div></div>` : ""}
       ${isAdmin() && a.status === "booked" ? twForm(a, p, c) : ""}
-      ${isAdmin() && a.status === "done" ? saleBox(a) : ""}
+      ${isAdmin() && a.status === "done" && MOD("sales") ? saleBox(a) : ""}
       ${tools}${record}
       ${canCancel ? `<div class="hr" style="margin:20px 0"></div>
         <div class="field"><label for="reason">Why is it cancelled?</label><select class="input" id="reason" data-keep>${META.reasons.map((r) => `<option>${r}</option>`).join("")}</select></div>
@@ -2312,7 +2338,7 @@ function bookInput() {
 }
 /* ---------- Importing patients from a spreadsheet ---------- */
 // The file is read in the browser and sent for checking; nothing is saved until the office presses Import.
-const IMPORT_TEMPLATE = "First name,Surname,Date of birth,Address,Town,Postcode,Mobile,Other phone,Email,Reason for home visit,Next of kin,Next of kin phone,Access notes,Glasses,Last sight test,Notes\n";
+const IMPORT_TEMPLATE = () => `First name,Surname,Date of birth,Address,Town,Postcode,Mobile,Other phone,Email,Reason for home visit,Next of kin,Next of kin phone,Access notes,${SEC().fields.kit},${SEC().fields.last},Notes\n`;
 function importDrawer() {
   const I = UI.imp || (UI.imp = {});
   const head = (cap, title) => `<div class="drawer-h"><div><div class="caps">${cap}</div><h2 style="margin-top:6px">${title}</h2></div>${closeX}</div>`;
@@ -2324,11 +2350,11 @@ function importDrawer() {
         ${d.updated ? `<li class="step ok"><span class="ic">${icon("check")}</span><div><div class="st">${d.updated} brought up to date</div><div class="sd">Only what changed in the file was written, and each record notes what changed.</div></div></li>` : ""}
         ${d.same ? `<li class="step"><span class="ic">${icon("check")}</span><div><div class="st">${d.same} already up to date</div><div class="sd">Nothing to change.</div></div></li>` : ""}
         ${d.conflicts ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.conflicts} not matched, left alone</div><div class="sd">Their Opticabase ID belongs to someone with a different date of birth on Domi. Check both records.</div></div></li>` : ""}
-        ${d.recalls ? `<li class="step ok"><span class="ic">${icon("cal")}</span><div><div class="st">${d.recalls} due a sight test</div><div class="sd">They're on the recall list and in the refill pool, so a cancellation near them can go to them.</div></div></li>` : ""}
+        ${d.recalls ? `<li class="step ok"><span class="ic">${icon("cal")}</span><div><div class="st">${d.recalls} due a ${esc(SEC().recall.what)}</div><div class="sd">They're on the recall list and in the refill pool, so a cancellation near them can go to them.</div></div></li>` : ""}
         ${d.duplicates ? `<li class="step"><span class="ic">${icon("copy")}</span><div><div class="st">${d.duplicates} skipped as already on Domi</div><div class="sd">Matched by mobile number, or name with postcode or date of birth.</div></div></li>` : ""}
         ${d.errors ? `<li class="step"><span class="ic">${icon("x")}</span><div><div class="st">${d.errors} skipped with problems</div><div class="sd">Fix them in the spreadsheet and import the file again: anyone already added is skipped next time.</div></div></li>` : ""}
       </ol>
-      <div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Using Opticabase as well?</b><div style="margin-top:2px">Import the same Opticabase export again whenever it suits, every morning for instance. Patients are matched by their Opticabase ID: new ones are added, changed addresses and numbers are updated, and nothing is entered twice.</div></div></div>
+      ${SEC().modules.importFrom ? `<div class="callout apricot" style="margin-top:16px">${icon("bolt")}<div><b>Using Opticabase as well?</b><div style="margin-top:2px">Import the same Opticabase export again whenever it suits, every morning for instance. Patients are matched by their Opticabase ID: new ones are added, changed addresses and numbers are updated, and nothing is entered twice.</div></div></div>` : ""}
     </div><div class="drawer-f"><button class="btn ghost" type="button" data-act="import-again">Import another file</button><button class="btn" type="button" data-act="close">Done</button></div>`;
   }
   if (!I.pv) {
@@ -2338,7 +2364,7 @@ function importDrawer() {
         <li><b>Save your sheet as a CSV file.</b> Google Sheets: <i>File → Download → Comma-separated values</i>. Excel: <i>Save As → CSV UTF-8</i>.</li>
         <li><b>Choose the file below.</b> Domi works out which column is which; you can change any of them.</li>
         <li><b>Check the preview, then import.</b> Problems and possible duplicates are shown first, and skipped.</li>
-        <li><b>From Opticabase? Import it again whenever you like.</b> Patients are matched by their Opticabase ID: new ones are added and changed details updated.</li>
+        ${SEC().modules.importFrom ? `<li><b>From Opticabase? Import it again whenever you like.</b> Patients are matched by their Opticabase ID: new ones are added and changed details updated.</li>` : ""}
       </ol>
       <label class="imp-drop" for="imp-file">${icon("copy")}<span><b>${I.busy ? "Checking…" : "Choose a CSV file"}</b><small>Up to 5,000 patients, 3 MB</small></span></label>
       <input type="file" id="imp-file" accept=".csv,text/csv" hidden>
@@ -2424,8 +2450,8 @@ function bookDrawer() {
     <div class="field"><label for="bk-from">Earliest date</label><input class="input" type="date" id="bk-from" data-keep min="${(calDay(0) || {}).iso || ""}" max="${(calDay(S.cal.bookAheadDays) || {}).iso || ""}" value="${esc((B.results && B.results.from ? (calDay(B.results.from) || {}).iso : "") || "")}"><div class="muted" style="font-size:12.5px;margin-top:4px">Leave as today for the soonest gaps, or pick a later date, up to ${S.cal.bookAheadDays >= 60 ? Math.round(S.cal.bookAheadDays / 30.4) + " months" : S.cal.bookAheadDays + " days"} ahead.</div></div>
     ${B.results && B.results.recallLine ? `<div class="callout apricot" style="margin-bottom:12px">${icon("shield")}<div><b>NHS sight test not before ${esc(B.results.recallLine.label)}</b><div style="margin-top:2px">That's their recall line (${B.results.recallLine.months}-month recall, less a month), so these times start from then.</div></div></div>` : ""}
     <div class="field"><label for="bk-src">How they came to us</label><select class="input" id="bk-src" data-keep><option value="">Work it out (recall list, Facebook lead, referral, seen before or new)</option>${Object.entries(META.sources || {}).map(([k, v]) => `<option value="${k}">${esc(v.label)} · true count ${v.count}</option>`).join("")}</select></div>
-    <label class="chk" style="margin:0 0 12px"><input type="checkbox" id="bk-early" data-keep ${B.early ? "checked" : ""}><span>Early retest: their sight has changed <span class="muted">(allows an NHS test before the recall line; the GOS form needs the reason)</span></span></label>
-    <details class="icb" ${B.icb ? "open" : ""}><summary>Short-notice NHS visit approved by the ICB</summary><div class="field" style="margin-top:8px"><label for="bk-icb">Who at the ICB approved it</label><input class="input" id="bk-icb" data-keep maxlength="80" value="${esc(B.icb || "")}" placeholder="Name and role, e.g. Jo Bloggs, primary care contracts"><span class="hint after">PCSE needs 48 hours' notice of an NHS sight test at home (3 weeks for 3 or more at one address). Inside that, only with the ICB's approval: their name goes on the notification. Leave empty otherwise.</span></div></details>
+    ${MOD("pcse") ? `<label class="chk" style="margin:0 0 12px"><input type="checkbox" id="bk-early" data-keep ${B.early ? "checked" : ""}><span>Early retest: their sight has changed <span class="muted">(allows an NHS test before the recall line; the GOS form needs the reason)</span></span></label>
+    <details class="icb" ${B.icb ? "open" : ""}><summary>Short-notice NHS visit approved by the ICB</summary><div class="field" style="margin-top:8px"><label for="bk-icb">Who at the ICB approved it</label><input class="input" id="bk-icb" data-keep maxlength="80" value="${esc(B.icb || "")}" placeholder="Name and role, e.g. Jo Bloggs, primary care contracts"><span class="hint after">PCSE needs 48 hours' notice of an NHS sight test at home (3 weeks for 3 or more at one address). Inside that, only with the ICB's approval: their name goes on the notification. Leave empty otherwise.</span></div></details>` : ""}
     <button class="btn block lg" type="submit">${icon("pin")}Find the best slots</button>
     ${results}
   </form>`;
@@ -2480,7 +2506,7 @@ function patientDrawer(d) {
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${p.contact === "Call" ? `<span class="badge b-plain">${icon("phone")}Phone, don't text</span>` : `<span class="badge b-plain">${icon("msg")}Texts</span>`}${waits.length ? `<span class="badge b-apricot">On the waiting list</span>` : ""}</div></div>${closeX}</div>
     <div class="drawer-b">
       <dl class="kv">${row("Address", `${esc(p.addr)}, ${esc(p.pc)}`)}${row("Phone", `<span class="mono">${esc(p.phone || "None")}</span>`)}${p.email ? row("Email", esc(p.email)) : ""}${row("Date of birth", esc(dobText(p)))}
-        ${row("Home visit because", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded: the NHS claim needs it</span>`)}${row("Next of kin", esc(p.rep || "None recorded"))}${row("Glasses", esc(p.specs))}${p.alerts.length ? row("Visit notes", esc(p.alerts.join(". "))) : ""}</dl>
+        ${row("Home visit because", p.eligibility ? esc(p.eligibility) : `<span class="late">Not recorded${MOD("pcse") ? ": the NHS claim needs it" : ""}</span>`)}${row("Next of kin", esc(p.rep || "None recorded"))}${row(SEC().fields.kit, esc(p.specs))}${p.alerts.length ? row("Visit notes", esc(p.alerts.join(". "))) : ""}</dl>
       <button class="btn secondary sm" style="margin-top:14px" type="button" data-act="rec-edit">${icon("note")}Edit details</button>
       <div class="hr" style="margin:20px 0 14px"></div>
       <div class="caps">Booked visits</div>
@@ -2515,10 +2541,10 @@ function patientForm(p) {
     ${f("rep", "Next of kin or carer, and their number", p.rep, 'maxlength="120"')}
     ${f("poa", "Power of attorney (health and welfare), and their number", p.poa, 'maxlength="120"')}
     <div class="field"><label for="pe-share">May we talk to their next of kin or carer about visits?</label><select class="input" id="pe-share"><option value="" ${!p.share ? "selected" : ""}>Not asked yet</option><option value="yes" ${p.share === "yes" ? "selected" : ""}>Yes</option><option value="no" ${p.share === "no" ? "selected" : ""}>No: only the patient</option></select></div>
-    ${f("specs", "Glasses", p.specs, 'maxlength="80"')}
-    <div class="row2">${f("ob", "Opticabase ID", p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", "Next exam (from Opticabase)", p.nextExam, 'type="date"')}</div>
+    ${f("specs", SEC().fields.kit, p.specs, 'maxlength="80"')}
+    ${SEC().modules.importFrom ? `<div class="row2">${f("ob", `${esc(SYS())} ID`, p.obId, 'maxlength="20" inputmode="numeric" placeholder="e.g. 25220"')}${f("next", `Next exam (from ${esc(SYS())})`, p.nextExam, 'type="date"')}</div>` : ""}
     ${nhsFields("pe", p)}
-    <div class="row2">${f("last", "Last sight test", p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the optometrist)</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div class="row2">${f("last", SEC().fields.last, p.lastTest, `type="date" min="1990-01-01" max="${(calDay(0) || {}).iso || ""}"`)}<div class="field"><label for="pe-recall">Recall (set by the ${esc(SEC().roles.lead.toLowerCase())})</label><select class="input" id="pe-recall">${[[12, "12 months"], [6, "6 months"], [3, "3 months"], [24, "24 months"]].map(([m, l]) => `<option value="${m}" ${(p.recallMonths || 12) === m ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
     <div class="field"><label for="pe-alerts">Notes for the clinician, one per line</label><textarea class="input" id="pe-alerts" rows="3" maxlength="1000" placeholder="Key safe by the back door">${esc(p.alerts.join("\n"))}</textarea></div>
     <div class="drawer-f" style="margin:8px -22px -22px"><button class="btn ghost" type="button" data-act="rec-edit-cancel">Cancel</button><button class="btn" type="submit">${icon("check")}Save changes</button></div>
   </form>`;
@@ -2598,7 +2624,7 @@ function teamDrawer(d) {
     </div>`;
 }
 function clinicianForm(t, id) {
-  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: "Optometrist", color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: WD().map(() => [dayS(), dayE()]) };
+  const c = t.clinicians.find((x) => x.id === id) || { name: "", role: SEC().roles.lead, color: "#0089CF", areaName: "", patch: [], near: [], base: "", email: "", hours: WD().map(() => [dayS(), dayE()]) };
   const opts = (sel) => quarters().map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${hm(m)}</option>`).join("");
   const f = (k, label, v, extra = "") => `<div class="field"><label for="tm-${k}">${label}</label><input class="input" id="tm-${k}" value="${esc(v || "")}" ${extra}></div>`;
   return `<div class="drawer-h"><div><div class="caps">${id ? "Edit clinician" : "New clinician"}</div><h2 style="margin-top:6px">${esc(c.name || "Add a clinician")}</h2></div>${closeX}</div>
@@ -2638,7 +2664,7 @@ function invoicesDrawer(d) {
       <div class="soon-row">${soon("card", "Take card payment", "check")}${soon("xero", "Sync to Xero", "reset")}${soon("carehome", "Bill a care home", "users")}</div>
       <details class="prices"><summary>Prices per visit type</summary>
         <div class="price-grid">${Object.entries(TYPES_NOW()).map(([k, t]) => `<label><span>${esc(t.name)}</span><span class="price-in">£<input type="number" min="0" max="5000" step="5" data-price="${k}" value="${P[k] ?? 0}" aria-label="Price for ${esc(t.name)} in pounds"></span></label>`).join("")}</div>
-        <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised: NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered. No VAT is added: check your VAT treatment with your accountant.</p></details>
+        <p class="muted" style="font-size:12.5px;margin:8px 0 0">£0 means no invoice is raised${MOD("pcse") ? ": NHS sight tests are claimed on a GOS 6, and glasses are charged when ordered" : ""}. No VAT is added: check your VAT treatment with your accountant.</p></details>
       ${d.invoices.length ? `<ul class="invs">${d.invoices.map((i) => { const p = pat(i.patientId); return `<li>
         <div style="min-width:0"><div class="nm"><span class="mono">${esc(i.number)}</span> · ${esc(p ? p.name : "")}</div><div class="meta">${esc(i.items.map((x) => x.desc).join(", "))}</div></div>
         <div class="ia"><b>${pounds(i.totalPence)}</b>${badge(i)}</div>
@@ -2999,7 +3025,7 @@ document.addEventListener("click", async (e) => {
       case "import": UI.imp = {}; openDrawer({ kind: "import" }); break;
       case "import-again": UI.imp = {}; redraw(); break;
       case "imp-filter": UI.imp.filter = el.dataset.v; redraw(); break;
-      case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
+      case "import-template": { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([IMPORT_TEMPLATE()], { type: "text/csv" })); a.download = "domi-patients-template.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); break; }
       case "import-commit": {
         const I = UI.imp; I.busy = true; I.err = null; redraw();
         try { I.done = await api("POST", "/api/import/commit", { csv: I.csv, mapping: I.pv.mapping }); I.csv = null; I.pv = null; await load(); toast([I.done.imported && `${I.done.imported} added`, I.done.updated && `${I.done.updated} updated`].filter(Boolean).join(", ") || "Nothing changed"); }
@@ -3054,7 +3080,7 @@ document.addEventListener("click", async (e) => {
           ...d.weeks.map((w) => [w.week, w.from, w.to, w.visits, n(w.milesClaimed), n(w.milesPerVisit), w.cancellations, w.refilled, n(w.refillRate), w.unfilledPerWeek, w.calls, n(w.callsPerRefill), n(w.officeHours), w.inProgress ? "Yes" : ""])];
         void M; download(`pilot-results-${(calDay(0) || {}).iso || "today"}.csv`, "\ufeff" + rows.map((r) => r.map(q).join(",")).join("\r\n"), "text/csv"); toast("Spreadsheet downloaded"); break; }
       case "inv-csv": { const d = (panel("invoices") || {}).data, q = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`;
-        const rows = [["Invoice", "Issued", "Patient", "Opticabase ID", "Items", "Total (GBP)", "Status", "Paid by", "Paid at"],
+        const rows = [["Invoice", "Issued", "Patient", `${SEC().modules.importFrom || "Practice system"} ID`, "Items", "Total (GBP)", "Status", "Paid by", "Paid at"],
           ...d.invoices.map((i) => { const p = pat(i.patientId); return [i.number, i.issuedAt, p ? p.name : "", p && p.obId ? p.obId : "", i.items.map((x) => x.desc).join("; "), (i.totalPence / 100).toFixed(2), i.status, i.method || "", i.paidAt || ""]; })];
         download(`invoices-${(calDay(0) || {}).iso || "today"}.csv`, "\ufeff" + rows.map((r) => r.map(q).join(",")).join("\r\n"), "text/csv"); toast("Spreadsheet downloaded"); break; }
       case "rep-csv": { const d = UI.pg.data, k = el.dataset.v || "";
@@ -3062,8 +3088,8 @@ document.addEventListener("click", async (e) => {
       case "sale-edit": UI.saleEdit = el.dataset.id; redraw(); break;
       case "status": {
         const v = el.dataset.v, id = el.dataset.id, n = UI.pid ? $(`#note-${UI.pid}`) : null, note = n ? n.value.trim() : "";
-        // Completing a visit first asks what was sold (frames, lenses) or why nothing was.
-        if (v === "done") { UI.sale = { id, note, pid: UI.pid, sold: null }; render(); break; }
+        // Completing a visit first asks what was sold (frames, lenses) or why nothing was: opticians only.
+        if (v === "done" && MOD("sales")) { UI.sale = { id, note, pid: UI.pid, sold: null }; render(); break; }
         await changeStatus(v, id, note, null);
         break;
       }

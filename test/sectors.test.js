@@ -80,6 +80,10 @@ for (const [brand, id] of Object.entries(DEMOS)) {
     // The team page offers the sector's roles, and saving a clinician with an eye-care role is refused.
     const team = (await call("GET", "/api/team", t)).data;
     assert.deepStrictEqual(team.roles, [sec.roles.lead, sec.roles.support]);
+    // The sign-in page's sample accounts carry the sector's job titles too.
+    const meta = (await call("GET", `/api/meta?brand=${brand}`)).data;
+    assert.strictEqual(meta.sector.id, id);
+    assert.deepStrictEqual([...new Set(meta.demoUsers.filter((u) => u.role === "clinician").map((u) => u.title))].sort(), [sec.roles.lead, sec.roles.support].sort());
   });
 }
 

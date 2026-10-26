@@ -119,9 +119,11 @@ route("GET", "/api/health", { public: true }, async () => {
   try { db = await require("./live").health(); } catch (e) { throw new svc.HttpError(503, "The database isn't answering."); }
   return { ok: true, db: db ? "ok" : "none", ms: db ? db.ms : undefined };
 });
+/** A sample clinician's job title in this brand's sector: the optometrists become its lead role, and so on. */
+const titleIn = (title, brand) => { const r = sectors.get(brand.sector || process.env.SECTOR).roles; return title === "Optometrist" ? r.lead : title === "Dispensing optician" ? r.support : title; };
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
   types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, noSale: svc.NO_SALE, sector: sectors.view(sectors.get(brand.sector || process.env.SECTOR)), reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsLive: provider === "twilio", routeCredit: !!travel.routingStatus().credit,
-  demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: u.title, color: u.color, email: emailFor(u, brand) })) : [],
+  demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: titleIn(u.title, brand), color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
   live: auth.DEMO ? null : { practice: livePractice() },
@@ -439,7 +441,7 @@ setInterval(() => publicHits.clear(), 30 * 60e3).unref();
 const practice = (code) => { const sb = sandbox.get(code); if (!sb) throw new svc.HttpError(404, "This booking link has expired. Please call the practice."); return sb; };
 route("GET", "/api/public/:code", { public: true }, (req, body, user, { code }) => {
   const sb = practice(code);
-  return sandbox.run(sb, () => ({ practice: sb.settings.practice, code: sb.id, types: svc.onlineTypes(), avail: D.AVAIL, brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() }));
+  return sandbox.run(sb, () => ({ practice: sb.settings.practice, code: sb.id, sector: sectors.view(), types: svc.onlineTypes(), avail: D.AVAIL, brand: sandbox.brandView(sb), areas: regions.areasFor(sb.brand.region), referral: svc.referralOptions() }));
 });
 // A staff invitation or reset link: /invite/<practice code>/<token>. No sign-in; the token is the key.
 const invitePractice = (code) => { const sb = sandbox.get(code); if (!sb || (!auth.DEMO && !sb.live)) throw new svc.HttpError(410, "This link has expired or has already been used. Ask your practice office to send you a new one."); return sb; };

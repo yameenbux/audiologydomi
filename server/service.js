@@ -1083,7 +1083,7 @@ function checkImport(input) {
 /** What the office sees before anything is saved: the column mapping, counts, and every row with its problems. */
 function previewImport(input) {
   const r = checkImport(input);
-  return { fields: importer.FIELDS, headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
+  return { fields: importer.fieldsFor(), headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
     rows: r.rows.map((x) => ({ line: x.line, status: x.status, name: x.patient.name, pc: x.patient.pc, phone: x.patient.phone, age: x.patient.age,
       errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null,
       changes: x.changes, conflict: x.conflict || null })) };
@@ -1557,7 +1557,7 @@ function messagePreviews() {
   return [
     { key: "reminder", title: "Day-before reminder", channel: "Text", when: st.reminders ? `Sent at ${hm(st.reminderAt)} the day before each visit` : "Off: no reminders are sent", body: reminderText("Joan Whittle", c.first, 1, at, "sight", "https://…/c/ab12") },
     { key: "offer", title: "Cancelled visit offered", channel: "Text", when: `To the best-matched patients on the waiting list, who have ${st.offerMinutes} minutes to reply`, body: offerText("Joan Whittle", visit, hm(sandbox.nowMin() + st.offerMinutes), false) },
-    { key: "recall", title: "Recall", channel: "Text", when: st.autoRecalls ? `Sent automatically at ${hm(st.recallAt)} to patients due within a fortnight who take texts` : "Sent when the office presses Text link", body: recallText("Joan Whittle", "NHS sight test due (2 years)", `${sandbox.current().base || "https://…"}/book/${sandbox.current().id}`) },
+    { key: "recall", title: "Recall", channel: "Text", when: st.autoRecalls ? `Sent automatically at ${hm(st.recallAt)} to patients due within a fortnight who take texts` : "Sent when the office presses Text link", body: recallText("Joan Whittle", sectors.current().modules.pcse ? "NHS sight test due (2 years)" : sectors.current().recall.what, `${sandbox.current().base || "https://…"}/book/${sandbox.current().id}`) },
     { key: "offer-close", title: "Offer when the visit is close", channel: "Text", when: "When there isn't time to ask one person at a time, the first YES gets it", body: offerText("Joan Whittle", visit, hm(sandbox.nowMin() + 10), true) },
   ];
 }

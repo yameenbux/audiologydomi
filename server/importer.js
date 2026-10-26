@@ -41,6 +41,9 @@ const FIELDS = [
   { key: "notes", label: "Notes" },
 ];
 const FIELD_KEYS = new Set(FIELDS.map((f) => f.key));
+/** The fields as this practice's sector names them: "Hearing aids" for "Glasses", and so on. */
+const fieldsFor = (sec = sectors.current()) => FIELDS.map((f) => ({ ...f,
+  label: f.key === "specs" ? sec.fields.kit : f.key === "lastTest" ? sec.fields.last : f.key === "obId" ? `${sec.modules.importFrom || "Practice system"} ID` : f.label }));
 
 // Header names people actually use, squashed to lower-case letters and digits.
 const SYNONYMS = {
@@ -61,20 +64,20 @@ const SYNONYMS = {
   rep: ["nextofkin", "nok", "carer", "representative", "contactperson", "relative", "familycontact", "emergencycontact", "kin"],
   repPhone: ["nokphone", "nextofkinphone", "nextofkinnumber", "nokno", "noknumber", "carerphone", "carernumber", "relativephone", "emergencycontactnumber", "emergencynumber"],
   alerts: ["access", "accessnotes", "alerts", "keysafe", "warnings", "accessinfo", "accessdetails"],
-  specs: ["glasses", "spectacles", "specs", "currentglasses", "lenstype", "lenses"],
+  specs: ["glasses", "spectacles", "specs", "currentglasses", "lenstype", "lenses", "hearingaids", "aids", "footwear", "footwearandinsoles", "insoles", "mobilityaids", "equipment", "medication", "medicationandallergies", "allergies"],
   nextExam: ["nextexam", "nextexamdate", "nexttest", "nextsighttest", "nextdue", "recalldate", "duedate", "nexteyetest"],
   recallMonths: ["recall", "recallmonths", "recallperiod", "recallinterval"],
   obId: ["id", "obid", "opticabaseid", "opticabase", "patientid", "pxid", "pxno", "patientno", "patientnumber", "ref", "reference"],
   nhsNo: ["nhsno", "nhsnumber", "nhs", "nhsnum"],
   premises: ["premises", "premisestype", "residence", "residencetype", "accommodation", "livesin"],
-  lastTest: ["examdate", "lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested"],
+  lastTest: ["examdate", "lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested", "lasthearingtest", "lastfootcheck", "lastassessment", "lastcheck"],
   notes: ["notes", "comments", "comment", "info", "additionalinfo", "other", "note", "details"],
 };
 // Looser matches for headers that aren't in the list: a word the header contains.
 const CONTAINS = [
   ["repPhone", /(kin|carer|relative|emergency).*(phone|tel|number|no)/], ["rep", /kin|carer|relative|emergency/],
   ["phone2", /landline|home ?phone|alt/], ["phone", /mobile|phone|tel/], ["pc", /post ?code/], ["dob", /birth|dob/],
-  ["nextExam", /next.*(exam|test|due)|recall ?date/], ["lastTest", /last.*(test|exam|visit|seen)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
+  ["nextExam", /next.*(exam|test|due)|recall ?date/], ["lastTest", /last.*(test|exam|visit|seen|check|assess)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
   ["nhsNo", /nhs ?(no|num)/], ["first", /first|forename/], ["last", /surname|last ?name/], ["addr", /address/], ["notes", /note|comment/],
 ];
 
@@ -395,4 +398,4 @@ function check(csv, mappingIn, existing = [], opts = {}) {
   };
 }
 
-module.exports = { FIELDS, MAX_ROWS, parseCsv, guessMapping, parseDate, parsePhone, parsePostcode, readRow, check };
+module.exports = { FIELDS, fieldsFor, MAX_ROWS, parseCsv, guessMapping, parseDate, parsePhone, parsePostcode, readRow, check };

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Refer someone for a home eye test</title>
+<title>Refer someone for a home visit</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -65,9 +65,9 @@ async function api(method, url, body) {
 }
 
 function form(err, pc = "") {
-  const R = INFO.referral, opt = (name, value, label, type = "radio", checked = false) => `<label class="opt"><input type="${type}" name="${name}" value="${esc(value)}" ${checked ? "checked" : ""}><span>${esc(label)}</span></label>`;
-  return `<div class="caps">Home eye tests</div><h1>Refer someone for a home visit</h1>
-  <p class="rf-lead">For people who can't get to an optician's without help. Fill this in for yourself or for someone you look after, and we'll call to arrange a time. It takes about three minutes.</p>
+  const R = INFO.referral, SEC = INFO.sector, nhs = !!R.entitlement, opt = (name, value, label, type = "radio", checked = false) => `<label class="opt"><input type="${type}" name="${name}" value="${esc(value)}" ${checked ? "checked" : ""}><span>${esc(label)}</span></label>`;
+  return `<div class="caps">Home ${esc(SEC.field)}</div><h1>Refer someone for a home visit</h1>
+  <p class="rf-lead">For people who ${esc(R.why)}. Fill this in for yourself or for someone you look after, and we'll call to arrange a time. It takes about three minutes.</p>
   <form id="rf" novalidate>
     <fieldset><legend>Who is filling this in?</legend>
       <div class="opts">${Object.entries(R.from).map(([k, v], i) => opt("fromKind", k, v, "radio", i === 0)).join("")}</div>
@@ -84,25 +84,25 @@ function form(err, pc = "") {
       <label class="q">Patient's phone number<small>A mobile if they have one: we'll text the time of the visit.</small><input class="input" id="phone" type="tel" inputmode="tel"></label>
     </fieldset>
     <fieldset><legend>Why a home visit?</legend>
-      <label class="q">What stops them getting to an optician's on their own?<small>The illness or condition, please, not just "housebound": the NHS asks us to record it.</small>
+      <label class="q">What stops them getting out on their own?<small>The illness or condition, please, not just "housebound": ${nhs ? "the NHS asks us to record it" : "it helps us plan the visit"}.</small>
         <input class="input" id="elig" required></label>
       <div class="chips" aria-label="Common reasons">${CONDITIONS.map((c) => `<button type="button" data-chip="${esc(c)}">${esc(c)}</button>`).join("")}</div>
-      <p class="q" style="margin-bottom:0">Do any of these apply?<small>Any one means the eye test is free on the NHS.</small></p>
-      <div class="opts">${Object.entries(R.entitlement).map(([k, v]) => opt("ent", k, v, "checkbox")).join("")}</div>
+      ${nhs ? `<p class="q" style="margin-bottom:0">Do any of these apply?<small>Any one means the eye test is free on the NHS.</small></p>
+      <div class="opts">${Object.entries(R.entitlement).map(([k, v]) => opt("ent", k, v, "checkbox")).join("")}</div>` : ""}
     </fieldset>
     <fieldset><legend>What do they need?</legend>
       <div class="opts">${Object.entries(R.need).map(([k, v], i) => opt("need", k, v, "radio", i === 0)).join("")}</div>
       <p class="q" style="margin-bottom:0">When are they usually at home?</p>
       <div class="opts">${Object.entries(INFO.avail).map(([k, v], i) => opt("avail", k, v, "radio", i === 0)).join("")}</div>
-      <label class="opt" style="margin-top:16px"><input type="checkbox" id="urgent"><span>Their sight has changed suddenly</span></label>
-      <div class="urgent" id="urgent-note" hidden>If they have sudden loss of sight, flashes or a curtain over their vision, or a painful red eye, call NHS 111 or go to A&amp;E today. Don't wait for a home visit.</div>
+      <label class="opt" style="margin-top:16px"><input type="checkbox" id="urgent"><span>${esc(R.urgent)}</span></label>
+      <div class="urgent" id="urgent-note" hidden>${nhs ? "If they have sudden loss of sight, flashes or a curtain over their vision, or a painful red eye, call NHS 111 or go to A&amp;E today." : "If it's an emergency, call 999. If they need help today, call NHS 111."} Don't wait for a home visit.</div>
       <label class="q">Anything else we should know?<small>Access, the best person to call, the room number in a care home.</small><textarea class="input" id="notes" maxlength="1000"></textarea></label>
     </fieldset>
     <label class="opt" style="margin-top:22px"><input type="checkbox" id="consent"><span>The patient agrees to us contacting them about this, or I can act on their behalf.</span></label>
     <label class="trap" aria-hidden="true">Leave this empty<input id="website" name="website" tabindex="-1" autocomplete="off"></label>
     ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
     <button class="btn lg" type="submit">Send the referral</button>
-    <p class="muted" style="font-size:15px;margin-top:14px">We use these details only to arrange and carry out the eye care visit. ${INFO.brand && INFO.brand.phone ? `Rather talk? Call us on ${esc(INFO.brand.phone)}.` : ""}</p>
+    <p class="muted" style="font-size:15px;margin-top:14px">We use these details only to arrange and carry out the visit. ${INFO.brand && INFO.brand.phone ? `Rather talk? Call us on ${esc(INFO.brand.phone)}.` : ""}</p>
   </form>`;
 }
 function render(err) {
@@ -147,8 +147,8 @@ root.addEventListener("submit", async (e) => {
   if (!/^[A-Z]{1,2}\d/.test(body.pc)) errors.push([el("pc-town"), "Please choose the town and postcode area."]);
   if (body.phone.trim() && !ukPhone(body.phone)) errors.push([el("phone"), "That doesn't look like a UK phone number."]);
   if (!ukPhone(body.phone) && !(someone && ukPhone(body.fromPhone))) errors.push([someone ? el("fromPhone") : el("phone"), "Please give a phone number we can call about the visit."]);
-  if (body.eligibility.trim().length < 3) errors.push([el("elig"), "Please tell us why the patient can't get to an optician's without help."]);
-  else if (GENERIC.test(body.eligibility.trim())) errors.push([el("elig"), `Please tell us the illness or condition behind "${body.eligibility.trim()}". The NHS asks us to record it.`]);
+  if (body.eligibility.trim().length < 3) errors.push([el("elig"), `Please tell us why the patient ${INFO.referral.why}.`]);
+  else if (GENERIC.test(body.eligibility.trim())) errors.push([el("elig"), `Please tell us the illness or condition behind "${body.eligibility.trim()}". ${INFO.referral.entitlement ? "The NHS asks us to record it." : "It helps us plan the visit."}`]);
   if (!body.consent) errors.push([el("consent"), "Please confirm the patient agrees to us contacting them, or that you can act for them."]);
   if (!window.DomiFieldErrors(root, errors.filter((x, i) => errors.findIndex((y) => y[0] === x[0]) === i))) return;
   const btn = root.querySelector("[type=submit]"); btn.disabled = true;
@@ -164,7 +164,7 @@ api("GET", `/api/public/${code}`).then((info) => {
   else top.textContent = info.practice;
   window.DomiPowered(b);
   window.DomiCrumbs(b, info.practice, "Refer someone", 680);
-  document.title = "Refer someone for a home eye test · " + info.practice; render();
+  document.title = `Refer someone for a home visit · ${info.practice}`; render();
 }).catch((e) => { root.innerHTML = `<h1>Referral form not found</h1><p class="rf-lead">${esc(e.message)}</p>`; });
 })();
 </script>
