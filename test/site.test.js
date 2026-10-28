@@ -33,7 +33,7 @@ const build = (env) => {
   return { out, read: (f) => fs.readFileSync(path.join(out, f), "utf8"), done: () => fs.rmSync(out, { recursive: true, force: true }) };
 };
 
-const SECTORS = ["domiciliary-opticians", "audiology", "podiatry", "physiotherapy", "dental", "nursing"];
+const SECTORS = ["domiciliary-opticians", "audiology", "podiatry", "physiotherapy", "dental", "nursing", "occupational-therapy"];
 
 test("privacy, terms, thank-you, not-found and sector pages: titles, descriptions, previews, breadcrumbs and working links", () => {
   const b = build({});

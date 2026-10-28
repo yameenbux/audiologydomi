@@ -65,6 +65,8 @@ for (const file of pages) {
   const rel = path.relative(out, file), url = urlOf(rel);
   let html = fs.readFileSync(file, "utf8");
   html = html.replace("<!--ICONS-->", icons).replace("<!--ANALYTICS-->", analytics).replace("<!--SOCIAL-->", () => socialFor(html, url));
+  // %%DEMO_URL:<brand>%% is the demo opened as one sector's practice, such as %%DEMO_URL:hearing%% on the audiology page.
+  html = html.replace(/%%DEMO_URL:([a-z]+)%%/g, (m, brand) => { const u = new URL(cfg.DEMO_URL); u.searchParams.set("brand", brand); return esc(u.href); });
   for (const [k, v] of Object.entries(cfg)) html = html.split(`%%${k}%%`).join(esc(v));
   const left = html.match(/%%[A-Z0-9_]+%%|<!--(ICONS|SOCIAL|ANALYTICS)-->/);
   if (left) throw new Error(`${rel} uses ${left[0]}, which build-site.js doesn't fill in`);
