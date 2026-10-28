@@ -368,7 +368,7 @@ encoded with `+faststart` so it starts before it has fully downloaded.
 | Saving live practices to Postgres | `server/live.js`, `server/pgstore.js` |
 | Importing patients (including Opticabase exports) | `server/importer.js` |
 | A practice's own branding, towns and sample diary (opened with `/?brand=<id>`) | `server/brands.js`, `server/regions.js`, `server/seed-nw.js` |
-| Kinds of service (opticians, audiology, podiatry, physio, home nursing): visit types, roles, features | `server/sectors.js`; sample patients for each in `server/seed-sectors.js` |
+| Kinds of service (opticians, audiology, podiatry, physio, home nursing, dental): visit types, roles, features | `server/sectors.js`; sample patients for each in `server/seed-sectors.js` |
 | Route planning rules | `server/planner.js` |
 | The office and clinician screens | `public/app.js`, `public/app.css` |
 | What's marked *Soon*, and the roadmap | `ROADMAP` in `public/app.js` |
@@ -414,7 +414,7 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 | `ROUTING_PROVIDER` | `estimate` | `osrm` or `ors` for live road routes and postcode lookups |
 | `OSRM_URL` | public demo server | Your own OSRM server |
 | `ORS_API_KEY` | none | openrouteservice key, for `ROUTING_PROVIDER=ors` (a Fly secret, never in `fly.toml`) |
-| `SECTOR` | none (`optical`) | The kind of service a practice is when its brand doesn't say: `optical`, `audiology`, `podiatry`, `physio` or `nursing` (`server/sectors.js`) |
+| `SECTOR` | none (`optical`) | The kind of service a practice is when its brand doesn't say: `optical`, `audiology`, `podiatry`, `physio`, `nursing` or `dental` (`server/sectors.js`) |
 | `DEFAULT_BRAND` | none (`domi`) | The brand the plain address opens in (`server/brands.js`). `/?brand=<id>` always overrides it |
 | `MARKETING_URL` | `https://domi.ysbdesigns.uk/` | The website: "Powered by Domi" links here, and the demo's privacy policy and terms (`/privacy`, `/terms`) are the website's |
 | `CF_BEACON_TOKEN` | none | Cloudflare Web Analytics (cookieless, so no consent banner). Never added to the cancellation page, whose address holds a private token |
@@ -439,7 +439,7 @@ The website's build takes the same kind of settings from the repository's Action
 ---
 
 > [!NOTE]
-> **Showing another kind of service.** `/?brand=hearing`, `/?brand=podiatry`, `/?brand=physio` and `/?brand=nursing` open
+> **Showing another kind of service.** `/?brand=hearing`, `/?brand=podiatry`, `/?brand=physio`, `/?brand=nursing` and `/?brand=dental` open
 > invented practices in Leeds running the same diary as that kind of service: its visit types, its lead and support
 > roles, and sample patients in its own words. PCSE notifications and glasses sales are for opticians only.
 

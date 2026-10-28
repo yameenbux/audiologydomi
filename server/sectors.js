@@ -2,6 +2,8 @@
 // What changes from one kind of home-visit service to another. Everything else in Domi (the diary, refilling
 // cancellations, route planning, reminders, recalls, leads, mileage, reports) is the same engine for all of them.
 //
+// Opticians, audiology, podiatry, physiotherapy, home nursing and domiciliary dental care.
+//
 // Each practice has one sector (its `sector` setting, from its brand, or SECTOR on a live server); a practice
 // without one is a domiciliary optician, which is what Home Visiting Optics has always been.
 //
@@ -137,6 +139,29 @@ const SECTORS = {
     entitlement: null,
     urgent: "Unwell now or a wound getting worse",
     outcomes: ["Observations recorded", "Bloods taken", "Dressing changed", "Injection given", "Samples sent to lab", "Referred to GP"],
+    noSale: null,
+  },
+
+  dental: {
+    id: "dental", name: "Domiciliary dental care", field: "dental care", trade: "dentist", hero: "Dental care that <em>comes to you.</em>",
+    roles: { lead: "Dentist", support: "Dental hygienist", leadPlural: "dentists", supportDoes: "does cleans and mouth-care reviews" },
+    types: {
+      sight: { name: "Dental check-up", dur: 45, lead: true },
+      exam: { name: "Treatment visit", dur: 60, lead: true },
+      dispense: { name: "Scale & polish", dur: 30 },
+      repair: { name: "Mouth care review", dur: 20 },
+      follow: { name: "Denture fitting & adjustment", dur: 30, lead: true },
+    },
+    prices: { sight: 65, exam: 120, dispense: 60, repair: 40, follow: 95 },
+    online: ["sight", "dispense", "follow"],
+    fee: 65,
+    recall: { type: "sight", what: "dental check-up", months: 6 },
+    modules: { pcse: false, sales: false, prescription: false, importFrom: null },
+    fields: { kit: "Dentures", kitHint: "e.g. Full upper, partial lower", kitNone: "Own teeth", last: "Last dental check", why: "can't get to a dental surgery without help" },
+    refer: { sight: "A dental check-up", exam: "Toothache or a broken tooth", dispense: "A clean and polish", follow: "Dentures made or adjusted" },
+    entitlement: null,
+    urgent: "Swelling, bleeding or severe pain",
+    outcomes: ["Teeth and gums checked", "Mouth cancer check", "Fluoride varnish applied", "Dentures adjusted", "Mouth-care plan for carers", "Referred to GP"],
     noSale: null,
   },
 };

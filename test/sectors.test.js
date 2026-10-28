@@ -27,7 +27,7 @@ async function login(brand, who = "sarah") {
   const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code });
   return r.cookie;
 }
-const DEMOS = { hearing: "audiology", podiatry: "podiatry", physio: "physio", nursing: "nursing" };
+const DEMOS = { hearing: "audiology", podiatry: "podiatry", physio: "physio", nursing: "nursing", dental: "dental" };
 
 test("every sector pack has the five visit slots, both roles and its own words", () => {
   for (const s of Object.values(sectors.SECTORS)) {

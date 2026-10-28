@@ -26,6 +26,10 @@ const BRANDS = {
     id: "physio", sector: "physio", practice: "Kestrel Home Physio", region: "leeds", emailDomain: "kestrelphysio.example",
     logo: null, wordmark: "Domi", tagline: "Physiotherapy at home",
   },
+  dental: {
+    id: "dental", sector: "dental", practice: "Kestrel Dental at Home", region: "leeds", emailDomain: "kestreldental.example",
+    logo: null, wordmark: "Domi", tagline: "Dental care at home",
+  },
   nursing: {
     id: "nursing", sector: "nursing", practice: "Kestrel Home Nursing", region: "leeds", emailDomain: "kestrelnursing.example",
     logo: null, wordmark: "Domi", tagline: "Nursing care at home",

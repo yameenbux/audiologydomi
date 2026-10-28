@@ -8,6 +8,7 @@ const KIT = {
   audiology: [[/lab/, "New aids ready to fit"], [/Varifocals/, "Both ears, behind the ear"], [/Bifocals/, "Right ear only"], [/Single/, "Both ears, in the ear"], [/Reading/, "None yet"], [/Lost/, "Lost on ward"]],
   podiatry: [[/lab/, "New insoles on order"], [/Varifocals/, "Orthotic insoles"], [/Bifocals/, "Diabetic shoes"], [/Single/, "None noted"], [/Reading/, "Slippers only"], [/Lost/, "None noted"]],
   physio: [[/lab/, "Perching stool on order"], [/Varifocals/, "Zimmer frame"], [/Bifocals/, "Wheelchair"], [/Single/, "None"], [/Reading/, "Walking stick"], [/Lost/, "Frame left at hospital"]],
+  dental: [[/lab/, "New dentures at the lab"], [/Varifocals/, "Full upper, partial lower"], [/Bifocals/, "Full upper and lower"], [/Single/, "Own teeth"], [/Reading/, "Partial lower"], [/Lost/, "Dentures lost on ward"]],
   nursing: [[/lab/, "Blood thinners"], [/Varifocals/, "Warfarin"], [/Bifocals/, "Insulin"], [/Single/, "None noted"], [/Reading/, "Allergic to plasters"], [/Lost/, "New medication from hospital"]],
 };
 
@@ -67,6 +68,24 @@ const HISTORY = {
     p31: [["Referral", "Sciatica. Needs a day's notice: works mornings at the church."]],
     p41: [["14 Apr 2026", "At risk of falls. Review every 3 months."]],
   },
+  dental: {
+    p1: [["10 Oct 2024", "Check-up. Gums healthy, two small fillings. Recall in 6 months."]],
+    p2: [["29 Sep 2026", "Check-up. Upper denture loose. New denture impressions taken."]],
+    p3: [["2 Jul 2026", "Mouth care review. Carers shown how to clean her dentures."], ["8 Oct 2026", "Care home called: denture broken."]],
+    p4: [["Referral", "GP referral: housebound after a stroke, no dental check for 3 years."]],
+    p5: [["28 Sep 2026", "Check-up. New partial denture made, ready to fit."]],
+    p6: [["12 Oct 2026", "Scale and polish. Gums much better."]],
+    p7: [["Referral", "Denture rubbing, sore gum."]],
+    p8: [["14 Aug 2026", "Decay on two lower teeth. Fillings booked."]],
+    p9: [["Referral", "Daughter says her dentures keep falling out."]],
+    p10: [["5 Aug 2026", "Private check-up. All clear."]],
+    p11: [["Referral", "Discharged from hospital, dentures lost on the ward."]],
+    p13: [["15 Jul 2026", "Gum disease. Hygienist every 3 months."]],
+    p15: [["Referral", "Broken front tooth, no pain."]],
+    p16: [["Referral", "GP: facial swelling and toothache, can't leave home. Prioritise."]],
+    p31: [["Referral", "Check-up overdue. Needs a day's notice: works mornings at the church."]],
+    p41: [["14 Apr 2026", "Dry mouth from medication. Fluoride varnish every 6 months."]],
+  },
   nursing: {
     p1: [["10 Oct 2024", "On warfarin. INR blood test every 4 weeks."]],
     p2: [["29 Sep 2026", "Leg ulcer, right. Dressing changed, healing."]],
@@ -92,6 +111,7 @@ const RECALLS = {
   audiology: { r1: ["sight", "Yearly hearing check"], r2: ["follow", "Wax removal every 6 months"], r3: ["sight", "Yearly hearing check"], r4: ["sight", "Yearly hearing check"] },
   podiatry: { r1: ["dispense", "Nail care (every 8 weeks)"], r2: ["exam", "Diabetic foot check (every 6 months)"], r3: ["dispense", "Nail care (every 8 weeks)"], r4: ["dispense", "Nail care (every 8 weeks)"] },
   physio: { r1: ["follow", "3-month progress review"], r2: ["follow", "Falls review (every 3 months)"], r3: ["follow", "3-month progress review"], r4: ["follow", "3-month progress review"] },
+  dental: { r1: ["sight", "6-month dental check-up"], r2: ["dispense", "Hygienist every 3 months"], r3: ["sight", "6-month dental check-up"], r4: ["sight", "6-month dental check-up"] },
   nursing: { r1: ["dispense", "Bloods (every 3 months)"], r2: ["dispense", "INR blood test (every 4 weeks)"], r3: ["dispense", "Bloods (every 3 months)"], r4: ["dispense", "Bloods (every 3 months)"] },
 };
 
@@ -100,6 +120,7 @@ const REFERRALS = {
   audiology: { rf1: ["sight", "Mum keeps turning the TV right up and misses the phone. Mornings are best."], rf2: ["repair", "New resident, room 4. His hearing aids came with him but don't seem to work."], rf3: ["follow", "Ears blocked for two weeks, the drops haven't helped."] },
   podiatry: { rf1: ["dispense", "Mum can't reach her feet any more. Mornings are best."], rf2: ["exam", "New resident, room 4. Diabetic, hasn't had a foot check this year."], rf3: ["follow", "A sore on my heel that won't heal."] },
   physio: { rf1: ["sight", "Mum's had two falls this month. Mornings are best."], rf2: ["exam", "Stroke last month, weak right side. Room 4."], rf3: ["dispense", "Hip replacement in September, I need help getting stronger."] },
+  dental: { rf1: ["sight", "Mum hasn't seen a dentist in years and won't eat on one side. Mornings are best."], rf2: ["follow", "New resident, room 4. His dentures don't fit any more."], rf3: ["exam", "Broken tooth, it catches my tongue."] },
   nursing: { rf1: ["dispense", "Mum needs her bloods taken and can't get to the surgery. Mornings are best."], rf2: ["exam", "New resident, room 4. Leg wound needs dressing."], rf3: ["follow", "My B12 injection is due."] },
 };
 
@@ -108,6 +129,7 @@ const LEADS = {
   audiology: { ad: "Free hearing check at home", q: ["Who is the hearing check for?", "Do they wear hearing aids?"], a: { ld1: ["My mum", "No"], ld2: ["Me", "Yes, but they don't work well"], ld3: ["My dad", "No"] } },
   podiatry: { ad: "Podiatry at home, no travelling", q: ["Who is the visit for?", "What do they need help with?"], a: { ld1: ["My mum", "Cutting her toenails"], ld2: ["Me", "A painful corn"], ld3: ["My dad", "He's diabetic, needs a foot check"] } },
   physio: { ad: "Physio at home, no waiting list", q: ["Who is the physio for?", "What's the main problem?"], a: { ld1: ["My mum", "She's had a fall"], ld2: ["Me", "Knee replacement"], ld3: ["My dad", "Weak after a stroke"] } },
+  dental: { ad: "A dentist who comes to you", q: ["Who is the visit for?", "What do they need?"], a: { ld1: ["My mum", "A check-up"], ld2: ["Me", "Dentures adjusted"], ld3: ["My dad", "Toothache"] } },
   nursing: { ad: "Blood tests and nursing care at home", q: ["Who is the visit for?", "What's needed?"], a: { ld1: ["My mum", "A blood test"], ld2: ["Me", "A wound dressing"], ld3: ["My dad", "His B12 injection"] } },
 };
 
