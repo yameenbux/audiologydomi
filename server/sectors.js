@@ -55,8 +55,8 @@ const SECTORS = {
     types: {
       sight: { name: "Hearing assessment", dur: 60, lead: true },
       exam: { name: "Hearing aid fitting", dur: 60, lead: true },
-      dispense: { name: "Hearing aid follow-up", dur: 30 },
-      repair: { name: "Hearing aid repair & retube", dur: 20 },
+      dispense: { name: "Follow-up & fine tuning", dur: 30 },
+      repair: { name: "Repair, retube & batteries", dur: 20 },
       follow: { name: "Ear wax removal", dur: 30, lead: true },
     },
     prices: { sight: 0, exam: 0, dispense: 0, repair: 15, follow: 60 },
@@ -101,7 +101,7 @@ const SECTORS = {
     roles: { lead: "Physiotherapist", support: "Rehab assistant", leadPlural: "physiotherapists", supportDoes: "runs exercise sessions" },
     types: {
       sight: { name: "Initial assessment", dur: 60, lead: true },
-      exam: { name: "Neuro physio session", dur: 60, lead: true },
+      exam: { name: "Neuro rehab session", dur: 60, lead: true },
       dispense: { name: "Exercise & rehab session", dur: 45 },
       repair: { name: "Equipment check", dur: 30 },
       follow: { name: "Progress review", dur: 45, lead: true },
@@ -112,7 +112,7 @@ const SECTORS = {
     recall: { type: "follow", what: "progress review", months: 3 },
     modules: { pcse: false, sales: false, prescription: false, importFrom: null },
     fields: { kit: "Mobility aids", kitHint: "e.g. Zimmer frame, perching stool", kitNone: "None", last: "Last assessment", why: "can't get to a clinic without help" },
-    refer: { sight: "A physio assessment", exam: "Neuro physio", dispense: "Exercise and rehab sessions", follow: "A progress review" },
+    refer: { sight: "A physio assessment", exam: "Neuro rehab", dispense: "Exercise and rehab sessions", follow: "A progress review" },
     entitlement: null,
     urgent: "A recent fall or a sudden change",
     outcomes: ["Assessment recorded", "Exercises taught", "Exercise sheet left", "Walking aid checked", "Goals reviewed", "Referred to GP"],
