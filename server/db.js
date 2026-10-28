@@ -227,7 +227,7 @@ function openDb(brand = brands.get(), { empty = false } = {}) {
   return d;
 }
 /** A demo user's sign-in email for this brand: sarah@<the brand's demo domain>. */
-const emailFor = (u, brand = brands.get()) => u.email.replace(/@.*/, "@" + brand.emailDomain);
+const emailFor = (u, brand = brands.get()) => `${brands.person(brand, u).local}@${brand.emailDomain}`;
 
 /** An NHS number with a valid check digit (modulus 11), in the 999 range NHS England sets aside for testing. */
 function testNhsNumber(i) {
@@ -300,10 +300,13 @@ function seed(db, brand) {
   let OPTOM_SLOTS = [[540, "sight"], [645, "dispense"], [780, "sight"], [900, "follow"]];
   let DISPENSER_SLOTS = [[540, "dispense"], [645, "repair"], [780, "dispense"], [900, "repair"]];
   if (region === "nw") ({ clinicians, patients, pools, bases, waitlist: moreWaiting, optomSlots: OPTOM_SLOTS, dispenserSlots: DISPENSER_SLOTS } = northWest(patients, P, travel.place));
+  // A demo with its own team (server/brands.js) names the three clinicians itself.
+  if (brand.people) clinicians = clinicians.map((c) => { const n = brand.people[c.id].name; return { ...c, name: n, first: n.split(" ")[0] }; });
+  const ADMIN = brands.person(brand, USERS[0]).name;
   clinicians.forEach((r) => ins("clinicians", r));
   // The demo accounts: in the North West demo the clinicians' names and colours come from the seed.
   const clinOf = Object.fromEntries(clinicians.map((c) => [c.id, c]));
-  USERS.forEach((u) => { const c = clinOf[u.clinicianId]; ins("users", { id: u.id, name: c ? c.name : u.name, role: u.role, clinician_id: u.clinicianId, email: emailFor(u, brand), pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret(), title: c ? c.role : u.title, color: c ? c.color : u.color }); });
+  USERS.forEach((u) => { const c = clinOf[u.clinicianId]; ins("users", { id: u.id, name: c ? c.name : brands.person(brand, u).name, role: u.role, clinician_id: u.clinicianId, email: emailFor(u, brand), pass_hash: auth.DEMO_HASH, totp_secret: auth.newSecret(), title: c ? c.role : u.title, color: c ? c.color : u.color }); });
   for (const p of patients) {
     const h = p._h || []; delete p._h;
     ins("patients", p);
@@ -387,7 +390,7 @@ function seed(db, brand) {
   db.prepare("SELECT id FROM appointments ORDER BY id").all().forEach((r, i) => db.prepare("UPDATE appointments SET source = ? WHERE id = ?").run(MIX[i % MIX.length], r.id));
   db.prepare("UPDATE appointments SET reliability = 0.25 WHERE id IN ('a4', 'w2c30', 'w3c11')").run();
   LEADS.forEach(([id, created_at, created_min, status, name, phone, email, pc, answers, note]) => {
-    ins("leads", { id, created_at, created_min, status, source: "facebook", campaign: AD, name, phone, email, pc, answers: JSON.stringify(answers), note: note || null, handled_by: note ? "Sarah Lane" : null, handled_at: note ? "09:15" : null });
+    ins("leads", { id, created_at, created_min, status, source: "facebook", campaign: AD, name, phone, email, pc, answers: JSON.stringify(answers), note: note || null, handled_by: note ? ADMIN : null, handled_at: note ? "09:15" : null });
     const subject = `Thank you for getting in touch with ${brand.practice}`;
     ins("emails", { to_addr: email, to_name: name, subject, body: leadEmail(name, brand.practice, brand.phone || null, brand.officeHours || "Monday to Friday, 9am to 5pm", brand.email || null), kind: "lead.thanks", lead_id: id, provider_id: "outbox-seed", created_at: created_at.replace(/^Yesterday /, "") });
   });
@@ -450,7 +453,7 @@ function seed(db, brand) {
   // Confirmation calls already made before the demo starts, so the diary's CC markers show a realistic mix: today's
   // visits had all three; tomorrow's have CC1 and CC2, and half their CC3; this week's mostly CC1, some CC2, a few
   // unanswered; later ones only some CC1. What's left is the Calls list's work for today.
-  const STAFF = ["Sarah Lane", "Sarah Lane", "Mo Patel"];
+  const STAFF = [ADMIN, ADMIN, (brand.people && brand.people.office2) || "Mo Patel"];
   const cc = (id, stage, outcome, at) => ins("confirmations", { appointment_id: id, stage, outcome, by_name: STAFF[(stage + id.length) % 3], at });
   db.prepare("SELECT a.id, a.day, p.contact FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.status != 'cancelled' AND a.day BETWEEN 0 AND 21 ORDER BY a.day, a.id").all().forEach((a, i) => {
     const how = a.contact !== "Call" && i % 5 === 0 ? "texted" : "done";

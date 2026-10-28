@@ -12,27 +12,39 @@ const BRANDS = {
     id: "domi", practice: "Aire Valley Eyecare", region: "leeds", emailDomain: "airevalleyeyecare.example",
     logo: null, wordmark: "Domi", tagline: "Eye care at home",
   },
-  // Demos for the other kinds of home-visit service: invented practices in Leeds, each with its sector's visits,
-  // roles and sample patients (server/sectors.js, server/seed-sectors.js). Opened with /?brand=<id>.
+  // Demos for the other kinds of home-visit service: invented practices in Leeds, each with its own team, sample
+  // patients and its sector's visits and roles (server/sectors.js, server/seed-sectors.js). Opened with /?brand=<id>.
+  // people: the office manager (admin), a second office member who makes calls (office2), and the three clinicians
+  // (c1 and c3 have the lead role, c2 the support role). Their sign-in emails are their first names at emailDomain.
   hearing: {
-    id: "hearing", sector: "audiology", practice: "Kestrel Hearing at Home", region: "leeds", emailDomain: "kestrelhearing.example",
+    id: "hearing", sector: "audiology", practice: "Larkfell Hearing at Home", region: "leeds", emailDomain: "larkfellhearing.example",
     logo: null, wordmark: "Domi", tagline: "Hearing care at home",
+    people: { admin: { name: "Rachel Holmes" }, office2: "Gary Senior", c1: { name: "Daniel Okafor" }, c2: { name: "Chloe Barker" }, c3: { name: "Imran Hussain" } },
   },
   podiatry: {
-    id: "podiatry", sector: "podiatry", practice: "Kestrel Foot Care", region: "leeds", emailDomain: "kestrelfootcare.example",
+    id: "podiatry", sector: "podiatry", practice: "Pennick Foot Care", region: "leeds", emailDomain: "pennickfootcare.example",
     logo: null, wordmark: "Domi", tagline: "Foot care at home",
+    people: { admin: { name: "Karen Mitchell" }, office2: "Dawn Fletcher", c1: { name: "Hannah Lees" }, c2: { name: "Jordan Pearce" }, c3: { name: "Sanjay Patel" } },
   },
   physio: {
-    id: "physio", sector: "physio", practice: "Kestrel Home Physio", region: "leeds", emailDomain: "kestrelphysio.example",
+    id: "physio", sector: "physio", practice: "Ravensholt Home Physio", region: "leeds", emailDomain: "ravensholtphysio.example",
     logo: null, wordmark: "Domi", tagline: "Physiotherapy at home",
+    people: { admin: { name: "Lisa Booth" }, office2: "Craig Dyson", c1: { name: "Ben Carter" }, c2: { name: "Megan Wood" }, c3: { name: "Aisha Rahman" } },
   },
   dental: {
-    id: "dental", sector: "dental", practice: "Kestrel Dental at Home", region: "leeds", emailDomain: "kestreldental.example",
+    id: "dental", sector: "dental", practice: "Hollowmere Dental at Home", region: "leeds", emailDomain: "hollowmeredental.example",
     logo: null, wordmark: "Domi", tagline: "Dental care at home",
+    people: { admin: { name: "Nicola Webb" }, office2: "Steph Ingham", c1: { name: "Omar Siddiqui" }, c2: { name: "Ellie Shaw" }, c3: { name: "Rebecca Hall" } },
   },
   nursing: {
-    id: "nursing", sector: "nursing", practice: "Kestrel Home Nursing", region: "leeds", emailDomain: "kestrelnursing.example",
+    id: "nursing", sector: "nursing", practice: "Fellwick Home Nursing", region: "leeds", emailDomain: "fellwicknursing.example",
     logo: null, wordmark: "Domi", tagline: "Nursing care at home",
+    people: { admin: { name: "Joanne Firth" }, office2: "Paul Haigh", c1: { name: "Grace Adeyemi" }, c2: { name: "Liam Hartley" }, c3: { name: "Fiona Grant" } },
+  },
+  ot: {
+    id: "ot", sector: "ot", practice: "Sablewood Home OT", region: "leeds", emailDomain: "sablewoodot.example",
+    logo: null, wordmark: "Domi", tagline: "Occupational therapy at home",
+    people: { admin: { name: "Claire Dixon" }, office2: "Mark Ashworth", c1: { name: "Natalie Moss" }, c2: { name: "Kyle Jennings" }, c3: { name: "Zara Ali" } },
   },
   hvo: {
     id: "hvo", practice: "Home Visiting Optics", region: "nw", emailDomain: "homevisitingoptics.example",
@@ -55,4 +67,10 @@ const get = (id) => BRANDS[String(id || "").toLowerCase()] || BRANDS[String(proc
 /** What the browser may know about a brand (everything here is already public on the practice's website). */
 const pub = (b) => ({ id: b.id, sector: b.sector || null, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, mobile: b.mobile || null, email: b.email || null, website: b.website || null, site: SITE });
 
-module.exports = { BRANDS, get, pub };
+/** A demo account's person in this brand: the brand's own team where it has one, else the default demo's. */
+function person(brand, u) {
+  const p = brand.people && brand.people[u.clinicianId || "admin"];
+  return p ? { name: p.name, local: p.name.split(" ")[0].toLowerCase() } : { name: u.name, local: u.email.replace(/@.*/, "") };
+}
+
+module.exports = { BRANDS, get, pub, person };

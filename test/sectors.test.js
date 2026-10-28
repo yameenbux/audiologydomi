@@ -18,16 +18,17 @@ async function call(method, path, cookie, body) {
   return { status: res.status, data: await res.json(), cookie: (res.headers.get("set-cookie") || "").split(";")[0] };
 }
 /** Sign in to a new demo of this brand as its office manager (or a clinician). */
-async function login(brand, who = "sarah") {
+async function login(brand, role = "admin") {
   const sandbox = (await call("POST", "/api/demo/start", null, { brand })).data.sandbox;
-  const email = `${who}@${brands.BRANDS[brand].emailDomain}`;
+  // The sample accounts as the sign-in page lists them: each demo has its own team.
+  const email = (await call("GET", `/api/meta?brand=${brand}`)).data.demoUsers.find((u) => u.role === role).email;
   const pw = await call("POST", "/api/auth/password", null, { sandbox, email, password: PASSWORD });
   assert.strictEqual(pw.status, 200, `${brand}: ${JSON.stringify(pw.data)}`);
   const code = (await call("GET", "/api/auth/demo-code?challenge=" + encodeURIComponent(pw.data.challenge))).data.code;
   const r = await call("POST", "/api/auth/code", null, { challenge: pw.data.challenge, code });
   return r.cookie;
 }
-const DEMOS = { hearing: "audiology", podiatry: "podiatry", physio: "physio", nursing: "nursing", dental: "dental" };
+const DEMOS = { hearing: "audiology", podiatry: "podiatry", physio: "physio", nursing: "nursing", dental: "dental", ot: "ot" };
 
 test("every sector pack has the five visit slots, both roles and its own words", () => {
   for (const s of Object.values(sectors.SECTORS)) {
@@ -90,13 +91,13 @@ for (const [brand, id] of Object.entries(DEMOS)) {
 test("a cancellation in another sector refills with that sector's rules", async () => {
   const t = await login("hearing");
   const s = (await call("GET", "/api/state", t)).data;
-  // Tom (the hearing care assistant) can't be offered a lead-only visit.
+  // Chloe (the hearing care assistant) can't be offered a lead-only visit.
   const tom = s.clinicians.find((c) => !c.optom);
   const own = s.appts.find((a) => a.clinicianId === tom.id && a.status === "booked" && a.day === 0);
   const r = (await call("POST", `/api/appointments/${own.id}/cancel`, t, { reason: "Patient unwell" })).data;
   const leadOnly = r.candidates.filter((c) => s.types[c.type] && s.types[c.type].optom);
   assert.ok(leadOnly.length, "someone on the list needs an audiologist");
-  for (const c of leadOnly) assert.match(c.reason, /Needs an audiologist; Tom does follow-ups and repairs/);
+  for (const c of leadOnly) assert.match(c.reason, /Needs an audiologist; Chloe does follow-ups and repairs/);
   assert.ok(r.candidates.every((c) => !/PCSE|NHS test/.test(c.reason || "")), "no NHS sight-test rules");
 });
 
@@ -108,4 +109,22 @@ test("referrals and online booking use the sector's visits", async () => {
   assert.deepStrictEqual(Object.values(opts.referral.need), Object.values(sectors.SECTORS.podiatry.refer));
   assert.strictEqual(opts.referral.entitlement, null, "no NHS sight-test entitlement questions");
   assert.match(opts.referral.why, /clinic/);
+});
+
+test("each sector's demo is its own practice: its own team and its own patients", async () => {
+  const seen = { practice: new Set(), team: new Set(), patients: [] };
+  for (const brand of ["domi", ...Object.keys(DEMOS)]) {
+    const meta = (await call("GET", `/api/meta?brand=${brand}`)).data;
+    seen.practice.add(meta.brand.practice);
+    for (const u of meta.demoUsers) { assert.ok(!seen.team.has(u.name), `${u.name} works for only one demo`); seen.team.add(u.name); assert.ok(u.email.startsWith(u.name.split(" ")[0].toLowerCase() + "@"), u.email); }
+    const s = (await call("GET", "/api/state", await login(brand))).data;
+    assert.deepStrictEqual(s.clinicians.map((c) => c.name).sort(), meta.demoUsers.filter((u) => u.role === "clinician").map((u) => u.name).sort(), `${brand}: the team signs in as itself`);
+    assert.strictEqual(new Set(s.patients.map((p) => p.name)).size, s.patients.length, `${brand}: no two patients share a name`);
+    seen.patients.push(new Set(s.patients.map((p) => p.name)));
+  }
+  assert.strictEqual(seen.practice.size, 1 + Object.keys(DEMOS).length, "a different practice in each");
+  for (let i = 1; i < seen.patients.length; i++) {
+    const shared = [...seen.patients[i]].filter((n) => seen.patients[0].has(n)).length;
+    assert.ok(shared <= 3, `demo ${i} shares ${shared} patient names with the opticians' demo`);
+  }
 });

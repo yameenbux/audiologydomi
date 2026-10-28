@@ -123,7 +123,7 @@ route("GET", "/api/health", { public: true }, async () => {
 const titleIn = (title, brand) => { const r = sectors.get(brand.sector || process.env.SECTOR).roles; return title === "Optometrist" ? r.lead : title === "Dispensing optician" ? r.support : title; };
 route("GET", "/api/meta", { public: true }, (req) => { const brand = brands.get(new URL(req.url, "http://x").searchParams.get("brand")); return {
   types: D.TYPES, sources: D.SOURCES, counts: D.COUNTS, prio: D.PRIO, avail: D.AVAIL, tw: D.TW, noSale: svc.NO_SALE, sector: sectors.view(sectors.get(brand.sector || process.env.SECTOR)), reasons: D.REASONS, dayStart: D.DAY_START, dayEnd: D.DAY_END, weekdays: D.WORK_WEEKDAYS, smsLive: provider === "twilio", routeCredit: !!travel.routingStatus().credit,
-  demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: u.name, role: u.role, title: titleIn(u.title, brand), color: u.color, email: emailFor(u, brand) })) : [],
+  demoUsers: auth.DEMO ? USERS.map((u) => ({ id: u.id, name: brands.person(brand, u).name, role: u.role, title: titleIn(u.title, brand), color: u.color, email: emailFor(u, brand) })) : [],
   demo: auth.DEMO ? { password: auth.DEMO_PASSWORD } : null,
   // With the demo off (DEMO_MODE=0), this server runs real practices: the sign-in page signs in to this one.
   live: auth.DEMO ? null : { practice: livePractice() },

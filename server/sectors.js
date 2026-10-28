@@ -2,7 +2,7 @@
 // What changes from one kind of home-visit service to another. Everything else in Domi (the diary, refilling
 // cancellations, route planning, reminders, recalls, leads, mileage, reports) is the same engine for all of them.
 //
-// Opticians, audiology, podiatry, physiotherapy, home nursing and domiciliary dental care.
+// Opticians, audiology, podiatry, physiotherapy, home nursing, domiciliary dental care and occupational therapy.
 //
 // Each practice has one sector (its `sector` setting, from its brand, or SECTOR on a live server); a practice
 // without one is a domiciliary optician, which is what Home Visiting Optics has always been.
@@ -162,6 +162,29 @@ const SECTORS = {
     entitlement: null,
     urgent: "Swelling, bleeding or severe pain",
     outcomes: ["Teeth and gums checked", "Mouth cancer check", "Fluoride varnish applied", "Dentures adjusted", "Mouth-care plan for carers", "Referred to GP"],
+    noSale: null,
+  },
+
+  ot: {
+    id: "ot", name: "Home occupational therapy", field: "occupational therapy", trade: "occupational therapist", hero: "Occupational therapy that <em>comes to you.</em>",
+    roles: { lead: "Occupational therapist", support: "OT assistant", leadPlural: "occupational therapists", supportDoes: "fits equipment and does reviews" },
+    types: {
+      sight: { name: "OT assessment", dur: 90, lead: true },
+      exam: { name: "Home safety assessment", dur: 60, lead: true },
+      dispense: { name: "Equipment fitting", dur: 45 },
+      repair: { name: "Equipment review", dur: 30 },
+      follow: { name: "Progress review", dur: 45, lead: true },
+    },
+    prices: { sight: 120, exam: 95, dispense: 50, repair: 40, follow: 75 },
+    online: ["sight", "exam", "follow"],
+    fee: 75,
+    recall: { type: "repair", what: "equipment review", months: 6 },
+    modules: { pcse: false, sales: false, prescription: false, importFrom: null },
+    fields: { kit: "Equipment at home", kitHint: "e.g. Grab rails, raised toilet seat", kitNone: "None", last: "Last assessment", why: "can't get to a clinic without help" },
+    refer: { sight: "An OT assessment", exam: "A home safety assessment", dispense: "Equipment fitted", follow: "A review" },
+    entitlement: null,
+    urgent: "A recent fall, or not safe at home",
+    outcomes: ["Assessment recorded", "Equipment fitted", "Home hazards noted", "Care plan updated", "Carer shown how to help", "Referred to GP"],
     noSale: null,
   },
 };
