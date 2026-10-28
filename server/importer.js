@@ -1,4 +1,5 @@
 "use strict";
+const sectors = require("./sectors");
 // Patient import. Pure functions with no database access: read a CSV (from Google Sheets, Excel or another
 // system), work out which column is which, tidy and check every row, and spot people who are already on the
 // system. service.js runs it twice: once to show the office a preview, and again when they confirm, so nothing
@@ -40,6 +41,9 @@ const FIELDS = [
   { key: "notes", label: "Notes" },
 ];
 const FIELD_KEYS = new Set(FIELDS.map((f) => f.key));
+/** The fields as this practice's sector names them: "Hearing aids" for "Glasses", and so on. */
+const fieldsFor = (sec = sectors.current()) => FIELDS.map((f) => ({ ...f,
+  label: f.key === "specs" ? sec.fields.kit : f.key === "lastTest" ? sec.fields.last : f.key === "obId" ? `${sec.modules.importFrom || "Practice system"} ID` : f.label }));
 
 // Header names people actually use, squashed to lower-case letters and digits.
 const SYNONYMS = {
@@ -60,20 +64,20 @@ const SYNONYMS = {
   rep: ["nextofkin", "nok", "carer", "representative", "contactperson", "relative", "familycontact", "emergencycontact", "kin"],
   repPhone: ["nokphone", "nextofkinphone", "nextofkinnumber", "nokno", "noknumber", "carerphone", "carernumber", "relativephone", "emergencycontactnumber", "emergencynumber"],
   alerts: ["access", "accessnotes", "alerts", "keysafe", "warnings", "accessinfo", "accessdetails"],
-  specs: ["glasses", "spectacles", "specs", "currentglasses", "lenstype", "lenses"],
+  specs: ["glasses", "spectacles", "specs", "currentglasses", "lenstype", "lenses", "hearingaids", "aids", "footwear", "footwearandinsoles", "insoles", "mobilityaids", "equipment", "medication", "medicationandallergies", "allergies"],
   nextExam: ["nextexam", "nextexamdate", "nexttest", "nextsighttest", "nextdue", "recalldate", "duedate", "nexteyetest"],
   recallMonths: ["recall", "recallmonths", "recallperiod", "recallinterval"],
   obId: ["id", "obid", "opticabaseid", "opticabase", "patientid", "pxid", "pxno", "patientno", "patientnumber", "ref", "reference"],
   nhsNo: ["nhsno", "nhsnumber", "nhs", "nhsnum"],
   premises: ["premises", "premisestype", "residence", "residencetype", "accommodation", "livesin"],
-  lastTest: ["examdate", "lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested"],
+  lastTest: ["examdate", "lasttest", "lasteyetest", "lastsighttest", "lastvisit", "lastexam", "dateoflasttest", "lastseen", "lastappointment", "lasttested", "lasthearingtest", "lastfootcheck", "lastassessment", "lastcheck"],
   notes: ["notes", "comments", "comment", "info", "additionalinfo", "other", "note", "details"],
 };
 // Looser matches for headers that aren't in the list: a word the header contains.
 const CONTAINS = [
   ["repPhone", /(kin|carer|relative|emergency).*(phone|tel|number|no)/], ["rep", /kin|carer|relative|emergency/],
   ["phone2", /landline|home ?phone|alt/], ["phone", /mobile|phone|tel/], ["pc", /post ?code/], ["dob", /birth|dob/],
-  ["nextExam", /next.*(exam|test|due)|recall ?date/], ["lastTest", /last.*(test|exam|visit|seen)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
+  ["nextExam", /next.*(exam|test|due)|recall ?date/], ["lastTest", /last.*(test|exam|visit|seen|check|assess)/], ["eligibility", /eligib|reason|condition/], ["email", /e-?mail/],
   ["nhsNo", /nhs ?(no|num)/], ["first", /first|forename/], ["last", /surname|last ?name/], ["addr", /address/], ["notes", /note|comment/],
 ];
 
@@ -245,15 +249,18 @@ function readRow(cells, mapping, { townOf } = {}) {
 
   let lastTest = null, recall = null;
   if (v.lastTest) {
+    const sec = sectors.current(), last = sec.fields.last;
     const d = parseDate(v.lastTest);
-    if (!d) warnings.push(`Last sight test "${v.lastTest}" not recognised`);
-    else if (d.t > today()) warnings.push(`Last sight test ${fmtDate(d.iso)} is in the future`);
+    if (!d) warnings.push(`${last} "${v.lastTest}" not recognised`);
+    else if (d.t > today()) warnings.push(`${last} ${fmtDate(d.iso)} is in the future`);
     else {
       lastTest = d.iso;
-      // NHS sight tests: yearly from 70, otherwise every two years.
-      const years = age != null && age >= 70 ? 1 : 2;
-      const due = Date.UTC(new Date(d.t).getUTCFullYear() + years, new Date(d.t).getUTCMonth(), new Date(d.t).getUTCDate());
-      recall = { dueDay: Math.round((due - today()) / DAY_MS), reason: years === 1 ? "Yearly NHS sight test (over 70)" : "NHS sight test (every 2 years)" };
+      // NHS sight tests: yearly from 70, otherwise every two years. Other services recall on their own cycle.
+      const months = sec.modules.pcse ? (age != null && age >= 70 ? 12 : 24) : sec.recall.months;
+      const due = Date.UTC(new Date(d.t).getUTCFullYear(), new Date(d.t).getUTCMonth() + months, new Date(d.t).getUTCDate());
+      const what = sec.recall.what.charAt(0).toUpperCase() + sec.recall.what.slice(1);
+      recall = { dueDay: Math.round((due - today()) / DAY_MS),
+        reason: sec.modules.pcse ? (months === 12 ? "Yearly NHS sight test (over 70)" : "NHS sight test (every 2 years)") : `${what} (every ${months} month${months === 1 ? "" : "s"})` };
     }
   }
 
@@ -391,4 +398,4 @@ function check(csv, mappingIn, existing = [], opts = {}) {
   };
 }
 
-module.exports = { FIELDS, MAX_ROWS, parseCsv, guessMapping, parseDate, parsePhone, parsePostcode, readRow, check };
+module.exports = { FIELDS, fieldsFor, MAX_ROWS, parseCsv, guessMapping, parseDate, parsePhone, parsePostcode, readRow, check };

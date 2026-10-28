@@ -15,6 +15,7 @@ const planner = require("./planner");
 const regions = require("./regions");
 const bus = require("./bus");
 const pvn = require("./pvn");
+const sectors = require("./sectors");
 
 const settings = () => sandbox.current().settings;
 /** The practice's name, as patients see it: texts are signed by the practice, not by Domi. */
@@ -518,6 +519,7 @@ const pence = (v, what) => {
 };
 /** What was sold at a visit (frames, lenses, paid by card, an NHS voucher towards it), or why nothing was. One per visit. */
 function recordSale(a, input, user) {
+  if (!sectors.current().modules.sales) throw new HttpError(404, "This practice doesn't record sales at the visit.");
   if (!input || typeof input !== "object") throw new HttpError(400, "Say whether anything was sold.");
   const sold = input.sold === true;
   const frames = sold ? pence(input.frames, "frames") : 0, lenses = sold ? pence(input.lenses, "lenses") : 0;
@@ -554,7 +556,7 @@ function setStatus(id, status, user, sale = null) {
     if (a.day !== 0) throw new HttpError(409, `That visit is on ${cal.label(a.day)}, not today.`);
     const flow = { booked: ["enroute"], enroute: ["live"], live: ["done"] };
     if (!(flow[a.status] || []).includes(status)) throw new HttpError(409, `A visit that is ${a.status} can't move to ${status}.`);
-    if (status === "done" && sale) recordSale(a, sale, user); // checked before the visit is closed, so a bad price stops both
+    if (status === "done" && sale && sectors.current().modules.sales) recordSale(a, sale, user); // checked before the visit is closed, so a bad price stops both
     run("UPDATE appointments SET status = ?, seen = 1 WHERE id = ?", status, id);
     const p = getPatient(a.patientId);
     const c = getClinician(a.clinicianId);
@@ -1081,7 +1083,7 @@ function checkImport(input) {
 /** What the office sees before anything is saved: the column mapping, counts, and every row with its problems. */
 function previewImport(input) {
   const r = checkImport(input);
-  return { fields: importer.FIELDS, headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
+  return { fields: importer.fieldsFor(), headers: r.headers, samples: r.samples, mapping: r.mapping, missing: r.missing, counts: r.counts,
     rows: r.rows.map((x) => ({ line: x.line, status: x.status, name: x.patient.name, pc: x.patient.pc, phone: x.patient.phone, age: x.patient.age,
       errors: x.errors, warnings: x.warnings, duplicateOf: x.duplicateOf, recallDue: x.recall ? x.recall.dueDay : null,
       changes: x.changes, conflict: x.conflict || null })) };
@@ -1119,9 +1121,9 @@ function commitImport(input, user) {
       run("INSERT INTO notes (patient_id, label, body, author, created_at) VALUES (?, ?, ?, ?, ?)", id, "Imported", p.notes ? `Imported from spreadsheet. ${p.notes}` : "Imported from spreadsheet.", user.name, sandbox.stamp());
       if (row.recall && row.recall.dueDay <= 14) {
         const rid = newId("r"), wid = newId("w");
-        run("INSERT INTO waitlist (id, patient_id, type, prio, days, avail, short_notice, added_seq, source, note) VALUES (?, ?, 'sight', 'routine', ?, 'any', 1, ?, 'recall', ?)",
-          wid, id, Math.max(0, -row.recall.dueDay), seq + 1 + recalls, row.recall.reason);
-        run("INSERT INTO recalls (id, patient_id, type, reason, due_day, waitlist_id) VALUES (?, ?, 'sight', ?, ?, ?)", rid, id, row.recall.reason, row.recall.dueDay, wid);
+        run("INSERT INTO waitlist (id, patient_id, type, prio, days, avail, short_notice, added_seq, source, note) VALUES (?, ?, ?, 'routine', ?, 'any', 1, ?, 'recall', ?)",
+          wid, id, sectors.current().recall.type, Math.max(0, -row.recall.dueDay), seq + 1 + recalls, row.recall.reason);
+        run("INSERT INTO recalls (id, patient_id, type, reason, due_day, waitlist_id) VALUES (?, ?, ?, ?, ?, ?)", rid, id, sectors.current().recall.type, row.recall.reason, row.recall.dueDay, wid);
         recalls++;
       }
     }
@@ -1134,8 +1136,9 @@ function commitImport(input, user) {
 
 /* ---------- Referrals: the website form instead of documents ---------- */
 const REF_FROM = { self: "The patient", family: "Family or a friend", carer: "A carer", carehome: "A care home", professional: "A GP or other professional" };
-const REF_NEED = { sight: "An eye test", dispense: "New glasses fitted", repair: "A glasses repair or adjustment", follow: "A recheck" };
-const ENTITLEMENT = { "60+": "Aged 60 or over", benefits: "Receives a qualifying benefit", diabetes: "Has diabetes", glaucoma: "Has glaucoma", "glaucoma-family": "40+ with glaucoma in the family", sight: "Registered partially sighted or blind", hc2: "HC2 certificate" };
+// What a referral can ask for, and who can have a free NHS sight test (opticians only): from the sector.
+const refNeed = () => sectors.current().refer;
+const entitlementOf = () => sectors.current().entitlement || {};
 const GENERIC_REASON = /^(house ?bound|bed ?bound|immobile|elderly|frail|can'?t get out|wheelchair)\.?$/i;
 const clean = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -1148,17 +1151,17 @@ function submitReferral(input) {
   if (addr.length < 4) throw new HttpError(400, "Please enter the first line of the patient's address.");
   const pc = travel.normalise(input.pc);
   if (!travel.known(pc)) throw new HttpError(400, "Please choose the town and postcode area.");
-  if (eligibility.length < 3) throw new HttpError(400, "Please tell us why the patient can't get to an optician's without help.");
-  if (GENERIC_REASON.test(eligibility)) throw new HttpError(400, `Please tell us the illness or condition behind "${eligibility}". The NHS asks us to record it.`);
+  if (eligibility.length < 3) throw new HttpError(400, `Please tell us why the patient ${sectors.current().fields.why}.`);
+  if (GENERIC_REASON.test(eligibility)) throw new HttpError(400, `Please tell us the illness or condition behind "${eligibility}". ${sectors.current().modules.pcse ? "The NHS asks us to record it." : "It helps the clinician plan the visit."}`);
   const phoneOf = (v) => { const d = String(v || "").replace(/[\s()-]/g, "").replace(/^\+44/, "0"); return /^0\d{9,10}$/.test(d) ? d.replace(/^(\d{5})(\d+)$/, "$1 $2") : null; };
   const phone = phoneOf(input.phone), fromPhone = fromKind === "self" ? null : phoneOf(input.fromPhone);
   if (!phone && !fromPhone) throw new HttpError(400, "Please give a phone number we can call about the visit.");
   const fromName = fromKind === "self" ? null : clean(input.fromName, 80);
   if (fromKind !== "self" && fromName.length < 2) throw new HttpError(400, "Please give your name, so we know who to call back.");
-  const need = input.need in REF_NEED ? input.need : "sight";
+  const need = input.need in refNeed() ? input.need : Object.keys(refNeed())[0];
   const dob = /^\d{4}-\d{2}-\d{2}$/.test(String(input.dob || "")) ? input.dob : null;
   if (input.consent !== true) throw new HttpError(400, "Please confirm the patient agrees to us contacting them (or that you can act for them).");
-  const entitlement = (Array.isArray(input.entitlement) ? input.entitlement : []).filter((k) => k in ENTITLEMENT).slice(0, 8);
+  const entitlement = (Array.isArray(input.entitlement) ? input.entitlement : []).filter((k) => k in entitlementOf()).slice(0, 8);
   return tx(() => {
     const id = newId("rf");
     run("INSERT INTO referrals (id, created_at, from_kind, from_name, from_phone, name, dob, addr, pc, phone, eligibility, entitlement, need, avail, urgent, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1176,7 +1179,7 @@ function acceptReferral(id, input, user) {
   return tx(() => {
     const r = getReferral(id);
     if (r.status !== "new") throw new HttpError(409, `That referral was already ${r.status}.`);
-    const type = TYPES[input.type] ? input.type : r.need in TYPES ? r.need : "sight";
+    const type = TYPES[input.type] ? input.type : r.need in TYPES ? r.need : sectors.current().recall.type;
     const prio = ["urgent", "soon", "routine"].includes(input.prio) ? input.prio : r.urgent ? "urgent" : "routine";
     const dup = all("SELECT id, name FROM patients").find((p) => p.name.toLowerCase() === r.name.toLowerCase() && one("SELECT 1 FROM patients WHERE id = ? AND replace(pc, ' ', '') = ?", p.id, r.pc.replace(/\s/g, "")));
     if (dup && !input.anyway) throw new HttpError(409, `${dup.name} at ${r.pc} is already on Domi. Open their record instead, or accept anyway.`);
@@ -1186,8 +1189,8 @@ function acceptReferral(id, input, user) {
     const rep = r.fromKind === "self" ? null : [r.fromName, r.fromPhone].filter(Boolean).join(", ");
     run("INSERT INTO patients (id, name, age, addr, pc, phone, contact, alerts, dob, eligibility, rep) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       pid, r.name, age, r.addr, r.pc, r.phone || r.fromPhone || "", mobile ? "Text" : "Call", JSON.stringify(rep && r.fromKind === "carehome" ? ["Care home: arrange through " + r.fromName] : []), r.dob, r.eligibility, rep);
-    const ent = r.entitlement.map((k) => ENTITLEMENT[k]).join("; ");
-    addNote(pid, `Referred by ${r.fromKind === "self" ? "themselves" : `${REF_FROM[r.fromKind].toLowerCase()} (${r.fromName})`} on the website form. Needs: ${REF_NEED[r.need].toLowerCase()}. Home visit because: ${r.eligibility}.${ent ? ` NHS entitlement: ${ent}.` : ""}${r.notes ? ` Notes: ${r.notes}` : ""}`, { name: "Referral form" }, { silent: true });
+    const ent = r.entitlement.map((k) => entitlementOf()[k] || k).join("; ");
+    addNote(pid, `Referred by ${r.fromKind === "self" ? "themselves" : `${REF_FROM[r.fromKind].toLowerCase()} (${r.fromName})`} on the website form. Needs: ${(refNeed()[r.need] || TYPES[r.need].name).toLowerCase()}. Home visit because: ${r.eligibility}.${ent ? ` NHS entitlement: ${ent}.` : ""}${r.notes ? ` Notes: ${r.notes}` : ""}`, { name: "Referral form" }, { silent: true });
     const wid = newId("w"), seq = one("SELECT COALESCE(MAX(added_seq), 0) + 1 AS s FROM waitlist").s;
     run("INSERT INTO waitlist (id, patient_id, type, prio, days, avail, short_notice, added_seq, note) VALUES (?, ?, ?, ?, 0, ?, 1, ?, ?)", wid, pid, type, prio, r.avail, seq, "From a referral");
     run("UPDATE referrals SET status = 'accepted', patient_id = ?, decided_by = ? WHERE id = ?", pid, user.name, r.id);
@@ -1211,13 +1214,13 @@ function declineReferral(id, reason, user) {
     return { ok: true };
   });
 }
-const referralOptions = () => ({ from: REF_FROM, need: REF_NEED, entitlement: ENTITLEMENT });
+const referralOptions = () => ({ from: REF_FROM, need: refNeed(), entitlement: sectors.current().entitlement, why: sectors.current().fields.why, urgent: sectors.current().urgent });
 
 /* ---------- Online booking by patients ---------- */
 // Glasses deliveries wait for the lab, so the office books those.
-/** The kinds of visit a patient could book for themselves. Glasses deliveries are arranged by the practice. */
-const ONLINE_TYPES = ["sight", "exam", "repair", "follow"];
-const onlineNow = () => ONLINE_TYPES.filter((k) => (settings().online || ONLINE_TYPES).includes(k));
+/** The kinds of visit a patient could book for themselves. Opticians' glasses deliveries are arranged by the practice. */
+const onlineAllowed = () => sectors.KEYS.filter((k) => !(sectors.current().modules.sales && k === "dispense"));
+const onlineNow = () => onlineAllowed().filter((k) => (settings().online || onlineAllowed()).includes(k));
 // A self-booked visit may add at most this much driving, so online bookings can't scatter a round.
 const ONLINE_MAX_EXTRA = 20;
 
@@ -1501,9 +1504,9 @@ function saveSettings(input, user) {
   }
   if (has("online")) {
     const list = Array.isArray(input.online) ? [...new Set(input.online.map(String))] : null;
-    if (!list || list.some((k) => !ONLINE_TYPES.includes(k))) throw new HttpError(400, "Choose which visits patients can book online.");
+    if (!list || list.some((k) => !onlineAllowed().includes(k))) throw new HttpError(400, "Choose which visits patients can book online.");
     // An empty list switches online booking off: the booking page then asks patients to phone.
-    next.online = ONLINE_TYPES.filter((k) => list.includes(k));
+    next.online = onlineAllowed().filter((k) => list.includes(k));
   }
   if (has("mode")) { if (!["offer", "instant", "phone"].includes(input.mode)) throw new HttpError(400, "Choose how cancelled visits are filled."); next.mode = input.mode; }
   if (has("routeMode")) {
@@ -1550,11 +1553,11 @@ function saveSettings(input, user) {
 function messagePreviews() {
   const st = settings(), c = all("SELECT * FROM clinicians WHERE active = 1 ORDER BY id").map(map.clinician)[0] || { first: "Sam" };
   const at = Math.min(st.dayStart + 90, st.dayEnd - 60);
-  const visit = `${when(1, at)} with ${c.first} (${lowerName(TYPES.sight.name)})`;
+  const visit = `${when(1, at)} with ${c.first} (${lowerName(TYPES[sectors.current().recall.type].name)})`;
   return [
     { key: "reminder", title: "Day-before reminder", channel: "Text", when: st.reminders ? `Sent at ${hm(st.reminderAt)} the day before each visit` : "Off: no reminders are sent", body: reminderText("Joan Whittle", c.first, 1, at, "sight", "https://…/c/ab12") },
     { key: "offer", title: "Cancelled visit offered", channel: "Text", when: `To the best-matched patients on the waiting list, who have ${st.offerMinutes} minutes to reply`, body: offerText("Joan Whittle", visit, hm(sandbox.nowMin() + st.offerMinutes), false) },
-    { key: "recall", title: "Recall", channel: "Text", when: st.autoRecalls ? `Sent automatically at ${hm(st.recallAt)} to patients due within a fortnight who take texts` : "Sent when the office presses Text link", body: recallText("Joan Whittle", "NHS sight test due (2 years)", `${sandbox.current().base || "https://…"}/book/${sandbox.current().id}`) },
+    { key: "recall", title: "Recall", channel: "Text", when: st.autoRecalls ? `Sent automatically at ${hm(st.recallAt)} to patients due within a fortnight who take texts` : "Sent when the office presses Text link", body: recallText("Joan Whittle", sectors.current().modules.pcse ? "NHS sight test due (2 years)" : sectors.current().recall.what, `${sandbox.current().base || "https://…"}/book/${sandbox.current().id}`) },
     { key: "offer-close", title: "Offer when the visit is close", channel: "Text", when: "When there isn't time to ask one person at a time, the first YES gets it", body: offerText("Joan Whittle", visit, hm(sandbox.nowMin() + 10), true) },
   ];
 }
@@ -1875,14 +1878,15 @@ function publicCancel(token, input) {
 }
 
 /* ---------- The team: clinicians, office staff, working hours ---------- */
-const ROLES = ["Optometrist", "Dispensing optician"];
+/** The two roles on a team in this practice's sector: lead (does every visit) first, then support. */
+const roles = () => { const r = sectors.current().roles; return [r.lead, r.support]; };
 const userOf = (cid) => one("SELECT * FROM users WHERE clinician_id = ?", cid);
 function teamList() {
   const users = all("SELECT * FROM users ORDER BY role, name").map(map.user);
   return {
     clinicians: all("SELECT * FROM clinicians ORDER BY active DESC, rowid").map(map.clinician).map((c) => { const u = users.find((x) => x.clinicianId === c.id) || {}; return { ...c, email: u.email || null, userId: u.id || null, office: u.role === "clinician" && !!u.office }; }),
     staff: users.filter((u) => u.role === "admin"),
-    roles: ROLES,
+    roles: roles(),
   };
 }
 const validEmail = (v) => { const e = clean(v, 120).toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new HttpError(400, "Enter a valid email address for signing in."); return e; };
@@ -1915,7 +1919,7 @@ function saveClinician(input, user) {
     const existing = input.id ? getClinician(String(input.id)) : null;
     if (input.id && !existing) throw new HttpError(404, "No such clinician.");
     const name = clean(input.name, 60); if (name.length < 2) throw new HttpError(400, "Enter their full name.");
-    const role = ROLES.includes(input.role) ? input.role : null; if (!role) throw new HttpError(400, "Choose optometrist or dispensing optician.");
+    const role = roles().includes(input.role) ? input.role : null; if (!role) throw new HttpError(400, `Choose ${roles().map((r) => r.toLowerCase()).join(" or ")}.`);
     const color = /^#[0-9a-f]{6}$/i.test(String(input.color || "")) ? input.color : (existing ? existing.color : "#0B3B7C");
     const areaName = clean(input.areaName, 60) || "Their area";
     const patch = districts(input.patch); if (!patch.length) throw new HttpError(400, "Add at least one postcode area they cover, like BL1.");
@@ -1924,9 +1928,9 @@ function saveClinician(input, user) {
     const hours = workingHours(input.hours);
     const clash = (where, ...args) => all(`SELECT a.*, p.name FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE a.clinician_id = ? AND a.status = 'booked' ${where}`, existing && existing.id, ...args);
     if (existing) {
-      if (role !== "Optometrist" && existing.optom) {
+      if (role !== sectors.current().roles.lead && existing.optom) {
         const tests = clash("").filter((a) => TYPES[a.type].optom);
-        if (tests.length) throw new HttpError(409, `${existing.first} has ${tests.length} eye test${tests.length === 1 ? "" : "s"} or check${tests.length === 1 ? "" : "s"} booked that need an optometrist. Move them first.`);
+        if (tests.length) throw new HttpError(409, `${existing.first} has ${tests.length} visit${tests.length === 1 ? "" : "s"} booked that need${tests.length === 1 ? "s" : ""} ${sectors.an(sectors.current().roles.lead.toLowerCase())}. Move ${tests.length === 1 ? "it" : "them"} first.`);
       }
       const outside = clash("AND a.day >= 0").filter((a) => { const h = cal.isOpen(a.day) ? hours[cal.weekday(a.day)] : null; return !h || a.start_min < h[0] || a.start_min + TYPES[a.type].dur > h[1]; });
       if (outside.length) {
