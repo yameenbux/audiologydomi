@@ -292,10 +292,8 @@ is a Blueprint, so Render reads the settings from the repo:
 The live service is **domi-bolton**, at **`https://app.domi.ysbdesigns.uk`** (a
 custom domain: a CNAME `app.domi` → `domi-hearing-demo.onrender.com` at one.com),
 and it still answers at `https://domi-hearing-demo.onrender.com`. It deploys
-from `main`. It sets `DEFAULT_BRAND=hvo`, so the plain address opens in a
-practice's own branding for a showcase. `/?brand=domi` gives the neutral demo,
-which is what the website links to. Remove the variable in Render (Environment)
-when the showcase is over.
+from `main`. It sets `DEFAULT_BRAND=domi` and `HIDDEN_BRANDS=hvo`: the HVO
+showcase is over, so its old `/?brand=hvo` links open the Domi demo instead.
 
 On the free plan it **sleeps after 15 minutes without visits** and takes about
 30–60 seconds to wake. Open it a few minutes before a meeting. Every wake
@@ -416,6 +414,7 @@ without a valid `X-Twilio-Signature` (it uses `PUBLIC_URL`, or `RENDER_EXTERNAL_
 | `ORS_API_KEY` | none | openrouteservice key, for `ROUTING_PROVIDER=ors` (a Fly secret, never in `fly.toml`) |
 | `SECTOR` | none (`optical`) | The kind of service a practice is when its brand doesn't say: `optical`, `audiology`, `podiatry`, `physio`, `nursing`, `dental` or `ot` (`server/sectors.js`) |
 | `DEFAULT_BRAND` | none (`domi`) | The brand the plain address opens in (`server/brands.js`). `/?brand=<id>` always overrides it |
+| `HIDDEN_BRANDS` | none | Comma-separated brands this deployment no longer offers, e.g. `hvo`: their `/?brand=` links open the default demo instead |
 | `MARKETING_URL` | `https://domi.ysbdesigns.uk/` | The website: "Powered by Domi" links here, and the demo's privacy policy and terms (`/privacy`, `/terms`) are the website's |
 | `CF_BEACON_TOKEN` | none | Cloudflare Web Analytics (cookieless, so no consent banner). Never added to the cancellation page, whose address holds a private token |
 | `PUBLIC_URL` | the address in use | The address cancellation links in texts point to |

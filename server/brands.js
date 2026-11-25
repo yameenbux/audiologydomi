@@ -63,7 +63,10 @@ const BRANDS = {
 // /?brand=domi still gives the neutral demo, which is what the marketing site links to.
 // Where "Powered by Domi" links to, at the foot of a practice's branded demo.
 const SITE = process.env.MARKETING_URL || "https://domi.ysbdesigns.uk/";
-const get = (id) => BRANDS[String(id || "").toLowerCase()] || BRANDS[String(process.env.DEFAULT_BRAND || "").toLowerCase()] || BRANDS.domi;
+// A deployment can also withdraw brands (HIDDEN_BRANDS=hvo,other): their links then open the default demo instead.
+const hidden = (id) => String(process.env.HIDDEN_BRANDS || "").toLowerCase().split(",").map((s) => s.trim()).includes(id);
+const find = (id) => { const k = String(id || "").toLowerCase(); return hidden(k) ? null : BRANDS[k]; };
+const get = (id) => find(id) || find(process.env.DEFAULT_BRAND) || BRANDS.domi;
 /** What the browser may know about a brand (everything here is already public on the practice's website). */
 const pub = (b) => ({ id: b.id, sector: b.sector || null, practice: b.practice, logo: b.logo, logoAlt: b.logoAlt || b.practice, wordmark: b.wordmark, tagline: b.tagline, theme: b.theme || null, phone: b.phone || null, mobile: b.mobile || null, email: b.email || null, website: b.website || null, site: SITE });
 
