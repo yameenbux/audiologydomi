@@ -130,3 +130,17 @@ test("a deployment can open in a practice's brand by default; ?brand=domi still 
   } finally { delete process.env.DEFAULT_BRAND; }
   assert.strictEqual((await call("GET", "/api/meta")).data.brand.id, "domi");
 });
+
+test("a deployment can withdraw a brand: its links open the default demo instead", async () => {
+  process.env.HIDDEN_BRANDS = "hvo, other";
+  process.env.DEFAULT_BRAND = "hvo";
+  try {
+    assert.strictEqual((await call("GET", "/api/meta?brand=hvo")).data.brand.id, "domi", "a ?brand=hvo link no longer shows the practice");
+    assert.strictEqual((await call("GET", "/api/meta")).data.brand.id, "domi", "nor does a hidden default");
+    const sb = (await call("POST", "/api/demo/start", null, { brand: "hvo" })).data.sandbox;
+    const pw = await call("POST", "/api/auth/password", null, { sandbox: sb, email: HVO, password: require("../server/auth").DEMO_PASSWORD });
+    assert.notStrictEqual(pw.status, 200, "the practice's demo accounts can't be reached");
+    assert.strictEqual((await call("GET", "/api/meta?brand=hearing")).data.brand.id, "hearing", "other brands are unaffected");
+  } finally { delete process.env.HIDDEN_BRANDS; delete process.env.DEFAULT_BRAND; }
+  assert.strictEqual((await call("GET", "/api/meta?brand=hvo")).data.brand.id, "hvo");
+});
